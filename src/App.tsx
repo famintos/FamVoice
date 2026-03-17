@@ -624,8 +624,8 @@ function MainView() {
 
             <p className="text-xs text-gray-400 select-none text-center pointer-events-none font-medium tracking-wide">
               {status === "idle" ? "" :
-                status === "recording" ? "Listening..." :
-                  status === "transcribing" ? "Transcribing..." :
+                status === "recording" ? "Listening" :
+                  status === "transcribing" ? "Transcribing" :
                     status === "success" ? "Success!" :
                       "Error occurred"}
             </p>
