@@ -191,6 +191,29 @@ async fn stop_recording_cmd(
         }
     };
 
+    // Calculate RMS volume to detect silence
+    let mut sum_squares = 0.0;
+    for &sample in &samples {
+        let s = sample as f64;
+        sum_squares += s * s;
+    }
+    let rms = (sum_squares / samples.len() as f64).sqrt();
+    eprintln!("[FamVoice] Audio RMS volume: {:.2}", rms);
+
+    if rms < 50.0 {
+        eprintln!("[FamVoice] Silence detected, skipping transcription");
+        app.emit("status", "error").unwrap();
+        app.emit("transcript", "No voice detected").unwrap();
+        
+        let app_clone = app.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+            let _ = app_clone.emit("status", "idle");
+        });
+        
+        return Err("No voice detected".into());
+    }
+
     // Encode to WAV in memory — no disk I/O
     let t_encode = std::time::Instant::now();
     let wav_bytes = audio::encode_wav_in_memory(&samples);

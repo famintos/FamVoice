@@ -441,10 +441,9 @@ function MainView() {
         await appWindow.setMaxSize(new PhysicalSize(9999, 9999));
 
         if (settings.widget_mode) {
+          // Handled by ResizeObserver now, but set a base starting size
           const size = new PhysicalSize(160, 44);
           await appWindow.setSize(size);
-          await appWindow.setMinSize(size);
-          await appWindow.setMaxSize(size);
         } else {
           const defaultSize = new LogicalSize(260, 200);
           await appWindow.setSize(defaultSize);
@@ -458,6 +457,31 @@ function MainView() {
     };
     updateSize();
   }, [settings?.widget_mode]);
+
+  useEffect(() => {
+    if (!settings?.widget_mode) return;
+    
+    const container = document.getElementById("widget-container");
+    if (!container) return;
+
+    const observer = new ResizeObserver(async (entries) => {
+      for (let entry of entries) {
+        // Add a small margin (e.g., 2px) to prevent clipping if needed
+        const width = Math.ceil(entry.contentRect.width) + 8;
+        const height = Math.ceil(entry.contentRect.height) + 8;
+        
+        const size = new PhysicalSize(width, height);
+        await appWindow.setMinSize(new PhysicalSize(1, 1));
+        await appWindow.setMaxSize(new PhysicalSize(9999, 9999));
+        await appWindow.setSize(size);
+        await appWindow.setMinSize(size);
+        await appWindow.setMaxSize(size);
+      }
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [settings?.widget_mode, status, showWidgetMenu]);
 
   const loadHistory = async () => {
     const h = await invoke<HistoryItem[]>("get_history");
@@ -490,8 +514,9 @@ function MainView() {
     return (
       <div className="w-full h-full flex items-center justify-center" style={{ pointerEvents: "none" }}>
         <main
+          id="widget-container"
           data-tauri-drag-region
-          className="relative flex items-center gap-3 px-4 py-2 bg-[#0f0f13] backdrop-blur-2xl rounded-full shadow-2xl border border-white/10 text-white"
+          className="relative flex items-center gap-3 px-4 py-2 bg-[#0f0f13] backdrop-blur-2xl rounded-full shadow-md border border-white/10 text-white"
           style={{ pointerEvents: "auto" }}
           onContextMenu={(e) => {
             e.preventDefault();
