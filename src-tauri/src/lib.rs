@@ -246,6 +246,11 @@ async fn stop_recording_cmd(
                 text = text.replace(&rep.target, &rep.replacement);
             }
 
+            // Remove trailing dot if present
+            if text.ends_with('.') {
+                text.pop();
+            }
+
             if !settings.preserve_clipboard {
                 clipboard::save_clipboard(&*clipboard_state);
             }
