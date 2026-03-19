@@ -93,7 +93,8 @@ pub struct AnthropicMessagesResponse {
 pub struct AnthropicContentBlock {
     #[serde(rename = "type")]
     pub block_type: String,
-    pub text: String,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 pub fn validate_prompt_optimizer_request(
@@ -129,10 +130,10 @@ pub fn build_anthropic_messages_request(
             role: "user".to_string(),
             content: vec![AnthropicContentBlock {
                 block_type: "text".to_string(),
-                text: format!(
+                text: Some(format!(
                     "Optimize the following source transcript into a polished prompt:\n\n{}",
                     request.source_transcript
-                ),
+                )),
             }],
         }],
     })
@@ -141,20 +142,27 @@ pub fn build_anthropic_messages_request(
 pub fn extract_optimized_prompt_text(
     response: AnthropicMessagesResponse,
 ) -> Result<String, PromptOptimizerError> {
-    let block = response
+    let text_blocks = response
         .content
-        .last()
-        .ok_or(PromptOptimizerError::MissingOptimizedPromptText)?;
+        .into_iter()
+        .filter(|block| block.block_type == "text")
+        .filter_map(|block| block.text)
+        .collect::<Vec<_>>();
 
-    if block.block_type != "text" {
+    if text_blocks.is_empty() {
         return Err(PromptOptimizerError::MissingOptimizedPromptText);
     }
 
-    let trimmed = block.text.trim();
-    if trimmed.is_empty() {
+    let non_empty_blocks = text_blocks
+        .into_iter()
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>();
+
+    if non_empty_blocks.is_empty() {
         Err(PromptOptimizerError::EmptyOptimizedPrompt)
     } else {
-        Ok(trimmed.to_string())
+        Ok(non_empty_blocks.join("\n\n"))
     }
 }
 
@@ -235,7 +243,7 @@ mod tests {
         let response = AnthropicMessagesResponse {
             content: vec![AnthropicContentBlock {
                 block_type: "text".to_string(),
-                text: "   \n\t ".to_string(),
+                text: Some("   \n\t ".to_string()),
             }],
         };
 
@@ -249,25 +257,32 @@ mod tests {
 
     #[test]
     fn only_the_final_text_block_is_used_for_the_optimized_prompt() {
-        let response = AnthropicMessagesResponse {
-            content: vec![
-                AnthropicContentBlock {
-                    block_type: "text".to_string(),
-                    text: "first draft".to_string(),
+        let response = serde_json::from_value::<AnthropicMessagesResponse>(serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Objective:\nWrite a release note"
                 },
-                AnthropicContentBlock {
-                    block_type: "tool_use".to_string(),
-                    text: "ignored".to_string(),
+                {
+                    "type": "tool_use",
+                    "id": "toolu_123",
+                    "name": "scratchpad",
+                    "input": {}
                 },
-            ],
-        };
+                {
+                    "type": "text",
+                    "text": "Constraints:\n- Keep it concise"
+                }
+            ]
+        }))
+        .unwrap();
 
         let result = extract_optimized_prompt_text(response);
 
-        assert!(matches!(
-            result,
-            Err(PromptOptimizerError::MissingOptimizedPromptText)
-        ));
+        assert_eq!(
+            result.unwrap(),
+            "Objective:\nWrite a release note\n\nConstraints:\n- Keep it concise"
+        );
     }
 
     #[test]

@@ -25,7 +25,7 @@ use transcription::{RealtimeTranscriptionState, ReleaseTranscriptDecision};
 
 const PASTE_CLIPBOARD_SETTLE_DELAY_MS: u64 = 5;
 const CLIPBOARD_RESTORE_DELAY_MS: u64 = 40;
-const PROMPT_OPTIMIZER_TIMEOUT_MS: u64 = 3_000;
+const PROMPT_OPTIMIZER_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_WINDOW_WIDTH: f64 = 260.0;
 const DEFAULT_WINDOW_HEIGHT: f64 = 200.0;
 const DEFAULT_WIDGET_WIDTH: f64 = 128.0;
@@ -1288,6 +1288,11 @@ mod tests {
         .await;
 
         assert_eq!(output, "final transcript");
+    }
+
+    #[test]
+    fn test_prompt_optimizer_timeout_allows_slow_model_responses() {
+        assert_eq!(prompt_optimizer_timeout().as_millis(), 10_000);
     }
 
     #[test]
