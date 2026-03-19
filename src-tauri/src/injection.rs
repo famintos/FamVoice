@@ -2,13 +2,19 @@ use enigo::{Enigo, Keyboard, Settings};
 use std::time::Duration;
 use std::thread::sleep;
 
+const MODIFIER_DELAY_MS: u64 = 4;
+
+pub fn modifier_delay() -> Duration {
+    Duration::from_millis(MODIFIER_DELAY_MS)
+}
+
 pub fn simulate_paste() -> Result<(), String> {
     // enigo 0.6.1 uses new struct initialization
     let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
     
     // Add small delays to ensure modifier keys are registered by the OS before the 'v' key is pressed.
     // This makes the text injection significantly more robust across different systems and load conditions.
-    let modifier_delay = Duration::from_millis(10);
+    let modifier_delay = modifier_delay();
 
     #[cfg(target_os = "macos")]
     {
@@ -38,4 +44,14 @@ pub fn simulate_paste() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_paste_injection_uses_short_modifier_delay() {
+        assert_eq!(modifier_delay(), Duration::from_millis(4));
+    }
 }

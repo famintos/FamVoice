@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, LogicalSize, PhysicalSize } from "@tauri-apps/api/window";
+import { cursorPosition, getCurrentWindow } from "@tauri-apps/api/window";
 
 import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 
@@ -18,6 +18,11 @@ import {
 } from "lucide-react";
 import "./App.css";
 import { FamVoiceLogo } from "./FamVoiceLogo";
+import {
+  getWidgetInteractiveBounds,
+  getWidgetWindowSize,
+  isPointInsideBounds,
+} from "./widgetSizing.js";
 
 type Status = "idle" | "recording" | "transcribing" | "success" | "error";
 
@@ -34,6 +39,7 @@ interface Settings {
   preserve_clipboard: boolean;
   hotkey: string;
   widget_mode: boolean;
+  mic_sensitivity: number;
   replacements: Replacement[];
 }
 
@@ -62,35 +68,8 @@ const DEFAULT_HOTKEY = "CommandOrControl+Shift+Space";
 
 const LANGUAGES = [
   { value: "auto", label: "Auto Detect" },
-  { value: "en", label: "English" },
   { value: "pt", label: "Portuguese" },
-  { value: "es", label: "Spanish" },
-  { value: "fr", label: "French" },
-  { value: "de", label: "German" },
-  { value: "it", label: "Italian" },
-  { value: "nl", label: "Dutch" },
-  { value: "ja", label: "Japanese" },
-  { value: "ko", label: "Korean" },
-  { value: "zh", label: "Chinese" },
-  { value: "ru", label: "Russian" },
-  { value: "ar", label: "Arabic" },
-  { value: "hi", label: "Hindi" },
-  { value: "pl", label: "Polish" },
-  { value: "sv", label: "Swedish" },
-  { value: "da", label: "Danish" },
-  { value: "no", label: "Norwegian" },
-  { value: "fi", label: "Finnish" },
-  { value: "tr", label: "Turkish" },
-  { value: "uk", label: "Ukrainian" },
-  { value: "cs", label: "Czech" },
-  { value: "ro", label: "Romanian" },
-  { value: "hu", label: "Hungarian" },
-  { value: "el", label: "Greek" },
-  { value: "he", label: "Hebrew" },
-  { value: "th", label: "Thai" },
-  { value: "vi", label: "Vietnamese" },
-  { value: "id", label: "Indonesian" },
-  { value: "ms", label: "Malay" },
+  { value: "en", label: "English" },
 ];
 
 function buildHotkeyString(e: React.KeyboardEvent): string | null {
@@ -133,15 +112,26 @@ function SettingsView() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [autostart, setAutostart] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then(setSettings);
-    isEnabled().then(setAutostart);
+    invoke<Settings>("get_settings")
+      .then(setSettings)
+      .catch((error) => {
+        console.error("Failed to load settings:", error);
+        setErrorMessage(String(error));
+      });
+    isEnabled()
+      .then(setAutostart)
+      .catch((error) => {
+        console.error("Autostart status error:", error);
+      });
   }, []);
 
   const saveSettings = async (newSettings: Settings) => {
     try {
+      setErrorMessage(null);
       await invoke("save_settings", { newSettings });
       setSettings(newSettings);
       try {
@@ -152,6 +142,7 @@ function SettingsView() {
       await invoke("close_settings_window");
     } catch (error) {
       console.error("Failed to save settings:", error);
+      setErrorMessage(String(error));
     }
   };
 
@@ -205,22 +196,26 @@ function SettingsView() {
 
   if (!settings) {
     return (
-      <main className="w-full h-full flex items-center justify-center bg-[#0f0f13] text-gray-400 text-xs">
-        Loading settings...
+      <main className="w-full h-full flex items-center justify-center bg-[#0f0f13] px-4 text-center text-xs">
+        <div className={errorMessage ? "text-red-300" : "text-gray-400"}>
+          {errorMessage ?? "Loading settings..."}
+        </div>
       </main>
     );
   }
 
   return (
     <main className="w-full h-full flex flex-col p-4 bg-[#0f0f13] text-white overflow-hidden border border-white/10 rounded-xl">
-      <div className="flex items-center justify-between mb-4 select-none" data-tauri-drag-region>
-        <div className="flex items-center gap-2 pointer-events-none">
-          <SettingsIcon size={14} className="text-primary" />
-          <h2 className="text-sm font-bold tracking-wide">Settings</h2>
+      <div className="-mx-4 -mt-4 mb-2 px-4 pt-4 pb-3 select-none" data-tauri-drag-region>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 pointer-events-none">
+            <SettingsIcon size={14} className="text-primary" />
+            <h2 className="text-sm font-bold tracking-wide">Settings</h2>
+          </div>
+          <button onClick={() => invoke("close_settings_window")} className="p-1 hover:bg-white/10 rounded cursor-pointer transition-colors">
+            <X size={16} className="text-gray-400 hover:text-white" />
+          </button>
         </div>
-        <button onClick={() => invoke("close_settings_window")} className="p-1 hover:bg-white/10 rounded cursor-pointer transition-colors">
-          <X size={16} className="text-gray-400 hover:text-white" />
-        </button>
       </div>
 
       <div className="flex-1 flex flex-col gap-5 overflow-y-auto overflow-x-hidden pr-2 custom-scrollbar pb-4">
@@ -280,7 +275,7 @@ function SettingsView() {
               </div>
             </div>
             <label className="text-xs text-gray-400 flex flex-col gap-1.5">
-              Language
+              Language Preference
               <select
                 value={settings.language}
                 onChange={e => setSettings({ ...settings, language: e.target.value })}
@@ -290,6 +285,33 @@ function SettingsView() {
                   <option key={lang.value} value={lang.value}>{lang.label}</option>
                 ))}
               </select>
+              <span className="text-[10px] text-gray-500">
+                Auto Detect handles mixed dictation. Choose Portuguese or English only if you want to bias transcription toward one language.
+              </span>
+            </label>
+
+            <label className="text-xs text-gray-400 flex flex-col gap-1.5">
+              Mic Sensitivity
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={settings.mic_sensitivity}
+                  onChange={e => setSettings({ ...settings, mic_sensitivity: Number(e.target.value) })}
+                  className="flex-1 accent-primary cursor-pointer"
+                />
+                <span className="w-8 text-right text-[10px] text-gray-500">
+                  {settings.mic_sensitivity}
+                </span>
+              </div>
+              <div className="flex justify-between text-[10px] text-gray-600">
+                <span>Less noise</span>
+                <span>Quieter voice</span>
+              </div>
+              <span className="text-[10px] text-gray-500">
+                Higher sensitivity helps softer speech, but can pick up more background noise.
+              </span>
             </label>
           </div>
 
@@ -324,7 +346,10 @@ function SettingsView() {
                 onChange={e => setSettings({ ...settings, preserve_clipboard: e.target.checked })}
                 className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
               />
-              <span>Preserve Clipboard</span>
+              <div className="flex flex-col">
+                <span>Preserve Clipboard</span>
+                <span className="text-[10px] text-gray-500">Restore the original clipboard after a successful auto-paste</span>
+              </div>
             </label>
 
             <label className="flex items-center gap-3 text-xs text-gray-300 cursor-pointer hover:text-white transition-colors">
@@ -341,7 +366,7 @@ function SettingsView() {
 
         <section className="space-y-3">
           <div className="flex justify-between items-center">
-            <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Replacements</h3>
+            <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Glossary</h3>
             <button
               onClick={addReplacement}
               className="text-[10px] text-primary hover:text-blue-400 flex items-center gap-1 cursor-pointer"
@@ -356,14 +381,14 @@ function SettingsView() {
                 <input
                   value={rep.target}
                   onChange={e => updateReplacement(i, "target", e.target.value)}
-                  placeholder="find"
+                  placeholder="spoken term"
                   className="flex-1 min-w-0 p-1.5 bg-black/40 rounded border border-white/10 text-[10px] text-white focus:outline-none focus:border-primary transition-colors"
                 />
                 <span className="text-gray-500 text-[10px]">→</span>
                 <input
                   value={rep.replacement}
                   onChange={e => updateReplacement(i, "replacement", e.target.value)}
-                  placeholder="replace"
+                  placeholder="preferred text"
                   className="flex-1 min-w-0 p-1.5 bg-black/40 rounded border border-white/10 text-[10px] text-white focus:outline-none focus:border-primary transition-colors"
                 />
                 <button
@@ -375,13 +400,18 @@ function SettingsView() {
               </div>
             ))}
             {settings.replacements.length === 0 && (
-              <p className="text-[10px] text-gray-600 italic">No replacements configured.</p>
+              <p className="text-[10px] text-gray-600 italic">No glossary entries configured.</p>
             )}
           </div>
         </section>
       </div>
 
       <div className="pt-4 border-t border-white/5 mt-auto">
+        {errorMessage && (
+          <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+            {errorMessage}
+          </div>
+        )}
         <button
           onClick={() => saveSettings(settings)}
           className="w-full bg-primary hover:bg-blue-600 py-2.5 rounded text-xs font-bold cursor-pointer transition-all shadow-lg active:scale-[0.98]"
@@ -400,7 +430,9 @@ function MainView() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [activeTab, setActiveTab] = useState<"record" | "history">("record");
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [showWidgetMenu, setShowWidgetMenu] = useState(false);
+  const widgetContainerRef = useRef<HTMLElement | null>(null);
+  const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const ignoreCursorEventsRef = useRef<boolean | null>(null);
   const appWindow = getCurrentWindow();
 
 
@@ -412,9 +444,6 @@ function MainView() {
 
     const unlistenStatus = listen<Status>("status", (event) => {
       setStatus(event.payload);
-      if (event.payload === "success") {
-        loadHistory();
-      }
     });
 
     const unlistenTranscript = listen<string>("transcript", (event) => {
@@ -425,63 +454,113 @@ function MainView() {
       setSettings(event.payload);
     });
 
+    const unlistenHistory = listen<HistoryItem[]>("history-updated", (event) => {
+      setHistory(event.payload);
+    });
+
     return () => {
       unlistenStatus.then(f => f());
       unlistenTranscript.then(f => f());
       unlistenSettings.then(f => f());
+      unlistenHistory.then(f => f());
     };
   }, []);
 
   useEffect(() => {
-    const updateSize = async () => {
-      if (settings) {
-        await appWindow.setResizable(true);
-        // Clear constraints first so the resize isn't blocked
-        await appWindow.setMinSize(new PhysicalSize(1, 1));
-        await appWindow.setMaxSize(new PhysicalSize(9999, 9999));
+    if (!settings?.widget_mode) {
+      lastWidgetSizeRef.current = null;
+      return;
+    }
 
-        if (settings.widget_mode) {
-          // Handled by ResizeObserver now, but set a base starting size
-          const size = new PhysicalSize(160, 44);
-          await appWindow.setSize(size);
-        } else {
-          const defaultSize = new LogicalSize(260, 200);
-          await appWindow.setSize(defaultSize);
-          await appWindow.setMinSize(defaultSize);
-          await appWindow.setMaxSize(defaultSize);
-        }
-        await appWindow.setResizable(false);
-        await appWindow.setMaximizable(false);
-        await appWindow.center();
-      }
-    };
-    updateSize();
-  }, [settings?.widget_mode]);
-
-  useEffect(() => {
-    if (!settings?.widget_mode) return;
-    
-    const container = document.getElementById("widget-container");
+    const container = widgetContainerRef.current;
     if (!container) return;
 
-    const observer = new ResizeObserver(async (entries) => {
-      for (let entry of entries) {
-        // Add a small margin (e.g., 2px) to prevent clipping if needed
-        const width = Math.ceil(entry.contentRect.width) + 8;
-        const height = Math.ceil(entry.contentRect.height) + 8;
-        
-        const size = new PhysicalSize(width, height);
-        await appWindow.setMinSize(new PhysicalSize(1, 1));
-        await appWindow.setMaxSize(new PhysicalSize(9999, 9999));
-        await appWindow.setSize(size);
-        await appWindow.setMinSize(size);
-        await appWindow.setMaxSize(size);
+    let frameId = 0;
+    const resizeWindow = async () => {
+      const size = getWidgetWindowSize(container.getBoundingClientRect());
+      const previousSize = lastWidgetSizeRef.current;
+
+      if (previousSize?.width === size.width && previousSize?.height === size.height) {
+        return;
       }
+
+      lastWidgetSizeRef.current = { width: size.width, height: size.height };
+      await invoke("resize_main_window", { width: size.width, height: size.height });
+    };
+
+    const scheduleResize = () => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        void resizeWindow();
+      });
+    };
+
+    const observer = new ResizeObserver(() => {
+      scheduleResize();
     });
 
     observer.observe(container);
-    return () => observer.disconnect();
-  }, [settings?.widget_mode, status, showWidgetMenu]);
+    scheduleResize();
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      observer.disconnect();
+      lastWidgetSizeRef.current = null;
+    };
+  }, [settings?.widget_mode]);
+
+  useEffect(() => {
+    if (!settings?.widget_mode) {
+      ignoreCursorEventsRef.current = null;
+      void appWindow.setIgnoreCursorEvents(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncCursorInteractivity = async () => {
+      if (cancelled) return;
+
+      const container = widgetContainerRef.current;
+      if (!container) return;
+
+      const shouldProcessCursorEvents = await (async () => {
+        const [cursor, windowPosition, scaleFactor] = await Promise.all([
+          cursorPosition(),
+          appWindow.innerPosition(),
+          appWindow.scaleFactor(),
+        ]);
+
+        const bounds = getWidgetInteractiveBounds({
+          rect: container.getBoundingClientRect(),
+          windowPosition,
+          scaleFactor,
+        });
+
+        return isPointInsideBounds(cursor, bounds);
+      })();
+
+      const nextIgnoreValue = !shouldProcessCursorEvents;
+      if (ignoreCursorEventsRef.current === nextIgnoreValue) {
+        return;
+      }
+
+      ignoreCursorEventsRef.current = nextIgnoreValue;
+      await appWindow.setIgnoreCursorEvents(nextIgnoreValue);
+    };
+
+    void syncCursorInteractivity();
+    const intervalId = window.setInterval(() => {
+      void syncCursorInteractivity();
+    }, 16);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      ignoreCursorEventsRef.current = null;
+      void appWindow.setIgnoreCursorEvents(false);
+    };
+  }, [appWindow, settings?.widget_mode]);
 
   const loadHistory = async () => {
     const h = await invoke<HistoryItem[]>("get_history");
@@ -502,25 +581,30 @@ function MainView() {
 
   const deleteHistory = async (id: number) => {
     await invoke("delete_history_item", { id });
-    loadHistory();
   };
 
   const clearHistory = async () => {
     await invoke("clear_history");
-    setHistory([]);
   };
 
   if (settings?.widget_mode) {
     return (
       <div className="w-full h-full flex items-center justify-center" style={{ pointerEvents: "none" }}>
         <main
+          ref={widgetContainerRef}
           id="widget-container"
-          data-tauri-drag-region
-          className="relative flex items-center gap-3 px-4 py-2 bg-[#0f0f13] backdrop-blur-2xl rounded-full shadow-md border border-white/10 text-white"
+          className="relative flex items-center gap-3 px-4 py-2 bg-[#0f0f13] backdrop-blur-2xl rounded-md shadow-md border border-white/10 text-white"
           style={{ pointerEvents: "auto" }}
+          onMouseDown={(e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            void appWindow.startDragging().catch((error) => {
+              console.error("Failed to start widget drag:", error);
+            });
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
-            setShowWidgetMenu(prev => !prev);
+            void handleOpenSettings();
           }}
         >
           <div className="flex items-center gap-2 pointer-events-none select-none">
@@ -540,17 +624,6 @@ function MainView() {
             <VoiceWave isPlaying={status === "recording"} />
           </div>
 
-          {showWidgetMenu && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#1a1a24] border border-white/10 rounded-lg shadow-2xl overflow-hidden min-w-[120px]">
-              <button
-                onClick={() => { setShowWidgetMenu(false); handleOpenSettings(); }}
-                className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors no-drag cursor-pointer"
-              >
-                <SettingsIcon size={12} />
-                Settings
-              </button>
-            </div>
-          )}
         </main>
       </div>
     );
