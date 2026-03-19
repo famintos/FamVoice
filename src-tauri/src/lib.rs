@@ -5,7 +5,6 @@ mod injection;
 mod settings;
 mod history;
 mod input_hook;
-#[allow(dead_code)]
 mod prompt_optimizer;
 
 
@@ -558,17 +557,6 @@ fn prompt_optimizer_failure_message(model: &str, error: &str) -> String {
     )
 }
 
-fn prompt_optimizer_provider(
-    provider: &str,
-) -> Option<prompt_optimizer::PromptOptimizerProvider> {
-    match provider {
-        prompt_optimizer::ANTHROPIC_PROVIDER => {
-            Some(prompt_optimizer::PromptOptimizerProvider::Anthropic)
-        }
-        _ => None,
-    }
-}
-
 async fn resolve_final_output_for_paste<Optimize, OptimizeFuture>(
     settings: &AppSettings,
     finalized_transcript: String,
@@ -593,16 +581,15 @@ where
         return finalized_transcript;
     }
 
-    let Some(provider) = prompt_optimizer_provider(&settings.prompt_optimizer_provider) else {
+    if settings.prompt_optimizer_provider != "anthropic" {
         eprintln!(
             "[FamVoice] Prompt optimizer unavailable for provider: {}",
             settings.prompt_optimizer_provider
         );
         return finalized_transcript;
-    };
+    }
 
     let request = prompt_optimizer::PromptOptimizerRequest {
-        provider,
         model: settings.prompt_optimizer_model.clone(),
         source_transcript: finalized_transcript.clone(),
     };
@@ -1272,10 +1259,6 @@ mod tests {
             "final transcript".to_string(),
             std::time::Duration::from_millis(50),
             |request| async move {
-                assert_eq!(
-                    request.provider,
-                    prompt_optimizer::PromptOptimizerProvider::Anthropic
-                );
                 assert_eq!(request.model, "claude-haiku-4-5");
                 assert_eq!(request.source_transcript, "final transcript");
 
