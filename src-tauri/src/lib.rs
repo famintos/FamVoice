@@ -5,12 +5,15 @@ mod injection;
 mod settings;
 mod history;
 mod input_hook;
+#[allow(dead_code)]
+mod prompt_optimizer;
 
 
 use tauri::{Manager, AppHandle, State, Emitter, LogicalSize, Size, WebviewWindow};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri::tray::{TrayIconBuilder, MouseButton, TrayIconEvent};
 use tauri::menu::{Menu, MenuItem};
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,6 +25,7 @@ use transcription::{RealtimeTranscriptionState, ReleaseTranscriptDecision};
 
 const PASTE_CLIPBOARD_SETTLE_DELAY_MS: u64 = 5;
 const CLIPBOARD_RESTORE_DELAY_MS: u64 = 40;
+const PROMPT_OPTIMIZER_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_WINDOW_WIDTH: f64 = 260.0;
 const DEFAULT_WINDOW_HEIGHT: f64 = 200.0;
 const DEFAULT_WIDGET_WIDTH: f64 = 128.0;
@@ -507,6 +511,75 @@ fn finalize_transcript(mut text: String, replacements: &[settings::Replacement])
     text
 }
 
+fn prompt_optimizer_timeout() -> std::time::Duration {
+    std::time::Duration::from_millis(PROMPT_OPTIMIZER_TIMEOUT_MS)
+}
+
+fn prompt_optimizer_provider(
+    provider: &str,
+) -> Option<prompt_optimizer::PromptOptimizerProvider> {
+    match provider {
+        prompt_optimizer::ANTHROPIC_PROVIDER => {
+            Some(prompt_optimizer::PromptOptimizerProvider::Anthropic)
+        }
+        _ => None,
+    }
+}
+
+async fn resolve_final_output_for_paste<Optimize, OptimizeFuture>(
+    settings: &AppSettings,
+    finalized_transcript: String,
+    timeout_duration: std::time::Duration,
+    optimize: Optimize,
+) -> String
+where
+    Optimize: FnOnce(prompt_optimizer::PromptOptimizerRequest) -> OptimizeFuture,
+    OptimizeFuture: Future<
+        Output = Result<
+            prompt_optimizer::PromptOptimizerResponse,
+            prompt_optimizer::PromptOptimizerError,
+        >,
+    >,
+{
+    if !settings.prompt_optimization_enabled {
+        return finalized_transcript;
+    }
+
+    let api_key = settings.anthropic_api_key.trim();
+    if api_key.is_empty() {
+        return finalized_transcript;
+    }
+
+    let Some(provider) = prompt_optimizer_provider(&settings.prompt_optimizer_provider) else {
+        eprintln!(
+            "[FamVoice] Prompt optimizer unavailable for provider: {}",
+            settings.prompt_optimizer_provider
+        );
+        return finalized_transcript;
+    };
+
+    let request = prompt_optimizer::PromptOptimizerRequest {
+        provider,
+        model: settings.prompt_optimizer_model.clone(),
+        source_transcript: finalized_transcript.clone(),
+    };
+
+    match tokio::time::timeout(timeout_duration, optimize(request)).await {
+        Ok(Ok(response)) => response.optimized_prompt,
+        Ok(Err(error)) => {
+            eprintln!("[FamVoice] Prompt optimization failed, using finalized transcript: {}", error);
+            finalized_transcript
+        }
+        Err(_) => {
+            eprintln!(
+                "[FamVoice] Prompt optimization timed out after {}ms, using finalized transcript",
+                timeout_duration.as_millis()
+            );
+            finalized_transcript
+        }
+    }
+}
+
 const MIC_MIN_SILENCE_THRESHOLD_RMS: f64 = 42.0;
 const MIC_MAX_SILENCE_THRESHOLD_RMS: f64 = 12.0;
 const MIC_MIN_TARGET_RMS: f64 = 1200.0;
@@ -621,6 +694,10 @@ fn should_restore_clipboard(
     paste_successful: bool,
 ) -> bool {
     auto_paste && preserve_clipboard && paste_successful
+}
+
+fn should_store_history(auto_paste: bool, paste_successful: bool) -> bool {
+    auto_paste && paste_successful
 }
 
 fn paste_clipboard_settle_delay() -> std::time::Duration {
@@ -819,7 +896,20 @@ async fn stop_recording_cmd(
 
     match transcription_result {
         Ok((transcript_path, text)) => {
-            let text = finalize_transcript(text, &settings.replacements);
+            let finalized_text = finalize_transcript(text, &settings.replacements);
+            let text = resolve_final_output_for_paste(
+                &settings,
+                finalized_text,
+                prompt_optimizer_timeout(),
+                |request| {
+                    prompt_optimizer::optimize_prompt(
+                        &http_state.client,
+                        settings.anthropic_api_key.trim(),
+                        request,
+                    )
+                },
+            )
+            .await;
             let preview = if text.len() > 100 { &text[..100] } else { &text };
             eprintln!("[FamVoice] Transcript ready: path={} | API {:.0}ms | Total {:.0}ms | Result ({} chars): {:?}",
                 transcript_path_label(transcript_path),
@@ -864,8 +954,10 @@ async fn stop_recording_cmd(
                 tasks_state.spawn(handle);
             }
 
-            history_state.add(text.clone());
-            emit_history_updated(&app, &history_state);
+            if should_store_history(settings.auto_paste, paste_successful) {
+                history_state.add(text.clone());
+                emit_history_updated(&app, &history_state);
+            }
 
             if !paste_successful {
                 let _ = app.emit("status", "error");
@@ -898,6 +990,10 @@ mod tests {
     use super::*;
     use crate::settings::Replacement;
     use crate::settings::AppSettings;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     #[test]
     fn test_realtime_connect_mode_always_skips() {
@@ -1057,6 +1153,14 @@ mod tests {
     }
 
     #[test]
+    fn test_should_store_history_only_for_successful_auto_paste() {
+        assert!(should_store_history(true, true));
+        assert!(!should_store_history(false, true));
+        assert!(!should_store_history(true, false));
+        assert!(!should_store_history(false, false));
+    }
+
+    #[test]
     fn test_release_to_paste_path_uses_short_clipboard_settle_delay() {
         assert_eq!(paste_clipboard_settle_delay(), std::time::Duration::from_millis(5));
     }
@@ -1064,6 +1168,145 @@ mod tests {
     #[test]
     fn test_clipboard_restore_happens_after_short_background_delay() {
         assert_eq!(clipboard_restore_delay(), std::time::Duration::from_millis(40));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_final_output_returns_finalized_transcript_when_optimization_disabled() {
+        let settings = AppSettings {
+            prompt_optimization_enabled: false,
+            ..AppSettings::default()
+        };
+
+        let output = resolve_final_output_for_paste(
+            &settings,
+            "final transcript".to_string(),
+            std::time::Duration::from_millis(5),
+            |_request| async move {
+                panic!("optimizer should not be called when disabled");
+            },
+        )
+        .await;
+
+        assert_eq!(output, "final transcript");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_final_output_uses_optimized_output_on_success() {
+        let settings = AppSettings {
+            prompt_optimization_enabled: true,
+            prompt_optimizer_provider: "anthropic".to_string(),
+            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
+            anthropic_api_key: "sk-anthropic-test".to_string(),
+            ..AppSettings::default()
+        };
+
+        let output = resolve_final_output_for_paste(
+            &settings,
+            "final transcript".to_string(),
+            std::time::Duration::from_millis(50),
+            |request| async move {
+                assert_eq!(
+                    request.provider,
+                    prompt_optimizer::PromptOptimizerProvider::Anthropic
+                );
+                assert_eq!(request.model, "claude-haiku-4-5");
+                assert_eq!(request.source_transcript, "final transcript");
+
+                Ok(prompt_optimizer::PromptOptimizerResponse {
+                    optimized_prompt: "optimized prompt".to_string(),
+                })
+            },
+        )
+        .await;
+
+        assert_eq!(output, "optimized prompt");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_final_output_falls_back_when_optimizer_fails() {
+        let settings = AppSettings {
+            prompt_optimization_enabled: true,
+            prompt_optimizer_provider: "anthropic".to_string(),
+            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
+            anthropic_api_key: "sk-anthropic-test".to_string(),
+            ..AppSettings::default()
+        };
+
+        let output = resolve_final_output_for_paste(
+            &settings,
+            "final transcript".to_string(),
+            std::time::Duration::from_millis(50),
+            |_request| async move {
+                Err(prompt_optimizer::PromptOptimizerError::Http(
+                    "request failed".to_string(),
+                ))
+            },
+        )
+        .await;
+
+        assert_eq!(output, "final transcript");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_final_output_skips_optimizer_when_anthropic_key_is_blank() {
+        let settings = AppSettings {
+            prompt_optimization_enabled: true,
+            prompt_optimizer_provider: "anthropic".to_string(),
+            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
+            anthropic_api_key: "   ".to_string(),
+            ..AppSettings::default()
+        };
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let calls = Arc::clone(&call_count);
+
+        let output = resolve_final_output_for_paste(
+            &settings,
+            "final transcript".to_string(),
+            std::time::Duration::from_millis(50),
+            move |_request| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    Ok(prompt_optimizer::PromptOptimizerResponse {
+                        optimized_prompt: "optimized prompt".to_string(),
+                    })
+                }
+            },
+        )
+        .await;
+
+        assert_eq!(output, "final transcript");
+        assert_eq!(call_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_final_output_falls_back_when_optimizer_times_out() {
+        let settings = AppSettings {
+            prompt_optimization_enabled: true,
+            prompt_optimizer_provider: "anthropic".to_string(),
+            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
+            anthropic_api_key: "sk-anthropic-test".to_string(),
+            ..AppSettings::default()
+        };
+
+        let output = resolve_final_output_for_paste(
+            &settings,
+            "final transcript".to_string(),
+            std::time::Duration::from_millis(10),
+            |_request| async move {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                Ok(prompt_optimizer::PromptOptimizerResponse {
+                    optimized_prompt: "optimized prompt".to_string(),
+                })
+            },
+        )
+        .await;
+
+        assert_eq!(output, "final transcript");
+    }
+
+    #[test]
+    fn test_prompt_optimizer_timeout_allows_slow_model_responses() {
+        assert_eq!(prompt_optimizer_timeout().as_millis(), 10_000);
     }
 
     #[test]
