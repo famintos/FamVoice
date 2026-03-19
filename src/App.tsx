@@ -287,7 +287,7 @@ function SettingsView() {
           <div className="flex flex-col gap-1">
             <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Prompt Optimization</h3>
             <span className="text-[10px] text-gray-500">
-              Runs a second Anthropic pass after transcription to rewrite the final transcript into a prompt.
+              Runs a second Anthropic pass after transcription to rewrite the finalized transcript into an English implementation prompt for coding agents.
             </span>
           </div>
 
@@ -300,7 +300,7 @@ function SettingsView() {
             />
             <div className="flex flex-col">
               <span>Improve into prompt</span>
-              <span className="text-[10px] text-gray-500">Adds an extra Anthropic model pass that rewrites the finalized transcript into a prompt.</span>
+              <span className="text-[10px] text-gray-500">Adds an extra Anthropic model pass that rewrites the finalized transcript into an English implementation prompt for Codex, Gemini, or Claude Code.</span>
             </div>
           </label>
 
