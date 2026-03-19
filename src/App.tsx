@@ -300,7 +300,7 @@ function SettingsView() {
             />
             <div className="flex flex-col">
               <span>Improve into prompt</span>
-              <span className="text-[10px] text-gray-500">Adds an extra Anthropic model pass that rewrites the finalized transcript into an English implementation prompt for Codex, Gemini, or Claude Code.</span>
+              <span className="text-[10px] text-gray-500">Adds an extra Anthropic model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
             </div>
           </label>
 
