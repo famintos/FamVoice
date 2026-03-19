@@ -41,7 +41,6 @@ interface Settings {
   widget_mode: boolean;
   mic_sensitivity: number;
   prompt_optimization_enabled: boolean;
-  prompt_optimizer_provider: string;
   prompt_optimizer_model: string;
   anthropic_api_key: string;
   replacements: Replacement[];
@@ -86,10 +85,6 @@ const LANGUAGES = [
   { value: "auto", label: "Auto Detect" },
   { value: "pt", label: "Portuguese" },
   { value: "en", label: "English" },
-];
-
-const PROMPT_OPTIMIZER_PROVIDERS = [
-  { value: "anthropic", label: "Anthropic" },
 ];
 
 const PROMPT_OPTIMIZER_MODELS = [
@@ -307,19 +302,6 @@ function SettingsView() {
               <span>Improve into prompt</span>
               <span className="text-[10px] text-gray-500">Adds an extra Anthropic model pass that rewrites the finalized transcript into a prompt.</span>
             </div>
-          </label>
-
-          <label className="text-xs text-gray-400 flex flex-col gap-1.5">
-            Provider
-            <select
-              value={settings.prompt_optimizer_provider}
-              onChange={e => setSettings({ ...settings, prompt_optimizer_provider: e.target.value })}
-              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
-            >
-              {PROMPT_OPTIMIZER_PROVIDERS.map(provider => (
-                <option key={provider.value} value={provider.value}>{provider.label}</option>
-              ))}
-            </select>
           </label>
 
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
