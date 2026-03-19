@@ -160,6 +160,12 @@ If `Improve into prompt` is enabled and an Anthropic API key is configured:
 2. receive an English implementation-ready prompt for coding agents
 3. paste and store that optimized prompt
 
+If `Improve into prompt` is enabled but the Anthropic API key is blank or missing:
+
+- skip the optimizer call
+- fall back to the finalized transcript
+- preserve the current silent behavior instead of surfacing a blocking error
+
 If the optimizer fails, times out, or returns invalid output:
 
 - fall back to the finalized transcript
