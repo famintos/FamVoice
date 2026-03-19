@@ -162,7 +162,10 @@ pub fn extract_optimized_prompt_text(
     if non_empty_blocks.is_empty() {
         Err(PromptOptimizerError::EmptyOptimizedPrompt)
     } else {
-        Ok(non_empty_blocks.join("\n\n"))
+        non_empty_blocks
+            .last()
+            .cloned()
+            .ok_or(PromptOptimizerError::EmptyOptimizedPrompt)
     }
 }
 
@@ -279,10 +282,7 @@ mod tests {
 
         let result = extract_optimized_prompt_text(response);
 
-        assert_eq!(
-            result.unwrap(),
-            "Objective:\nWrite a release note\n\nConstraints:\n- Keep it concise"
-        );
+        assert_eq!(result.unwrap(), "Constraints:\n- Keep it concise");
     }
 
     #[test]

@@ -696,6 +696,10 @@ fn should_restore_clipboard(
     auto_paste && preserve_clipboard && paste_successful
 }
 
+fn should_store_history(auto_paste: bool, paste_successful: bool) -> bool {
+    auto_paste && paste_successful
+}
+
 fn paste_clipboard_settle_delay() -> std::time::Duration {
     std::time::Duration::from_millis(PASTE_CLIPBOARD_SETTLE_DELAY_MS)
 }
@@ -950,8 +954,10 @@ async fn stop_recording_cmd(
                 tasks_state.spawn(handle);
             }
 
-            history_state.add(text.clone());
-            emit_history_updated(&app, &history_state);
+            if should_store_history(settings.auto_paste, paste_successful) {
+                history_state.add(text.clone());
+                emit_history_updated(&app, &history_state);
+            }
 
             if !paste_successful {
                 let _ = app.emit("status", "error");
@@ -1144,6 +1150,14 @@ mod tests {
         assert!(!should_restore_clipboard(false, true, true));
         assert!(!should_restore_clipboard(true, false, true));
         assert!(!should_restore_clipboard(true, true, false));
+    }
+
+    #[test]
+    fn test_should_store_history_only_for_successful_auto_paste() {
+        assert!(should_store_history(true, true));
+        assert!(!should_store_history(false, true));
+        assert!(!should_store_history(true, false));
+        assert!(!should_store_history(false, false));
     }
 
     #[test]
