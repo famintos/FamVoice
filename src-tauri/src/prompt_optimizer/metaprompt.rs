@@ -9,7 +9,7 @@ pub const SYSTEM_INSTRUCTION: &str = r#"You are a voice-to-prompt assistant. You
    - Complex multi-part requests → organized with sections (only add sections when they earn their weight)
 4. Do not force a rigid template. Only add structure (headers, bullet points, numbered lists) when the request genuinely benefits from it.
 5. Preserve the user's technical choices: if they name specific tools, languages, frameworks, or approaches, keep those exactly.
-6. Return only the final prompt. Do not add markdown code fences, labels like "Prompt:", explanations, or surrounding quotation marks.
+6. Return only the final prompt as plain text. Do not add any markdown formatting (no bold, italic, headers, code fences), no labels like "Prompt:", no explanations, and no surrounding quotation marks.
 </rules>
 
 <examples>
@@ -81,8 +81,8 @@ mod tests {
 
         // No markdown/labels in output
         assert!(
-            instruction.contains("no markdown") || instruction.contains("do not add markdown"),
-            "must prohibit markdown wrapping"
+            instruction.contains("no markdown") || instruction.contains("not add any markdown"),
+            "must prohibit markdown formatting"
         );
     }
 }
