@@ -1,26 +1,24 @@
 mod audio;
-mod transcription;
 mod clipboard;
-mod injection;
-mod settings;
 mod history;
+mod injection;
 mod input_hook;
 mod prompt_optimizer;
+mod settings;
+mod transcription;
 
-
-use tauri::{Manager, AppHandle, State, Emitter, LogicalSize, Size, WebviewWindow};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-use tauri::tray::{TrayIconBuilder, MouseButton, TrayIconEvent};
-use tauri::menu::{Menu, MenuItem};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, Size, State, WebviewWindow};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use audio::AudioState;
-use settings::{SettingsState, AppSettings, validate_settings};
-use history::HistoryState;
 use clipboard::ClipboardState;
-use transcription::{RealtimeTranscriptionState, ReleaseTranscriptDecision};
+use history::HistoryState;
+use settings::{validate_settings, AppSettings, SettingsState};
 
 const PASTE_CLIPBOARD_SETTLE_DELAY_MS: u64 = 5;
 const CLIPBOARD_RESTORE_DELAY_MS: u64 = 40;
@@ -59,8 +57,6 @@ impl BackgroundTasksState {
 use input_hook::HotkeyConfigState;
 use std::sync::Mutex;
 
-
-
 fn register_hotkey(app: &AppHandle, hotkey: &str) {
     input_hook::reset_mouse_hotkey_state();
 
@@ -78,52 +74,41 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) {
     }
 
     if let Ok(shortcut) = hotkey.parse::<Shortcut>() {
-        let _ = app.global_shortcut().on_shortcut(shortcut, move |app, _shortcut, event| {
-
-            if event.state() == ShortcutState::Pressed {
-                let state: State<AudioState> = app.state();
-                let is_recording = state.is_recording.load(std::sync::atomic::Ordering::SeqCst);
-                if !is_recording {
+        let _ = app
+            .global_shortcut()
+            .on_shortcut(shortcut, move |app, _shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
+                    let state: State<AudioState> = app.state();
+                    let is_recording = state.is_recording.load(std::sync::atomic::Ordering::SeqCst);
+                    if !is_recording {
+                        let app_clone = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let audio_state: State<AudioState> = app_clone.state();
+                            let _ = start_recording_cmd(app_clone.clone(), audio_state).await;
+                        });
+                    }
+                } else if event.state() == ShortcutState::Released {
                     let app_clone = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let audio_state: State<AudioState> = app_clone.state();
                         let settings_state: State<SettingsState> = app_clone.state();
-                        let realtime_state: State<RealtimeTranscriptionState> = app_clone.state();
-                        let _ = start_recording_cmd(
+                        let history_state: State<HistoryState> = app_clone.state();
+                        let clipboard_state: State<ClipboardState> = app_clone.state();
+                        let http_state: State<HttpClientState> = app_clone.state();
+                        let tasks_state: State<BackgroundTasksState> = app_clone.state();
+                        let _ = stop_recording_cmd(
                             app_clone.clone(),
+                            tasks_state,
                             audio_state,
                             settings_state,
-                            realtime_state,
-                            app_clone.state(),
-                        ).await;
+                            history_state,
+                            clipboard_state,
+                            http_state,
+                        )
+                        .await;
                     });
                 }
-            } else if event.state() == ShortcutState::Released {
-                let app_clone = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let audio_state: State<AudioState> = app_clone.state();
-                    let realtime_state: State<RealtimeTranscriptionState> = app_clone.state();
-                    let realtime_capability_state: State<RealtimeCapabilityState> =
-                        app_clone.state();
-                    let settings_state: State<SettingsState> = app_clone.state();
-                    let history_state: State<HistoryState> = app_clone.state();
-                    let clipboard_state: State<ClipboardState> = app_clone.state();
-                    let http_state: State<HttpClientState> = app_clone.state();
-                    let tasks_state: State<BackgroundTasksState> = app_clone.state();
-                    let _ = stop_recording_cmd(
-                        app_clone.clone(),
-                        tasks_state,
-                        audio_state,
-                        realtime_state,
-                        realtime_capability_state,
-                        settings_state,
-                        history_state,
-                        clipboard_state,
-                        http_state
-                    ).await;
-                });
-            }
-        });
+            });
     } else {
         eprintln!("[FamVoice] Failed to parse hotkey: {}", hotkey);
     }
@@ -142,10 +127,19 @@ fn main_window_dimensions(widget_mode: bool) -> (f64, f64) {
     }
 }
 
-fn set_main_window_size(window: &WebviewWindow, width: f64, height: f64, center: bool) -> Result<(), String> {
+fn set_main_window_size(
+    window: &WebviewWindow,
+    width: f64,
+    height: f64,
+    center: bool,
+) -> Result<(), String> {
     window.set_resizable(true).map_err(|e| e.to_string())?;
-    window.set_min_size(None::<Size>).map_err(|e| e.to_string())?;
-    window.set_max_size(None::<Size>).map_err(|e| e.to_string())?;
+    window
+        .set_min_size(None::<Size>)
+        .map_err(|e| e.to_string())?;
+    window
+        .set_max_size(None::<Size>)
+        .map_err(|e| e.to_string())?;
 
     let size = LogicalSize::new(width, height);
     window.set_size(size).map_err(|e| e.to_string())?;
@@ -174,7 +168,11 @@ fn apply_main_window_mode(app: &AppHandle, widget_mode: bool, center: bool) -> R
 }
 
 #[tauri::command]
-async fn save_settings(app: AppHandle, state: State<'_, SettingsState>, new_settings: AppSettings) -> Result<(), String> {
+async fn save_settings(
+    app: AppHandle,
+    state: State<'_, SettingsState>,
+    new_settings: AppSettings,
+) -> Result<(), String> {
     if let Err(errors) = validate_settings(&new_settings) {
         return Err(format!("Invalid settings: {}", errors.join(", ")));
     }
@@ -229,7 +227,10 @@ fn clear_history(app: AppHandle, state: State<'_, HistoryState>) {
 }
 
 #[tauri::command]
-async fn repaste_history_item(_clipboard_state: State<'_, ClipboardState>, text: String) -> Result<(), String> {
+async fn repaste_history_item(
+    _clipboard_state: State<'_, ClipboardState>,
+    text: String,
+) -> Result<(), String> {
     if let Err(e) = clipboard::set_clipboard(&text) {
         return Err(format!("Failed to set clipboard: {}", e));
     }
@@ -259,7 +260,7 @@ async fn open_settings_window(app: AppHandle) -> Result<(), String> {
     tauri::WebviewWindowBuilder::new(
         &app,
         "settings",
-        tauri::WebviewUrl::App("index.html?view=settings".into())
+        tauri::WebviewUrl::App("index.html?view=settings".into()),
     )
     .title("Settings")
     .inner_size(340.0, 520.0)
@@ -275,58 +276,6 @@ async fn open_settings_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RealtimeConnectMode {
-    Skip,
-    Background,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum RealtimeCapability {
-    Available,
-    Disabled(String),
-}
-
-struct RealtimeCapabilityState {
-    current: Mutex<RealtimeCapability>,
-}
-
-impl Default for RealtimeCapabilityState {
-    fn default() -> Self {
-        Self {
-            current: Mutex::new(RealtimeCapability::Available),
-        }
-    }
-}
-
-impl RealtimeCapabilityState {
-    fn current(&self) -> RealtimeCapability {
-        self.current
-            .lock()
-            .map(|state| state.clone())
-            .unwrap_or(RealtimeCapability::Available)
-    }
-
-    fn disable(&self, reason: impl Into<String>) {
-        if let Ok(mut current) = self.current.lock() {
-            *current = RealtimeCapability::Disabled(reason.into());
-        }
-    }
-}
-
-fn should_disable_realtime_capability(error: &str) -> bool {
-    let normalized = error.to_ascii_lowercase();
-    normalized.contains("not supported in realtime mode")
-        || (normalized.contains("not supported") && normalized.contains("realtime"))
-}
-
-fn realtime_connect_mode(
-    _settings: &AppSettings,
-    _capability: RealtimeCapability,
-) -> RealtimeConnectMode {
-    RealtimeConnectMode::Skip
-}
-
 fn transcription_language_override(language_preference: &str) -> Option<&str> {
     match language_preference {
         "pt" => Some("pt"),
@@ -339,67 +288,13 @@ fn transcription_language_override(language_preference: &str) -> Option<&str> {
 async fn start_recording_cmd(
     app: AppHandle,
     audio_state: State<'_, AudioState>,
-    settings_state: State<'_, SettingsState>,
-    realtime_state: State<'_, RealtimeTranscriptionState>,
-    realtime_capability_state: State<'_, RealtimeCapabilityState>,
 ) -> Result<(), String> {
-    let settings = settings_state.settings.lock().unwrap().clone();
-    audio::set_stream_chunk_sender(&*audio_state, None);
-    realtime_state.replace(None);
-    let realtime_mode = realtime_connect_mode(&settings, realtime_capability_state.current());
-
     match audio::start_recording(&*audio_state).await {
         Ok(()) => {
             let _ = app.emit("status", "recording");
-
-            if realtime_mode == RealtimeConnectMode::Background {
-                let app_clone = app.clone();
-                let api_key = settings.api_key.clone();
-                let language = settings.language.clone();
-
-                tauri::async_runtime::spawn(async move {
-                    let audio_state: State<AudioState> = app_clone.state();
-                    let realtime_state: State<RealtimeTranscriptionState> = app_clone.state();
-                    let realtime_capability_state: State<RealtimeCapabilityState> =
-                        app_clone.state();
-
-                    let lang = transcription_language_override(&language);
-
-                    match transcription::start_realtime_transcription_session(&api_key, lang).await {
-                        Ok(session) => {
-                            if !audio_state
-                                .is_recording
-                                .load(std::sync::atomic::Ordering::SeqCst)
-                            {
-                                return;
-                            }
-
-                            audio::set_stream_chunk_sender(&*audio_state, Some(session.chunk_sender()));
-                            realtime_state.replace(Some(session));
-                            eprintln!("[FamVoice] Realtime transcription session ready");
-                        }
-                        Err(error) => {
-                            if should_disable_realtime_capability(&error) {
-                                realtime_capability_state.disable(error.clone());
-                                eprintln!(
-                                    "[FamVoice] Realtime transcription disabled for this app session: {}",
-                                    error
-                                );
-                            }
-                            eprintln!(
-                                "[FamVoice] Realtime transcription unavailable, falling back to upload path: {}",
-                                error
-                            );
-                        }
-                    }
-                });
-            }
-
             Ok(())
         }
         Err(e) => {
-            audio::set_stream_chunk_sender(&*audio_state, None);
-            realtime_state.replace(None);
             eprintln!("[FamVoice] Failed to start recording: {}", e);
             let _ = app.emit("status", "error");
             let _ = app.emit("transcript", e.clone());
@@ -520,10 +415,7 @@ fn prompt_optimizer_timeout(model: &str) -> std::time::Duration {
     std::time::Duration::from_millis(timeout_ms)
 }
 
-fn prompt_optimizer_timeout_message(
-    model: &str,
-    timeout_duration: std::time::Duration,
-) -> String {
+fn prompt_optimizer_timeout_message(model: &str, timeout_duration: std::time::Duration) -> String {
     format!(
         "[FamVoice] Prompt optimization timed out for model {} after {}ms, using finalized transcript",
         model,
@@ -538,10 +430,7 @@ fn prompt_optimizer_start_message(model: &str) -> String {
     )
 }
 
-fn prompt_optimizer_success_message(
-    model: &str,
-    elapsed: std::time::Duration,
-) -> String {
+fn prompt_optimizer_success_message(model: &str, elapsed: std::time::Duration) -> String {
     format!(
         "[FamVoice] Prompt optimization succeeded with model {} in {}ms",
         model,
@@ -552,8 +441,7 @@ fn prompt_optimizer_success_message(
 fn prompt_optimizer_failure_message(model: &str, error: &str) -> String {
     format!(
         "[FamVoice] Prompt optimization failed for model {}, using finalized transcript: {}",
-        model,
-        error
+        model, error
     )
 }
 
@@ -666,7 +554,10 @@ fn mic_target_rms(mic_sensitivity: u8) -> f64 {
 
 fn mic_analyze_levels(samples: &[i16]) -> MicAudioLevels {
     if samples.is_empty() {
-        return MicAudioLevels { rms: 0.0, peak: 0.0 };
+        return MicAudioLevels {
+            rms: 0.0,
+            peak: 0.0,
+        };
     }
 
     let mut sum_squares = 0.0;
@@ -756,25 +647,17 @@ fn clipboard_restore_delay() -> std::time::Duration {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TranscriptPath {
-    Realtime,
     Upload,
-    UploadFallback,
 }
 
 fn transcript_path_label(path: TranscriptPath) -> &'static str {
     match path {
-        TranscriptPath::Realtime => "realtime",
         TranscriptPath::Upload => "upload",
-        TranscriptPath::UploadFallback => "upload_fallback",
     }
 }
 
-fn upload_transcript_path(model: &str) -> TranscriptPath {
-    if model == "gpt-4o-mini-transcribe" {
-        TranscriptPath::UploadFallback
-    } else {
-        TranscriptPath::Upload
-    }
+fn upload_transcript_path(_model: &str) -> TranscriptPath {
+    TranscriptPath::Upload
 }
 
 fn emit_history_updated(app: &AppHandle, history_state: &HistoryState) {
@@ -788,8 +671,6 @@ async fn stop_recording_cmd(
     app: AppHandle,
     tasks_state: State<'_, BackgroundTasksState>,
     audio_state: State<'_, AudioState>,
-    realtime_state: State<'_, RealtimeTranscriptionState>,
-    realtime_capability_state: State<'_, RealtimeCapabilityState>,
     settings_state: State<'_, SettingsState>,
     history_state: State<'_, HistoryState>,
     clipboard_state: State<'_, ClipboardState>,
@@ -797,7 +678,6 @@ async fn stop_recording_cmd(
 ) -> Result<(), String> {
     let t_total = std::time::Instant::now();
     let _ = app.emit("status", "transcribing");
-    let realtime_session = realtime_state.take();
     let mut samples = match audio::stop_recording(&*audio_state).await {
         Some(s) => s,
         None => {
@@ -806,7 +686,6 @@ async fn stop_recording_cmd(
             return Err("Not recording".into());
         }
     };
-    audio::set_stream_chunk_sender(&*audio_state, None);
 
     if samples.is_empty() {
         eprintln!("[FamVoice] No audio samples recorded");
@@ -871,73 +750,45 @@ async fn stop_recording_cmd(
         return Err("API key is empty".into());
     }
 
-    let realtime_result = if settings.model == "gpt-4o-mini-transcribe" {
-        match realtime_session {
-            Some(session) => match session.finish().await {
-                Ok(result) => {
-                    if result.is_some() {
-                        eprintln!(
-                            "[FamVoice] Realtime transcription finalized in {:.0}ms",
-                            t_total.elapsed().as_secs_f64() * 1000.0
-                        );
-                    }
-                    result
-                }
-                Err(error) => {
-                    if should_disable_realtime_capability(&error) {
-                        realtime_capability_state.disable(error.clone());
-                        eprintln!(
-                            "[FamVoice] Realtime transcription disabled for this app session: {}",
-                            error
-                        );
-                    }
-                    eprintln!(
-                        "[FamVoice] Realtime transcription failed, falling back to upload path: {}",
-                        error
-                    );
-                    None
-                }
-            },
-            None => None,
-        }
-    } else {
-        None
-    };
+    let t_encode = std::time::Instant::now();
+    let upload_audio = audio::select_samples_for_upload(&samples, silence_threshold);
+    if upload_audio.was_trimmed {
+        eprintln!(
+            "[FamVoice] Speech window trimmed upload from {} samples ({:.1}s) to {} samples ({:.1}s)",
+            samples.len(),
+            samples.len() as f64 / 16000.0,
+            upload_audio.samples.len(),
+            upload_audio.samples.len() as f64 / 16000.0
+        );
+    }
 
+    let wav_bytes = audio::encode_wav_in_memory(&upload_audio.samples);
     let t_api = std::time::Instant::now();
-    let transcription_result = match transcription::select_release_transcript(realtime_result) {
-        ReleaseTranscriptDecision::StreamingFinal(text) => Ok((TranscriptPath::Realtime, text)),
-        ReleaseTranscriptDecision::FallbackUpload => {
-            let t_encode = std::time::Instant::now();
-            let upload_audio = audio::select_samples_for_upload(&samples, silence_threshold);
-            if upload_audio.was_trimmed {
-                eprintln!(
-                    "[FamVoice] Speech window trimmed upload from {} samples ({:.1}s) to {} samples ({:.1}s)",
-                    samples.len(),
-                    samples.len() as f64 / 16000.0,
-                    upload_audio.samples.len(),
-                    upload_audio.samples.len() as f64 / 16000.0
-                );
-            }
+    eprintln!(
+        "[FamVoice] WAV encode: {} samples ({:.1}s) -> {} bytes in {:.0}ms",
+        upload_audio.samples.len(),
+        upload_audio.samples.len() as f64 / 16000.0,
+        wav_bytes.len(),
+        t_encode.elapsed().as_secs_f64() * 1000.0
+    );
 
-            let wav_bytes = audio::encode_wav_in_memory(&upload_audio.samples);
-            eprintln!("[FamVoice] WAV encode: {} samples ({:.1}s) → {} bytes in {:.0}ms",
-                upload_audio.samples.len(), upload_audio.samples.len() as f64 / 16000.0, wav_bytes.len(),
-                t_encode.elapsed().as_secs_f64() * 1000.0);
-
-            let transcript_path = upload_transcript_path(&settings.model);
-            eprintln!(
-                "[FamVoice] Transcribing with model: {}, language preference: {}, path: {}",
-                settings.model,
-                settings.language,
-                transcript_path_label(transcript_path)
-            );
-            let lang = transcription_language_override(&settings.language);
-            transcription::transcribe_audio(&http_state.client, wav_bytes, &settings.api_key, &settings.model, lang)
-                .await
-                .map(|text| (transcript_path, text))
-        }
-    };
+    let transcript_path = upload_transcript_path(&settings.model);
+    eprintln!(
+        "[FamVoice] Transcribing with model: {}, language preference: {}, path: {}",
+        settings.model,
+        settings.language,
+        transcript_path_label(transcript_path)
+    );
+    let lang = transcription_language_override(&settings.language);
+    let transcription_result = transcription::transcribe_audio(
+        &http_state.client,
+        wav_bytes,
+        &settings.api_key,
+        &settings.model,
+        lang,
+    )
+    .await
+    .map(|text| (transcript_path, text));
     drop(samples);
 
     match transcription_result {
@@ -956,7 +807,11 @@ async fn stop_recording_cmd(
                 },
             )
             .await;
-            let preview = if text.len() > 100 { &text[..100] } else { &text };
+            let preview = if text.len() > 100 {
+                &text[..100]
+            } else {
+                &text
+            };
             eprintln!("[FamVoice] Transcript ready: path={} | API {:.0}ms | Total {:.0}ms | Result ({} chars): {:?}",
                 transcript_path_label(transcript_path),
                 t_api.elapsed().as_secs_f64() * 1000.0,
@@ -1007,7 +862,10 @@ async fn stop_recording_cmd(
 
             if !paste_successful {
                 let _ = app.emit("status", "error");
-                let error_msg = format!("Paste failed: {}. Transcript is on clipboard.", paste_error.unwrap_or_default());
+                let error_msg = format!(
+                    "Paste failed: {}. Transcript is on clipboard.",
+                    paste_error.unwrap_or_default()
+                );
                 let _ = app.emit("transcript", error_msg);
             } else {
                 let _ = app.emit("transcript", text);
@@ -1034,81 +892,18 @@ async fn stop_recording_cmd(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::Replacement;
     use crate::settings::AppSettings;
+    use crate::settings::Replacement;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
 
     #[test]
-    fn test_realtime_connect_mode_always_skips() {
-        let settings = AppSettings {
-            api_key: "sk-test".to_string(),
-            model: "gpt-4o-mini-transcribe".to_string(),
-            ..AppSettings::default()
-        };
-
+    fn test_upload_transcript_path_treats_gpt_4o_mini_transcribe_as_upload() {
         assert_eq!(
-            realtime_connect_mode(&settings, RealtimeCapability::Available),
-            RealtimeConnectMode::Skip
-        );
-    }
-
-    #[test]
-    fn test_realtime_connect_mode_skips_when_api_key_is_missing() {
-        let settings = AppSettings {
-            api_key: String::new(),
-            model: "gpt-4o-mini-transcribe".to_string(),
-            ..AppSettings::default()
-        };
-
-        assert_eq!(
-            realtime_connect_mode(&settings, RealtimeCapability::Available),
-            RealtimeConnectMode::Skip
-        );
-    }
-
-    #[test]
-    fn test_realtime_connect_mode_skips_for_non_realtime_models() {
-        let settings = AppSettings {
-            api_key: "sk-test".to_string(),
-            model: "whisper-1".to_string(),
-            ..AppSettings::default()
-        };
-
-        assert_eq!(
-            realtime_connect_mode(&settings, RealtimeCapability::Available),
-            RealtimeConnectMode::Skip
-        );
-    }
-
-    #[test]
-    fn test_realtime_connect_mode_skips_after_runtime_failure() {
-        let settings = AppSettings {
-            api_key: "sk-test".to_string(),
-            model: "gpt-4o-mini-transcribe".to_string(),
-            ..AppSettings::default()
-        };
-        let capability = RealtimeCapabilityState::default();
-
-        capability.disable("model mismatch");
-
-        assert_eq!(
-            realtime_connect_mode(&settings, capability.current()),
-            RealtimeConnectMode::Skip
-        );
-    }
-
-    #[test]
-    fn test_realtime_capability_reports_disable_reason() {
-        let capability = RealtimeCapabilityState::default();
-
-        capability.disable("realtime unavailable");
-
-        assert_eq!(
-            capability.current(),
-            RealtimeCapability::Disabled("realtime unavailable".to_string())
+            upload_transcript_path("gpt-4o-mini-transcribe"),
+            TranscriptPath::Upload
         );
     }
 
@@ -1208,12 +1003,18 @@ mod tests {
 
     #[test]
     fn test_release_to_paste_path_uses_short_clipboard_settle_delay() {
-        assert_eq!(paste_clipboard_settle_delay(), std::time::Duration::from_millis(5));
+        assert_eq!(
+            paste_clipboard_settle_delay(),
+            std::time::Duration::from_millis(5)
+        );
     }
 
     #[test]
     fn test_clipboard_restore_happens_after_short_background_delay() {
-        assert_eq!(clipboard_restore_delay(), std::time::Duration::from_millis(40));
+        assert_eq!(
+            clipboard_restore_delay(),
+            std::time::Duration::from_millis(40)
+        );
     }
 
     #[tokio::test]
@@ -1344,12 +1145,18 @@ mod tests {
 
     #[test]
     fn test_prompt_optimizer_timeout_keeps_haiku_fast() {
-        assert_eq!(prompt_optimizer_timeout("claude-haiku-4-5").as_millis(), 10_000);
+        assert_eq!(
+            prompt_optimizer_timeout("claude-haiku-4-5").as_millis(),
+            10_000
+        );
     }
 
     #[test]
     fn test_prompt_optimizer_timeout_gives_sonnet_more_time() {
-        assert_eq!(prompt_optimizer_timeout("claude-sonnet-4-6").as_millis(), 30_000);
+        assert_eq!(
+            prompt_optimizer_timeout("claude-sonnet-4-6").as_millis(),
+            30_000
+        );
     }
 
     #[test]
@@ -1386,10 +1193,7 @@ mod tests {
 
     #[test]
     fn test_prompt_optimizer_failure_message_includes_model_name_and_error() {
-        let message = prompt_optimizer_failure_message(
-            "claude-haiku-4-5",
-            "request failed",
-        );
+        let message = prompt_optimizer_failure_message("claude-haiku-4-5", "request failed");
 
         assert!(message.contains("claude-haiku-4-5"));
         assert!(message.contains("request failed"));
@@ -1398,8 +1202,14 @@ mod tests {
 
     #[test]
     fn test_main_window_dimensions_use_compact_widget_size() {
-        assert_eq!(main_window_dimensions(true), (DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT));
-        assert_eq!(main_window_dimensions(false), (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
+        assert_eq!(
+            main_window_dimensions(true),
+            (DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT)
+        );
+        assert_eq!(
+            main_window_dimensions(false),
+            (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        );
     }
 
     #[test]
@@ -1436,14 +1246,6 @@ mod tests {
     }
 
     #[test]
-    fn transcript_path_label_marks_upload_fallback() {
-        assert_eq!(
-            transcript_path_label(TranscriptPath::UploadFallback),
-            "upload_fallback"
-        );
-    }
-
-    #[test]
     fn mic_level_details_include_dbfs_and_peak_percent() {
         let details = mic_level_details(MicAudioLevels {
             rms: 1024.0,
@@ -1454,7 +1256,6 @@ mod tests {
         assert!(details.rms_dbfs > -40.0);
         assert!((details.peak_percent - 25.0).abs() < 0.1);
     }
-
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1463,16 +1264,17 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"])
+            Some(vec!["--minimized"]),
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
-            let app_dir = app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let app_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| PathBuf::from("."));
             std::fs::create_dir_all(&app_dir).unwrap_or_default();
 
             app.manage(AudioState::default());
-            app.manage(RealtimeTranscriptionState::default());
-            app.manage(RealtimeCapabilityState::default());
             app.manage(SettingsState::load(app_dir.clone()));
             app.manage(HistoryState::load(app_dir));
             app.manage(ClipboardState::default());
@@ -1494,7 +1296,9 @@ pub fn run() {
                 eprintln!("[FamVoice] HTTPS connection to OpenAI pre-warmed");
             });
 
-            app.manage(HttpClientState { client: http_client });
+            app.manage(HttpClientState {
+                client: http_client,
+            });
 
             let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -1509,7 +1313,8 @@ pub fn run() {
                     TrayIconEvent::Click {
                         button: MouseButton::Left,
                         ..
-                    } | TrayIconEvent::DoubleClick {
+                    }
+                    | TrayIconEvent::DoubleClick {
                         button: MouseButton::Left,
                         ..
                     } => {
@@ -1522,24 +1327,24 @@ pub fn run() {
                     }
                     _ => {}
                 })
-                .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
-                        "settings" => {
-                            let app_handle = app.clone();
-                            tauri::async_runtime::spawn(async move {
-                                let _ = open_settings_window(app_handle).await;
-                            });
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "settings" => {
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = open_settings_window(app_handle).await;
+                        });
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .build(app)?;
 
             let hotkey_shared = Arc::new(Mutex::new(String::new()));
-            app.manage(HotkeyConfigState { hotkey: hotkey_shared.clone() });
+            app.manage(HotkeyConfigState {
+                hotkey: hotkey_shared.clone(),
+            });
 
             // Register initial shortcut and start mouse listener
             let hotkey = {
@@ -1553,13 +1358,12 @@ pub fn run() {
                 let settings = state.settings.lock().unwrap();
                 settings.widget_mode
             };
-            
+
             register_hotkey(app.handle(), &hotkey);
             input_hook::start_mouse_listener(app.handle().clone(), hotkey_shared);
             apply_main_window_mode(app.handle(), widget_mode, false)?;
 
             Ok(())
-
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,

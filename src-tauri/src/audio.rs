@@ -15,25 +15,9 @@ const SPEECH_WINDOW_MIN_CLIP_SAMPLES: usize = TARGET_SAMPLE_RATE as usize;
 const SPEECH_WINDOW_MIN_TRIMMED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize / 4;
 const SPEECH_WINDOW_MIN_SAVED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize / 10;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioChunkRoute {
-    Drop,
-    BufferOnly,
-    BufferAndStream,
-}
-
-pub fn audio_chunk_route(is_recording: bool, streaming_enabled: bool) -> AudioChunkRoute {
-    match (is_recording, streaming_enabled) {
-        (false, _) => AudioChunkRoute::Drop,
-        (true, true) => AudioChunkRoute::BufferAndStream,
-        (true, false) => AudioChunkRoute::BufferOnly,
-    }
-}
-
 pub struct AudioState {
     pub is_recording: Arc<AtomicBool>,
     pub cmd_tx: mpsc::Sender<AudioCommand>,
-    chunk_tx: Arc<Mutex<Option<mpsc::UnboundedSender<Vec<i16>>>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,7 +76,6 @@ fn finish_recording_cycle(
 
 fn start_persistent_input_stream(
     sample_buffer: Arc<Mutex<Vec<i16>>>,
-    chunk_tx: Arc<Mutex<Option<mpsc::UnboundedSender<Vec<i16>>>>>,
     armed: Arc<AtomicBool>,
     is_recording: Arc<AtomicBool>,
     needs_rebuild: Arc<AtomicBool>,
@@ -136,7 +119,6 @@ fn start_persistent_input_stream(
                 Vec::with_capacity((8192.0 / downsample_ratio) as usize + 16);
             let mut filter = LowPassFilter::new(filter_cutoff, capture_rate as f64);
             let buffer_clone = sample_buffer.clone();
-            let chunk_tx_clone = chunk_tx.clone();
             let armed_clone = armed.clone();
 
             device.build_input_stream(
@@ -169,29 +151,8 @@ fn start_persistent_input_stream(
                         }
                     }
 
-                    let streaming_enabled = chunk_tx_clone
-                        .lock()
-                        .ok()
-                        .and_then(|sender| sender.as_ref().cloned())
-                        .is_some();
-
-                    match audio_chunk_route(true, streaming_enabled) {
-                        AudioChunkRoute::Drop => {}
-                        AudioChunkRoute::BufferOnly => {
-                            if let Ok(mut buf) = buffer_clone.lock() {
-                                buf.extend_from_slice(&resampled_buf);
-                            }
-                        }
-                        AudioChunkRoute::BufferAndStream => {
-                            if let Ok(mut buf) = buffer_clone.lock() {
-                                buf.extend_from_slice(&resampled_buf);
-                            }
-                            if let Ok(sender_guard) = chunk_tx_clone.lock() {
-                                if let Some(sender) = sender_guard.as_ref() {
-                                    let _ = sender.send(resampled_buf.clone());
-                                }
-                            }
-                        }
+                    if let Ok(mut buf) = buffer_clone.lock() {
+                        buf.extend_from_slice(&resampled_buf);
                     }
                 },
                 err_fn,
@@ -204,7 +165,6 @@ fn start_persistent_input_stream(
                 Vec::with_capacity((8192.0 / downsample_ratio) as usize + 16);
             let mut filter = LowPassFilter::new(filter_cutoff, capture_rate as f64);
             let buffer_clone = sample_buffer.clone();
-            let chunk_tx_clone = chunk_tx.clone();
             let armed_clone = armed.clone();
 
             device.build_input_stream(
@@ -240,29 +200,8 @@ fn start_persistent_input_stream(
                         }
                     }
 
-                    let streaming_enabled = chunk_tx_clone
-                        .lock()
-                        .ok()
-                        .and_then(|sender| sender.as_ref().cloned())
-                        .is_some();
-
-                    match audio_chunk_route(true, streaming_enabled) {
-                        AudioChunkRoute::Drop => {}
-                        AudioChunkRoute::BufferOnly => {
-                            if let Ok(mut buf) = buffer_clone.lock() {
-                                buf.extend_from_slice(&resampled_buf);
-                            }
-                        }
-                        AudioChunkRoute::BufferAndStream => {
-                            if let Ok(mut buf) = buffer_clone.lock() {
-                                buf.extend_from_slice(&resampled_buf);
-                            }
-                            if let Ok(sender_guard) = chunk_tx_clone.lock() {
-                                if let Some(sender) = sender_guard.as_ref() {
-                                    let _ = sender.send(resampled_buf.clone());
-                                }
-                            }
-                        }
+                    if let Ok(mut buf) = buffer_clone.lock() {
+                        buf.extend_from_slice(&resampled_buf);
                     }
                 },
                 err_fn,
@@ -291,9 +230,6 @@ impl Default for AudioState {
         let armed_clone = armed.clone();
         let needs_rebuild = Arc::new(AtomicBool::new(false));
         let needs_rebuild_clone = needs_rebuild.clone();
-        let chunk_tx: Arc<Mutex<Option<mpsc::UnboundedSender<Vec<i16>>>>> =
-            Arc::new(Mutex::new(None));
-        let chunk_tx_clone = chunk_tx.clone();
 
         std::thread::spawn(move || {
             let sample_buffer: Arc<Mutex<Vec<i16>>> =
@@ -304,7 +240,6 @@ impl Default for AudioState {
             };
             let mut stream = match start_persistent_input_stream(
                 sample_buffer.clone(),
-                chunk_tx_clone.clone(),
                 armed_clone.clone(),
                 is_recording_clone.clone(),
                 needs_rebuild_clone.clone(),
@@ -330,7 +265,6 @@ impl Default for AudioState {
                         if stream.is_none() {
                             match start_persistent_input_stream(
                                 sample_buffer.clone(),
-                                chunk_tx_clone.clone(),
                                 armed_clone.clone(),
                                 is_recording_clone.clone(),
                                 needs_rebuild_clone.clone(),
@@ -379,7 +313,6 @@ impl Default for AudioState {
         Self {
             is_recording,
             cmd_tx: tx,
-            chunk_tx,
         }
     }
 }
@@ -464,7 +397,11 @@ fn speech_window_start_frame(frame_levels: &[f64], threshold: f64) -> Option<usi
     None
 }
 
-fn speech_window_end_frame(frame_levels: &[f64], threshold: f64, start_frame: usize) -> Option<usize> {
+fn speech_window_end_frame(
+    frame_levels: &[f64],
+    threshold: f64,
+    start_frame: usize,
+) -> Option<usize> {
     let mut consecutive = 0usize;
 
     for index in (start_frame..frame_levels.len()).rev() {
@@ -481,7 +418,10 @@ fn speech_window_end_frame(frame_levels: &[f64], threshold: f64, start_frame: us
     None
 }
 
-pub fn select_samples_for_upload(samples: &[i16], silence_threshold_rms: f64) -> UploadAudioSelection {
+pub fn select_samples_for_upload(
+    samples: &[i16],
+    silence_threshold_rms: f64,
+) -> UploadAudioSelection {
     if samples.len() < SPEECH_WINDOW_MIN_CLIP_SAMPLES {
         return UploadAudioSelection {
             samples: samples.to_vec(),
@@ -496,7 +436,9 @@ pub fn select_samples_for_upload(samples: &[i16], silence_threshold_rms: f64) ->
             was_trimmed: false,
         };
     };
-    let Some(end_frame) = speech_window_end_frame(&frame_levels, silence_threshold_rms, start_frame) else {
+    let Some(end_frame) =
+        speech_window_end_frame(&frame_levels, silence_threshold_rms, start_frame)
+    else {
         return UploadAudioSelection {
             samples: samples.to_vec(),
             was_trimmed: false,
@@ -504,7 +446,8 @@ pub fn select_samples_for_upload(samples: &[i16], silence_threshold_rms: f64) ->
     };
 
     let start_sample = start_frame * SPEECH_WINDOW_FRAME_SAMPLES;
-    let end_sample = (((end_frame + 1) * SPEECH_WINDOW_FRAME_SAMPLES) + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES)
+    let end_sample = (((end_frame + 1) * SPEECH_WINDOW_FRAME_SAMPLES)
+        + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES)
         .min(samples.len());
 
     if end_sample <= start_sample {
@@ -542,15 +485,6 @@ pub async fn start_recording(state: &AudioState) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     rx.await
         .map_err(|e| format!("Recording channel error: {}", e))?
-}
-
-pub fn set_stream_chunk_sender(
-    state: &AudioState,
-    sender: Option<mpsc::UnboundedSender<Vec<i16>>>,
-) {
-    if let Ok(mut current) = state.chunk_tx.lock() {
-        *current = sender;
-    }
 }
 
 pub async fn stop_recording(state: &AudioState) -> Option<Vec<i16>> {
@@ -614,27 +548,6 @@ mod tests {
     }
 
     #[test]
-    fn audio_chunk_routes_to_buffer_and_stream_when_streaming_is_active() {
-        let decision = audio_chunk_route(true, true);
-
-        assert_eq!(decision, AudioChunkRoute::BufferAndStream);
-    }
-
-    #[test]
-    fn audio_chunk_routes_to_buffer_only_when_streaming_is_unavailable() {
-        let decision = audio_chunk_route(true, false);
-
-        assert_eq!(decision, AudioChunkRoute::BufferOnly);
-    }
-
-    #[test]
-    fn audio_chunk_is_dropped_when_recording_is_inactive() {
-        let decision = audio_chunk_route(false, true);
-
-        assert_eq!(decision, AudioChunkRoute::Drop);
-    }
-
-    #[test]
     fn test_take_recorded_samples_returns_none_for_empty_buffer() {
         let mut samples = Vec::new();
 
@@ -684,7 +597,12 @@ mod tests {
         assert!(selected.was_trimmed);
         assert!(selected.samples.len() < samples.len());
         assert_eq!(selected.samples[0], 800);
-        assert!(selected.samples.len() <= TARGET_SAMPLE_RATE as usize + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES + SPEECH_WINDOW_FRAME_SAMPLES);
+        assert!(
+            selected.samples.len()
+                <= TARGET_SAMPLE_RATE as usize
+                    + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES
+                    + SPEECH_WINDOW_FRAME_SAMPLES
+        );
     }
 
     #[test]
@@ -698,7 +616,12 @@ mod tests {
         assert!(selected.was_trimmed);
         assert!(selected.samples.len() < samples.len());
         assert_eq!(selected.samples[0], 800);
-        assert!(selected.samples.len() <= TARGET_SAMPLE_RATE as usize + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES + SPEECH_WINDOW_FRAME_SAMPLES);
+        assert!(
+            selected.samples.len()
+                <= TARGET_SAMPLE_RATE as usize
+                    + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES
+                    + SPEECH_WINDOW_FRAME_SAMPLES
+        );
     }
 
     #[test]

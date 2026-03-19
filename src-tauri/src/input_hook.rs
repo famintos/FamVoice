@@ -1,13 +1,13 @@
-use rdev::{grab, Event, EventType, Button};
-use tauri::{AppHandle, Manager, State};
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 use crate::audio::AudioState;
-use crate::settings::SettingsState;
-use crate::history::HistoryState;
 use crate::clipboard::ClipboardState;
+use crate::history::HistoryState;
+use crate::settings::SettingsState;
 use crate::HttpClientState;
+use rdev::{grab, Button, Event, EventType};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use tauri::{AppHandle, Manager, State};
 
 pub struct HotkeyConfigState {
     pub hotkey: Arc<Mutex<String>>,
@@ -48,15 +48,23 @@ fn parse_mouse_button(hotkey: &str) -> Option<Button> {
     match hotkey {
         "Mouse4" => {
             #[cfg(target_os = "windows")]
-            { Some(Button::Unknown(1)) }
+            {
+                Some(Button::Unknown(1))
+            }
             #[cfg(not(target_os = "windows"))]
-            { Some(Button::Unknown(4)) }
+            {
+                Some(Button::Unknown(4))
+            }
         }
         "Mouse5" => {
             #[cfg(target_os = "windows")]
-            { Some(Button::Unknown(2)) }
+            {
+                Some(Button::Unknown(2))
+            }
             #[cfg(not(target_os = "windows"))]
-            { Some(Button::Unknown(5)) }
+            {
+                Some(Button::Unknown(5))
+            }
         }
         "Mouse3" => Some(Button::Middle),
         _ => None,
@@ -96,15 +104,17 @@ fn decide_mouse_hotkey_action(
 
 pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
     thread::spawn(move || {
-        if let Err(error) = grab(move |event| {
-            handle_event(&app, &hotkey_shared, event)
-        }) {
+        if let Err(error) = grab(move |event| handle_event(&app, &hotkey_shared, event)) {
             eprintln!("[FamVoice] Mouse grabber error: {:?}", error);
         }
     });
 }
 
-fn handle_event(app: &AppHandle, hotkey_shared: &Arc<Mutex<String>>, event: Event) -> Option<Event> {
+fn handle_event(
+    app: &AppHandle,
+    hotkey_shared: &Arc<Mutex<String>>,
+    event: Event,
+) -> Option<Event> {
     let current_hotkey = {
         let lock = hotkey_shared.lock().unwrap();
         lock.clone()
@@ -125,14 +135,18 @@ fn handle_event(app: &AppHandle, hotkey_shared: &Arc<Mutex<String>>, event: Even
         EventType::ButtonRelease(btn) if btn == target_button => MouseHotkeyEvent::TargetRelease,
         EventType::ButtonPress(btn) => {
             if let Button::Unknown(code) = btn {
-                eprintln!("[FamVoice] Mouse Button Press: Unknown({}) (Target: {:?})", code, target_button);
+                eprintln!(
+                    "[FamVoice] Mouse Button Press: Unknown({}) (Target: {:?})",
+                    code, target_button
+                );
             }
             MouseHotkeyEvent::Other
         }
         _ => MouseHotkeyEvent::Other,
     };
 
-    let (next_state, action) = decide_mouse_hotkey_action(current_mouse_hotkey_state(), hotkey_event);
+    let (next_state, action) =
+        decide_mouse_hotkey_action(current_mouse_hotkey_state(), hotkey_event);
     set_mouse_hotkey_state(next_state);
 
     match action {
@@ -140,20 +154,9 @@ fn handle_event(app: &AppHandle, hotkey_shared: &Arc<Mutex<String>>, event: Even
             let app_clone = app.clone();
             tauri::async_runtime::spawn(async move {
                 let audio_state: State<AudioState> = app_clone.state();
-                let settings_state: State<SettingsState> = app_clone.state();
-                let realtime_state: State<crate::transcription::RealtimeTranscriptionState> =
-                    app_clone.state();
-                let realtime_capability_state: State<crate::RealtimeCapabilityState> =
-                    app_clone.state();
                 let is_recording = audio_state.is_recording.load(Ordering::SeqCst);
                 if !is_recording {
-                    let _ = crate::start_recording_cmd(
-                        app_clone.clone(),
-                        audio_state,
-                        settings_state,
-                        realtime_state,
-                        realtime_capability_state,
-                    ).await;
+                    let _ = crate::start_recording_cmd(app_clone.clone(), audio_state).await;
                 }
             });
             None
@@ -162,10 +165,6 @@ fn handle_event(app: &AppHandle, hotkey_shared: &Arc<Mutex<String>>, event: Even
             let app_clone = app.clone();
             tauri::async_runtime::spawn(async move {
                 let audio_state: State<AudioState> = app_clone.state();
-                let realtime_state: State<crate::transcription::RealtimeTranscriptionState> =
-                    app_clone.state();
-                let realtime_capability_state: State<crate::RealtimeCapabilityState> =
-                    app_clone.state();
                 let settings_state: State<SettingsState> = app_clone.state();
                 let history_state: State<HistoryState> = app_clone.state();
                 let clipboard_state: State<ClipboardState> = app_clone.state();
@@ -175,13 +174,12 @@ fn handle_event(app: &AppHandle, hotkey_shared: &Arc<Mutex<String>>, event: Even
                     app_clone.clone(),
                     tasks_state,
                     audio_state,
-                    realtime_state,
-                    realtime_capability_state,
                     settings_state,
                     history_state,
                     clipboard_state,
-                    http_state
-                ).await;
+                    http_state,
+                )
+                .await;
             });
             None
         }
@@ -205,10 +203,8 @@ mod tests {
 
     #[test]
     fn test_target_release_stops_recording_and_resets_listener() {
-        let (next_state, action) = decide_mouse_hotkey_action(
-            MouseHotkeyState::Pressed,
-            MouseHotkeyEvent::TargetRelease,
-        );
+        let (next_state, action) =
+            decide_mouse_hotkey_action(MouseHotkeyState::Pressed, MouseHotkeyEvent::TargetRelease);
 
         assert_eq!(next_state, MouseHotkeyState::Idle);
         assert_eq!(action, MouseHotkeyAction::StopRecording);
@@ -216,10 +212,8 @@ mod tests {
 
     #[test]
     fn test_duplicate_target_press_is_swallowed_without_restarting() {
-        let (next_state, action) = decide_mouse_hotkey_action(
-            MouseHotkeyState::Pressed,
-            MouseHotkeyEvent::TargetPress,
-        );
+        let (next_state, action) =
+            decide_mouse_hotkey_action(MouseHotkeyState::Pressed, MouseHotkeyEvent::TargetPress);
 
         assert_eq!(next_state, MouseHotkeyState::Pressed);
         assert_eq!(action, MouseHotkeyAction::Swallow);
