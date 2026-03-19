@@ -581,14 +581,6 @@ where
         return finalized_transcript;
     }
 
-    if settings.prompt_optimizer_provider != "anthropic" {
-        eprintln!(
-            "[FamVoice] Prompt optimizer unavailable for provider: {}",
-            settings.prompt_optimizer_provider
-        );
-        return finalized_transcript;
-    }
-
     let request = prompt_optimizer::PromptOptimizerRequest {
         model: settings.prompt_optimizer_model.clone(),
         source_transcript: finalized_transcript.clone(),
@@ -1248,7 +1240,6 @@ mod tests {
     async fn test_resolve_final_output_uses_optimized_output_on_success() {
         let settings = AppSettings {
             prompt_optimization_enabled: true,
-            prompt_optimizer_provider: "anthropic".to_string(),
             prompt_optimizer_model: "claude-haiku-4-5".to_string(),
             anthropic_api_key: "sk-anthropic-test".to_string(),
             ..AppSettings::default()
@@ -1276,7 +1267,6 @@ mod tests {
     async fn test_resolve_final_output_falls_back_when_optimizer_fails() {
         let settings = AppSettings {
             prompt_optimization_enabled: true,
-            prompt_optimizer_provider: "anthropic".to_string(),
             prompt_optimizer_model: "claude-haiku-4-5".to_string(),
             anthropic_api_key: "sk-anthropic-test".to_string(),
             ..AppSettings::default()
@@ -1301,7 +1291,6 @@ mod tests {
     async fn test_resolve_final_output_skips_optimizer_when_anthropic_key_is_blank() {
         let settings = AppSettings {
             prompt_optimization_enabled: true,
-            prompt_optimizer_provider: "anthropic".to_string(),
             prompt_optimizer_model: "claude-haiku-4-5".to_string(),
             anthropic_api_key: "   ".to_string(),
             ..AppSettings::default()
@@ -1332,7 +1321,6 @@ mod tests {
     async fn test_resolve_final_output_falls_back_when_optimizer_times_out() {
         let settings = AppSettings {
             prompt_optimization_enabled: true,
-            prompt_optimizer_provider: "anthropic".to_string(),
             prompt_optimizer_model: "claude-haiku-4-5".to_string(),
             anthropic_api_key: "sk-anthropic-test".to_string(),
             ..AppSettings::default()
