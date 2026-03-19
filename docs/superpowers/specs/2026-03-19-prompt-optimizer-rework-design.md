@@ -59,9 +59,11 @@ pub async fn optimize_prompt(
 
 Changes from current:
 - `PromptOptimizerProvider` enum deleted
+- `ANTHROPIC_PROVIDER` constant deleted (no longer needed)
 - `UnsupportedProvider` error variant deleted
 - `PromptOptimizerRequest.provider` field deleted
-- `UnsupportedModel` no longer has a `provider` field
+- `UnsupportedModel` no longer has a `provider` field — `Display` impl updated to drop "for {provider}" and just say "unsupported model: {model}"
+- `validate_prompt_optimizer_request()` deleted and replaced by `validate_model()` in `anthropic.rs` (model-only check)
 
 #### anthropic.rs — Anthropic API Layer
 
@@ -76,7 +78,7 @@ Contains all Anthropic-specific types and logic, moved from the current `prompt_
 
 #### metaprompt.rs — System Instruction
 
-A single file containing the `SYSTEM_INSTRUCTION` constant. Isolated for easy iteration.
+A single file containing the `SYSTEM_INSTRUCTION` constant (replaces the current `OPTIMIZER_SYSTEM_INSTRUCTION`). Isolated for easy iteration.
 
 ### Metaprompt Design
 
@@ -98,15 +100,18 @@ The system instruction follows Anthropic's metaprompt pattern, adapted for FamVo
    - Don't add boilerplate headers to simple requests
    - Don't change the user's technical choices or tool preferences
 
-**Token budget:** ~800-1200 tokens for the system instruction. At Haiku pricing ($0.80/M input), this adds ~$0.001 per call.
+**User message format:** The user message simplifies to just the raw transcript — no wrapping preamble. The system instruction's few-shot examples already establish the expected input format, so the user message is simply the transcript text. This replaces the current `"Optimize the following source transcript into a polished prompt:\n\n{transcript}"` wrapper.
+
+**Token budget:** ~800-1200 tokens for the system instruction. At Haiku pricing ($0.80/M input), this adds ~$0.001 per call. At Sonnet pricing ($3/M input), ~$0.004 per call.
 
 ### Settings Changes
 
 **AppSettings (settings.rs):**
 
 Remove:
-- `prompt_optimizer_provider: String`
+- `prompt_optimizer_provider: String` field
 - `SUPPORTED_PROMPT_OPTIMIZER_PROVIDERS` constant
+- `SUPPORTED_PROMPT_OPTIMIZER_MODELS` constant (moves to `prompt_optimizer::anthropic::SUPPORTED_MODELS`)
 - Provider validation in `validate_settings()`
 
 Keep unchanged:
@@ -114,17 +119,18 @@ Keep unchanged:
 - `prompt_optimizer_model: String` (default: "claude-haiku-4-5")
 - `anthropic_api_key: String` (default: "")
 
-Model validation moves to `prompt_optimizer::anthropic::SUPPORTED_MODELS` but is still called from `validate_settings()`.
+Model validation moves to `prompt_optimizer::anthropic::SUPPORTED_MODELS` (re-exported from `prompt_optimizer::mod.rs` for clean imports) and is still called from `validate_settings()`.
 
-**Backward compatibility:** Old settings files containing `prompt_optimizer_provider` are silently ignored by serde (fields not in the struct are skipped with `#[serde(default)]`).
+**Backward compatibility:** Old settings files containing `prompt_optimizer_provider` are silently ignored — serde's default deserialization behavior skips JSON keys that have no matching struct field (since `AppSettings` does not use `#[serde(deny_unknown_fields)]`).
 
 ### lib.rs Integration Changes
 
 **Delete:**
 - `prompt_optimizer_provider()` function (lines 561-570)
+- Remove `#[allow(dead_code)]` annotation on `mod prompt_optimizer` (the module is actively used)
 
 **Simplify `resolve_final_output_for_paste()`:**
-- Remove the `prompt_optimizer_provider()` lookup and its early-return branch
+- Remove the `prompt_optimizer_provider()` lookup and its entire early-return guard block (lines 596-602)
 - Construct `PromptOptimizerRequest` without a `provider` field
 
 **Keep unchanged:**
