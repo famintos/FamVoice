@@ -46,43 +46,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn system_instruction_contains_few_shot_examples() {
+    fn system_instruction_targets_coding_agent_implementation_prompts() {
         let instruction = SYSTEM_INSTRUCTION.to_lowercase();
 
-        // Role definition
         assert!(
-            instruction.contains("voice transcript"),
-            "must define voice-to-prompt role"
+            instruction.contains("coding agent")
+                || instruction.contains("codex")
+                || instruction.contains("claude code")
+                || instruction.contains("gemini"),
+            "must target coding agents explicitly"
         );
+        assert!(
+            instruction.contains("english"),
+            "must require english output"
+        );
+        assert!(
+            instruction.contains("inspect the existing codebase")
+                || instruction.contains("inspect the codebase"),
+            "must require codebase inspection"
+        );
+        assert!(
+            instruction.contains("acceptance criteria"),
+            "must guide acceptance criteria output"
+        );
+        assert!(
+            instruction.contains("testing and verification"),
+            "must guide verification output"
+        );
+        assert!(
+            instruction.contains("assumptions"),
+            "must support explicit low-risk assumptions"
+        );
+        assert!(
+            instruction.contains("avoid unrelated refactors"),
+            "must discourage unrelated refactors"
+        );
+        assert!(
+            !instruction.contains("no markdown")
+                && !instruction.contains("not add any markdown"),
+            "must not keep the old no-markdown rule"
+        );
+    }
 
-        // Few-shot examples present (check for example markers)
+    #[test]
+    fn system_instruction_examples_focus_on_implementation_work() {
+        let instruction = SYSTEM_INSTRUCTION.to_lowercase();
+
         assert!(
             instruction.contains("<example>") || instruction.contains("<transcript>"),
             "must include few-shot examples"
         );
-
-        // Speech artifact handling
         assert!(
-            instruction.contains("filler") || instruction.contains("um") || instruction.contains("uh"),
-            "must address speech artifacts"
+            instruction.contains("ui feature")
+                || instruction.contains("bugfix")
+                || instruction.contains("implementation"),
+            "examples must focus on implementation work"
         );
-
-        // Intent preservation
         assert!(
-            instruction.contains("preserve") || instruction.contains("original intent"),
-            "must instruct to preserve intent"
-        );
-
-        // Adaptive structure (not forced sections)
-        assert!(
-            instruction.contains("adapt") || instruction.contains("complexity"),
-            "must support adaptive structure"
-        );
-
-        // No markdown/labels in output
-        assert!(
-            instruction.contains("no markdown") || instruction.contains("not add any markdown"),
-            "must prohibit markdown formatting"
+            !instruction.contains("write an email to my team"),
+            "generic writing examples should be removed"
         );
     }
 }
