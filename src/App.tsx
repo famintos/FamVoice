@@ -40,6 +40,10 @@ interface Settings {
   hotkey: string;
   widget_mode: boolean;
   mic_sensitivity: number;
+  prompt_optimization_enabled: boolean;
+  prompt_optimizer_provider: string;
+  prompt_optimizer_model: string;
+  anthropic_api_key: string;
   replacements: Replacement[];
 }
 
@@ -70,6 +74,15 @@ const LANGUAGES = [
   { value: "auto", label: "Auto Detect" },
   { value: "pt", label: "Portuguese" },
   { value: "en", label: "English" },
+];
+
+const PROMPT_OPTIMIZER_PROVIDERS = [
+  { value: "anthropic", label: "Anthropic" },
+];
+
+const PROMPT_OPTIMIZER_MODELS = [
+  { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
 ];
 
 function buildHotkeyString(e: React.KeyboardEvent): string | null {
@@ -243,6 +256,65 @@ function SettingsView() {
               <option value="gpt-4o-transcribe">gpt-4o-transcribe (High Accuracy)</option>
               <option value="whisper-1">whisper-1 (Legacy / Fallback)</option>
             </select>
+          </label>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Prompt Optimization</h3>
+            <span className="text-[10px] text-gray-500">
+              Runs a second Anthropic pass after transcription to rewrite the final transcript into a prompt.
+            </span>
+          </div>
+
+          <label className="flex items-center gap-3 text-xs text-gray-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={settings.prompt_optimization_enabled}
+              onChange={e => setSettings({ ...settings, prompt_optimization_enabled: e.target.checked })}
+              className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
+            />
+            <div className="flex flex-col">
+              <span>Improve into prompt</span>
+              <span className="text-[10px] text-gray-500">Adds an extra Anthropic model pass that rewrites the finalized transcript into a prompt.</span>
+            </div>
+          </label>
+
+          <label className="text-xs text-gray-400 flex flex-col gap-1.5">
+            Provider
+            <select
+              value={settings.prompt_optimizer_provider}
+              onChange={e => setSettings({ ...settings, prompt_optimizer_provider: e.target.value })}
+              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
+            >
+              {PROMPT_OPTIMIZER_PROVIDERS.map(provider => (
+                <option key={provider.value} value={provider.value}>{provider.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-xs text-gray-400 flex flex-col gap-1.5">
+            Model
+            <select
+              value={settings.prompt_optimizer_model}
+              onChange={e => setSettings({ ...settings, prompt_optimizer_model: e.target.value })}
+              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
+            >
+              {PROMPT_OPTIMIZER_MODELS.map(model => (
+                <option key={model.value} value={model.value}>{model.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-xs text-gray-400 flex flex-col gap-1.5">
+            Anthropic API Key
+            <input
+              type="password"
+              value={settings.anthropic_api_key}
+              onChange={e => setSettings({ ...settings, anthropic_api_key: e.target.value })}
+              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
+              placeholder="sk-ant-..."
+            />
           </label>
         </section>
 
