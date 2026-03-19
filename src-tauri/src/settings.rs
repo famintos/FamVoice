@@ -9,9 +9,6 @@ pub const SUPPORTED_MODELS: [&str; 3] = [
     "whisper-1",
 ];
 
-pub const SUPPORTED_PROMPT_OPTIMIZER_PROVIDERS: [&str; 1] = ["anthropic"];
-pub const SUPPORTED_PROMPT_OPTIMIZER_MODELS: [&str; 2] =
-    ["claude-haiku-4-5", "claude-sonnet-4-6"];
 
 pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 3] = ["auto", "pt", "en"];
 pub const MIN_MIC_SENSITIVITY: u8 = 0;
@@ -33,12 +30,8 @@ fn default_prompt_optimization_enabled() -> bool {
     false
 }
 
-fn default_prompt_optimizer_provider() -> String {
-    SUPPORTED_PROMPT_OPTIMIZER_PROVIDERS[0].to_string()
-}
-
 fn default_prompt_optimizer_model() -> String {
-    SUPPORTED_PROMPT_OPTIMIZER_MODELS[0].to_string()
+    crate::prompt_optimizer::SUPPORTED_MODELS[0].to_string()
 }
 
 fn normalize_language_preference(language: &str) -> String {
@@ -63,8 +56,6 @@ pub struct AppSettings {
     pub mic_sensitivity: u8,
     #[serde(default = "default_prompt_optimization_enabled")]
     pub prompt_optimization_enabled: bool,
-    #[serde(default = "default_prompt_optimizer_provider")]
-    pub prompt_optimizer_provider: String,
     #[serde(default = "default_prompt_optimizer_model")]
     pub prompt_optimizer_model: String,
     #[serde(default)]
@@ -84,7 +75,6 @@ impl Default for AppSettings {
             widget_mode: false,
             mic_sensitivity: default_mic_sensitivity(),
             prompt_optimization_enabled: default_prompt_optimization_enabled(),
-            prompt_optimizer_provider: default_prompt_optimizer_provider(),
             prompt_optimizer_model: default_prompt_optimizer_model(),
             anthropic_api_key: String::new(),
             replacements: Vec::new(),
@@ -180,20 +170,11 @@ pub fn validate_settings(settings: &AppSettings) -> Result<(), Vec<String>> {
         ));
     }
 
-    if !SUPPORTED_PROMPT_OPTIMIZER_PROVIDERS.contains(&settings.prompt_optimizer_provider.as_str())
-    {
-        errors.push(format!(
-            "Unsupported prompt optimizer provider: {}. Use one of: {}",
-            settings.prompt_optimizer_provider,
-            SUPPORTED_PROMPT_OPTIMIZER_PROVIDERS.join(", ")
-        ));
-    }
-
-    if !SUPPORTED_PROMPT_OPTIMIZER_MODELS.contains(&settings.prompt_optimizer_model.as_str()) {
+    if !crate::prompt_optimizer::SUPPORTED_MODELS.contains(&settings.prompt_optimizer_model.as_str()) {
         errors.push(format!(
             "Unsupported prompt optimizer model: {}. Use one of: {}",
             settings.prompt_optimizer_model,
-            SUPPORTED_PROMPT_OPTIMIZER_MODELS.join(", ")
+            crate::prompt_optimizer::SUPPORTED_MODELS.join(", ")
         ));
     }
 
@@ -262,7 +243,6 @@ mod tests {
             widget_mode: false,
             mic_sensitivity: DEFAULT_MIC_SENSITIVITY,
             prompt_optimization_enabled: false,
-            prompt_optimizer_provider: "anthropic".to_string(),
             prompt_optimizer_model: "claude-haiku-4-5".to_string(),
             anthropic_api_key: String::new(),
             replacements: vec![],
@@ -302,7 +282,6 @@ mod tests {
         {
             let mut settings = state.settings.lock().unwrap();
             settings.prompt_optimization_enabled = true;
-            settings.prompt_optimizer_provider = "anthropic".to_string();
             settings.prompt_optimizer_model = "claude-sonnet-4-6".to_string();
             settings.anthropic_api_key = "sk-anthropic-test".to_string();
         }
@@ -313,7 +292,6 @@ mod tests {
         let settings = reloaded.settings.lock().unwrap();
 
         assert!(settings.prompt_optimization_enabled);
-        assert_eq!(settings.prompt_optimizer_provider, "anthropic");
         assert_eq!(settings.prompt_optimizer_model, "claude-sonnet-4-6");
         assert_eq!(settings.anthropic_api_key, "sk-anthropic-test");
     }
@@ -528,7 +506,6 @@ mod tests {
         let settings = AppSettings::default();
 
         assert!(!settings.prompt_optimization_enabled);
-        assert_eq!(settings.prompt_optimizer_provider, "anthropic");
         assert_eq!(settings.prompt_optimizer_model, "claude-haiku-4-5");
         assert_eq!(settings.anthropic_api_key, "");
     }
@@ -556,25 +533,8 @@ mod tests {
         let settings = state.settings.lock().unwrap();
 
         assert!(!settings.prompt_optimization_enabled);
-        assert_eq!(settings.prompt_optimizer_provider, "anthropic");
         assert_eq!(settings.prompt_optimizer_model, "claude-haiku-4-5");
         assert_eq!(settings.anthropic_api_key, "");
-    }
-
-    #[test]
-    fn test_validate_settings_rejects_invalid_prompt_optimizer_provider() {
-        let settings = AppSettings {
-            prompt_optimizer_provider: "invalid".to_string(),
-            ..sample_settings()
-        };
-
-        let result = validate_settings(&settings);
-
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .iter()
-            .any(|e| e.contains("Unsupported prompt optimizer provider")));
     }
 
     #[test]
@@ -606,5 +566,36 @@ mod tests {
                 "expected prompt optimizer model {model} to be accepted"
             );
         }
+    }
+
+    #[test]
+    fn test_settings_deserializes_legacy_file_with_provider_field() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{
+  "api_key": "sk-test",
+  "model": "gpt-4o-mini-transcribe",
+  "language": "en",
+  "auto_paste": true,
+  "preserve_clipboard": false,
+  "hotkey": "CommandOrControl+Shift+Space",
+  "widget_mode": false,
+  "prompt_optimization_enabled": true,
+  "prompt_optimizer_provider": "anthropic",
+  "prompt_optimizer_model": "claude-sonnet-4-6",
+  "anthropic_api_key": "sk-ant-old",
+  "replacements": []
+}"#,
+        )
+        .unwrap();
+
+        let state = SettingsState::load(dir.path().to_path_buf());
+        let settings = state.settings.lock().unwrap();
+
+        assert!(settings.prompt_optimization_enabled);
+        assert_eq!(settings.prompt_optimizer_model, "claude-sonnet-4-6");
+        assert_eq!(settings.anthropic_api_key, "sk-ant-old");
     }
 }
