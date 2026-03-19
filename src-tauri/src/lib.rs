@@ -656,7 +656,7 @@ fn transcript_path_label(path: TranscriptPath) -> &'static str {
     }
 }
 
-fn upload_transcript_path(_model: &str) -> TranscriptPath {
+fn upload_transcript_path(_settings: &AppSettings) -> TranscriptPath {
     TranscriptPath::Upload
 }
 
@@ -772,7 +772,7 @@ async fn stop_recording_cmd(
         t_encode.elapsed().as_secs_f64() * 1000.0
     );
 
-    let transcript_path = upload_transcript_path(&settings.model);
+    let transcript_path = upload_transcript_path(&settings);
     eprintln!(
         "[FamVoice] Transcribing with model: {}, language preference: {}, path: {}",
         settings.model,
@@ -901,10 +901,29 @@ mod tests {
 
     #[test]
     fn test_upload_transcript_path_treats_gpt_4o_mini_transcribe_as_upload() {
+        let settings = AppSettings {
+            model: "gpt-4o-mini-transcribe".to_string(),
+            ..AppSettings::default()
+        };
+
         assert_eq!(
-            upload_transcript_path("gpt-4o-mini-transcribe"),
+            upload_transcript_path(&settings),
             TranscriptPath::Upload
         );
+    }
+
+    #[test]
+    fn test_upload_transcript_path_ignores_experimental_env_flags() {
+        let settings = AppSettings {
+            api_key: "sk-test".to_string(),
+            model: "gpt-4o-mini-transcribe".to_string(),
+            ..AppSettings::default()
+        };
+        std::env::set_var("FAMVOICE_ENABLE_REALTIME_EXPERIMENTAL", "1");
+
+        assert_eq!(upload_transcript_path(&settings), TranscriptPath::Upload);
+
+        std::env::remove_var("FAMVOICE_ENABLE_REALTIME_EXPERIMENTAL");
     }
 
     #[test]

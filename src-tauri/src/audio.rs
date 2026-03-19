@@ -230,7 +230,6 @@ impl Default for AudioState {
         let armed_clone = armed.clone();
         let needs_rebuild = Arc::new(AtomicBool::new(false));
         let needs_rebuild_clone = needs_rebuild.clone();
-
         std::thread::spawn(move || {
             let sample_buffer: Arc<Mutex<Vec<i16>>> =
                 Arc::new(Mutex::new(Vec::with_capacity(INITIAL_SAMPLE_CAPACITY)));

@@ -22,7 +22,10 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(ls:*)",
       "Bash(git rm:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(git push:*)",
+      "Bash(cargo tauri:*)",
+      "Bash(npx tauri:*)"
     ]
   }
 }
