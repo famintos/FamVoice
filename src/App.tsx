@@ -54,14 +54,26 @@ interface HistoryItem {
 }
 
 
-function VoiceWave({ isPlaying = false }: { isPlaying?: boolean }) {
+function VoiceWave({
+  isPlaying = false,
+  size = "default",
+}: {
+  isPlaying?: boolean;
+  size?: "default" | "large";
+}) {
+  const containerClass = size === "large"
+    ? "h-8 gap-1"
+    : "h-4 gap-[2px]";
+  const barClass = size === "large" ? "w-[4px]" : "w-[3px]";
+  const pausedHeight = size === "large" ? "55%" : "40%";
+
   return (
-    <div className="flex items-center justify-center h-4 gap-[2px] pointer-events-none">
+    <div className={`flex items-center justify-center ${containerClass} pointer-events-none`}>
       {[...Array(5)].map((_, i) => (
         <div
           key={i}
-          className={`wave-bar w-[3px] bg-primary rounded-full h-full ${!isPlaying ? "pause-animation" : ""}`}
-          style={{ height: isPlaying ? undefined : "40%" }}
+          className={`wave-bar ${barClass} bg-primary rounded-full h-full ${!isPlaying ? "pause-animation" : ""}`}
+          style={{ height: isPlaying ? undefined : pausedHeight }}
         />
       ))}
     </div>
@@ -84,6 +96,13 @@ const PROMPT_OPTIMIZER_MODELS = [
   { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
   { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
 ];
+
+const WIDGET_DRAG_START_GRACE_MS = 180;
+
+function isInteractiveDragTarget(target: EventTarget | null): boolean {
+  return target instanceof Element
+    && target.closest("button, input, select, textarea, a, [role='button'], [contenteditable='true'], .no-drag") !== null;
+}
 
 function buildHotkeyString(e: React.KeyboardEvent): string | null {
   const key = e.key;
@@ -126,6 +145,7 @@ function SettingsView() {
   const [autostart, setAutostart] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const appWindow = getCurrentWindow();
 
 
   useEffect(() => {
@@ -219,7 +239,16 @@ function SettingsView() {
 
   return (
     <main className="w-full h-full flex flex-col p-4 bg-[#0f0f13] text-white overflow-hidden border border-white/10 rounded-xl">
-      <div className="-mx-4 -mt-4 mb-2 px-4 pt-4 pb-3 select-none" data-tauri-drag-region>
+      <div
+        className="-mx-4 -mt-4 mb-2 px-4 pt-4 pb-3 select-none"
+        onMouseDownCapture={(e) => {
+          if (e.button !== 0 || isInteractiveDragTarget(e.target)) return;
+          e.preventDefault();
+          void appWindow.startDragging().catch((error) => {
+            console.error("Failed to start settings drag:", error);
+          });
+        }}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 pointer-events-none">
             <SettingsIcon size={14} className="text-primary" />
@@ -505,6 +534,7 @@ function MainView() {
   const widgetContainerRef = useRef<HTMLElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
   const ignoreCursorEventsRef = useRef<boolean | null>(null);
+  const widgetDragGraceUntilRef = useRef(0);
   const appWindow = getCurrentWindow();
 
 
@@ -596,6 +626,16 @@ function MainView() {
       const container = widgetContainerRef.current;
       if (!container) return;
 
+      if (Date.now() < widgetDragGraceUntilRef.current) {
+        if (ignoreCursorEventsRef.current === false) {
+          return;
+        }
+
+        ignoreCursorEventsRef.current = false;
+        await appWindow.setIgnoreCursorEvents(false);
+        return;
+      }
+
       const shouldProcessCursorEvents = await (async () => {
         const [cursor, windowPosition, scaleFactor] = await Promise.all([
           cursorPosition(),
@@ -659,6 +699,8 @@ function MainView() {
     await invoke("clear_history");
   };
 
+  const showStatusDot = status === "transcribing" || status === "success" || status === "error";
+
   if (settings?.widget_mode) {
     return (
       <div className="w-full h-full flex items-center justify-center" style={{ pointerEvents: "none" }}>
@@ -667,9 +709,12 @@ function MainView() {
           id="widget-container"
           className="relative flex items-center gap-3 px-4 py-2 bg-[#0f0f13] backdrop-blur-2xl rounded-md shadow-md border border-white/10 text-white"
           style={{ pointerEvents: "auto" }}
-          onMouseDown={(e) => {
+          onMouseDownCapture={(e) => {
             if (e.button !== 0) return;
             e.preventDefault();
+            widgetDragGraceUntilRef.current = Date.now() + WIDGET_DRAG_START_GRACE_MS;
+            ignoreCursorEventsRef.current = false;
+            void appWindow.setIgnoreCursorEvents(false);
             void appWindow.startDragging().catch((error) => {
               console.error("Failed to start widget drag:", error);
             });
@@ -756,14 +801,13 @@ function MainView() {
         {activeTab === "record" ? (
           <div data-tauri-drag-region className="h-full flex flex-col items-center justify-center p-6 relative">
             <div className="flex items-center justify-center h-12 mb-2 pointer-events-none">
-              {status === "recording" ? (
-                <VoiceWave />
-              ) : (
-                <div className={`w-3 h-3 rounded-full transition-all duration-500 ${status === "idle" ? "bg-gray-700 shadow-none" :
-                  status === "transcribing" ? "bg-yellow-500 animate-pulse shadow-[0_0_15px_rgba(234,179,8,0.4)]" :
-                    status === "success" ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]" :
-                      "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+              {showStatusDot ? (
+                <div className={`w-3 h-3 rounded-full transition-all duration-500 ${status === "transcribing" ? "bg-yellow-500 animate-pulse shadow-[0_0_15px_rgba(234,179,8,0.4)]" :
+                  status === "success" ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]" :
+                    "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
                   }`} />
+              ) : (
+                <VoiceWave isPlaying={status === "recording"} size="large" />
               )}
             </div>
 
