@@ -26,6 +26,7 @@ use transcription::{RealtimeTranscriptionState, ReleaseTranscriptDecision};
 const PASTE_CLIPBOARD_SETTLE_DELAY_MS: u64 = 5;
 const CLIPBOARD_RESTORE_DELAY_MS: u64 = 40;
 const PROMPT_OPTIMIZER_TIMEOUT_MS: u64 = 10_000;
+const PROMPT_OPTIMIZER_SLOW_MODEL_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_WINDOW_WIDTH: f64 = 260.0;
 const DEFAULT_WINDOW_HEIGHT: f64 = 200.0;
 const DEFAULT_WIDGET_WIDTH: f64 = 128.0;
@@ -511,8 +512,50 @@ fn finalize_transcript(mut text: String, replacements: &[settings::Replacement])
     text
 }
 
-fn prompt_optimizer_timeout() -> std::time::Duration {
-    std::time::Duration::from_millis(PROMPT_OPTIMIZER_TIMEOUT_MS)
+fn prompt_optimizer_timeout(model: &str) -> std::time::Duration {
+    let timeout_ms = match model {
+        "claude-sonnet-4-6" => PROMPT_OPTIMIZER_SLOW_MODEL_TIMEOUT_MS,
+        _ => PROMPT_OPTIMIZER_TIMEOUT_MS,
+    };
+
+    std::time::Duration::from_millis(timeout_ms)
+}
+
+fn prompt_optimizer_timeout_message(
+    model: &str,
+    timeout_duration: std::time::Duration,
+) -> String {
+    format!(
+        "[FamVoice] Prompt optimization timed out for model {} after {}ms, using finalized transcript",
+        model,
+        timeout_duration.as_millis()
+    )
+}
+
+fn prompt_optimizer_start_message(model: &str) -> String {
+    format!(
+        "[FamVoice] Starting prompt optimization with model {}",
+        model
+    )
+}
+
+fn prompt_optimizer_success_message(
+    model: &str,
+    elapsed: std::time::Duration,
+) -> String {
+    format!(
+        "[FamVoice] Prompt optimization succeeded with model {} in {}ms",
+        model,
+        elapsed.as_millis()
+    )
+}
+
+fn prompt_optimizer_failure_message(model: &str, error: &str) -> String {
+    format!(
+        "[FamVoice] Prompt optimization failed for model {}, using finalized transcript: {}",
+        model,
+        error
+    )
 }
 
 fn prompt_optimizer_provider(
@@ -564,16 +607,40 @@ where
         source_transcript: finalized_transcript.clone(),
     };
 
+    eprintln!(
+        "{}",
+        prompt_optimizer_start_message(&settings.prompt_optimizer_model)
+    );
+    let optimization_started_at = std::time::Instant::now();
+
     match tokio::time::timeout(timeout_duration, optimize(request)).await {
-        Ok(Ok(response)) => response.optimized_prompt,
+        Ok(Ok(response)) => {
+            eprintln!(
+                "{}",
+                prompt_optimizer_success_message(
+                    &settings.prompt_optimizer_model,
+                    optimization_started_at.elapsed()
+                )
+            );
+            response.optimized_prompt
+        }
         Ok(Err(error)) => {
-            eprintln!("[FamVoice] Prompt optimization failed, using finalized transcript: {}", error);
+            eprintln!(
+                "{}",
+                prompt_optimizer_failure_message(
+                    &settings.prompt_optimizer_model,
+                    &error.to_string()
+                )
+            );
             finalized_transcript
         }
         Err(_) => {
             eprintln!(
-                "[FamVoice] Prompt optimization timed out after {}ms, using finalized transcript",
-                timeout_duration.as_millis()
+                "{}",
+                prompt_optimizer_timeout_message(
+                    &settings.prompt_optimizer_model,
+                    timeout_duration
+                )
             );
             finalized_transcript
         }
@@ -900,7 +967,7 @@ async fn stop_recording_cmd(
             let text = resolve_final_output_for_paste(
                 &settings,
                 finalized_text,
-                prompt_optimizer_timeout(),
+                prompt_optimizer_timeout(&settings.prompt_optimizer_model),
                 |request| {
                     prompt_optimizer::optimize_prompt(
                         &http_state.client,
@@ -1305,8 +1372,57 @@ mod tests {
     }
 
     #[test]
-    fn test_prompt_optimizer_timeout_allows_slow_model_responses() {
-        assert_eq!(prompt_optimizer_timeout().as_millis(), 10_000);
+    fn test_prompt_optimizer_timeout_keeps_haiku_fast() {
+        assert_eq!(prompt_optimizer_timeout("claude-haiku-4-5").as_millis(), 10_000);
+    }
+
+    #[test]
+    fn test_prompt_optimizer_timeout_gives_sonnet_more_time() {
+        assert_eq!(prompt_optimizer_timeout("claude-sonnet-4-6").as_millis(), 30_000);
+    }
+
+    #[test]
+    fn test_prompt_optimizer_timeout_message_includes_model_name() {
+        let message = prompt_optimizer_timeout_message(
+            "claude-sonnet-4-6",
+            std::time::Duration::from_millis(30_000),
+        );
+
+        assert!(message.contains("claude-sonnet-4-6"));
+        assert!(message.contains("30000ms"));
+        assert!(message.contains("using finalized transcript"));
+    }
+
+    #[test]
+    fn test_prompt_optimizer_start_message_includes_model_name() {
+        let message = prompt_optimizer_start_message("claude-haiku-4-5");
+
+        assert!(message.contains("claude-haiku-4-5"));
+        assert!(message.contains("Starting prompt optimization"));
+    }
+
+    #[test]
+    fn test_prompt_optimizer_success_message_includes_model_name_and_duration() {
+        let message = prompt_optimizer_success_message(
+            "claude-sonnet-4-6",
+            std::time::Duration::from_millis(1842),
+        );
+
+        assert!(message.contains("claude-sonnet-4-6"));
+        assert!(message.contains("1842ms"));
+        assert!(message.contains("succeeded"));
+    }
+
+    #[test]
+    fn test_prompt_optimizer_failure_message_includes_model_name_and_error() {
+        let message = prompt_optimizer_failure_message(
+            "claude-haiku-4-5",
+            "request failed",
+        );
+
+        assert!(message.contains("claude-haiku-4-5"));
+        assert!(message.contains("request failed"));
+        assert!(message.contains("using finalized transcript"));
     }
 
     #[test]
