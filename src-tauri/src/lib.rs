@@ -5,6 +5,8 @@ mod injection;
 mod settings;
 mod history;
 mod input_hook;
+#[allow(dead_code)]
+mod prompt_optimizer;
 
 
 use tauri::{Manager, AppHandle, State, Emitter, LogicalSize, Size, WebviewWindow};
