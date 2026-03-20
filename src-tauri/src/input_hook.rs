@@ -1,12 +1,9 @@
 use crate::audio::AudioState;
-use crate::clipboard::ClipboardState;
-use crate::history::HistoryState;
-use crate::settings::SettingsState;
-use crate::HttpClientState;
 use rdev::{grab, Button, Event, EventType};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
 pub struct HotkeyConfigState {
@@ -14,6 +11,8 @@ pub struct HotkeyConfigState {
 }
 
 static MOUSE_HOTKEY_PRESSED: AtomicBool = AtomicBool::new(false);
+const MOUSE_GRAB_RETRY_INITIAL_DELAY_MS: u64 = 500;
+const MOUSE_GRAB_RETRY_MAX_DELAY_MS: u64 = 30_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MouseHotkeyState {
@@ -104,8 +103,31 @@ fn decide_mouse_hotkey_action(
 
 pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
     thread::spawn(move || {
-        if let Err(error) = grab(move |event| handle_event(&app, &hotkey_shared, event)) {
-            eprintln!("[FamVoice] Mouse grabber error: {:?}", error);
+        let mut retry_delay = Duration::from_millis(MOUSE_GRAB_RETRY_INITIAL_DELAY_MS);
+
+        loop {
+            let app_handle = app.clone();
+            let hotkey = hotkey_shared.clone();
+
+            match grab(move |event| handle_event(&app_handle, &hotkey, event)) {
+                Ok(()) => {
+                    eprintln!("[FamVoice] Mouse grabber stopped unexpectedly, restarting");
+                    retry_delay = Duration::from_millis(MOUSE_GRAB_RETRY_INITIAL_DELAY_MS);
+                    thread::sleep(retry_delay);
+                }
+                Err(error) => {
+                    eprintln!(
+                        "[FamVoice] Mouse grabber error: {:?}. Retrying in {}ms",
+                        error,
+                        retry_delay.as_millis()
+                    );
+                    thread::sleep(retry_delay);
+                    let next_delay_ms = (retry_delay.as_millis() as u64)
+                        .saturating_mul(2)
+                        .min(MOUSE_GRAB_RETRY_MAX_DELAY_MS);
+                    retry_delay = Duration::from_millis(next_delay_ms);
+                }
+            }
         }
     });
 }
@@ -156,7 +178,7 @@ fn handle_event(
                 let audio_state: State<AudioState> = app_clone.state();
                 let is_recording = audio_state.is_recording.load(Ordering::SeqCst);
                 if !is_recording {
-                    let _ = crate::start_recording_cmd(app_clone.clone(), audio_state).await;
+                    let _ = crate::start_recording_cmd(app_clone.clone()).await;
                 }
             });
             None
@@ -165,21 +187,11 @@ fn handle_event(
             let app_clone = app.clone();
             tauri::async_runtime::spawn(async move {
                 let audio_state: State<AudioState> = app_clone.state();
-                let settings_state: State<SettingsState> = app_clone.state();
-                let history_state: State<HistoryState> = app_clone.state();
-                let clipboard_state: State<ClipboardState> = app_clone.state();
-                let http_state: State<HttpClientState> = app_clone.state();
-                let tasks_state: State<crate::BackgroundTasksState> = app_clone.state();
-                let _ = crate::stop_recording_cmd(
-                    app_clone.clone(),
-                    tasks_state,
-                    audio_state,
-                    settings_state,
-                    history_state,
-                    clipboard_state,
-                    http_state,
-                )
-                .await;
+                let is_recording = audio_state.is_recording.load(Ordering::SeqCst);
+                if !is_recording {
+                    return;
+                }
+                let _ = crate::stop_recording_cmd(app_clone.clone()).await;
             });
             None
         }

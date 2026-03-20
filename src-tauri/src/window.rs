@@ -1,0 +1,114 @@
+use tauri::{AppHandle, LogicalSize, Manager, Size, WebviewWindow};
+
+const DEFAULT_WINDOW_WIDTH: f64 = 260.0;
+const DEFAULT_WINDOW_HEIGHT: f64 = 200.0;
+const DEFAULT_WIDGET_WIDTH: f64 = 128.0;
+const DEFAULT_WIDGET_HEIGHT: f64 = 44.0;
+
+pub(crate) fn main_window_dimensions(widget_mode: bool) -> (f64, f64) {
+    if widget_mode {
+        (DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT)
+    } else {
+        (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+    }
+}
+
+pub(crate) fn set_main_window_size(
+    window: &WebviewWindow,
+    width: f64,
+    height: f64,
+    center: bool,
+) -> Result<(), String> {
+    window.set_resizable(true).map_err(|e| e.to_string())?;
+    window
+        .set_min_size(None::<Size>)
+        .map_err(|e| e.to_string())?;
+    window
+        .set_max_size(None::<Size>)
+        .map_err(|e| e.to_string())?;
+
+    let size = LogicalSize::new(width, height);
+    window.set_size(size).map_err(|e| e.to_string())?;
+    window
+        .set_min_size(Some(LogicalSize::new(width, height)))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_max_size(Some(LogicalSize::new(width, height)))
+        .map_err(|e| e.to_string())?;
+    window.set_resizable(false).map_err(|e| e.to_string())?;
+    let _ = window.set_maximizable(false);
+
+    if center {
+        let _ = window.center();
+    }
+
+    Ok(())
+}
+
+pub(crate) fn apply_main_window_mode(
+    app: &AppHandle,
+    widget_mode: bool,
+    center: bool,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let (width, height) = main_window_dimensions(widget_mode);
+    set_main_window_size(&window, width, height, center)
+}
+
+pub(crate) fn resize_main_window(app: &AppHandle, width: f64, height: f64) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    set_main_window_size(&window, width, height, false)
+}
+
+pub(crate) fn close_settings_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.close();
+    }
+}
+
+pub(crate) fn open_settings_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "settings",
+        tauri::WebviewUrl::App("index.html?view=settings".into()),
+    )
+    .title("Settings")
+    .inner_size(340.0, 520.0)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .center()
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_main_window_dimensions_use_compact_widget_size() {
+        assert_eq!(
+            main_window_dimensions(true),
+            (DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT)
+        );
+        assert_eq!(
+            main_window_dimensions(false),
+            (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        );
+    }
+}

@@ -1,10 +1,13 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 /// Target sample rate for OpenAI transcription models (16kHz is optimal)
 const TARGET_SAMPLE_RATE: u32 = 16000;
+const MAX_RECORDING_DURATION_SECONDS: usize = 5 * 60;
+const MAX_RECORDED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * MAX_RECORDING_DURATION_SECONDS;
 
 /// Pre-allocated buffer capacity: ~60 seconds at 16kHz mono
 const INITIAL_SAMPLE_CAPACITY: usize = TARGET_SAMPLE_RATE as usize * 60;
@@ -21,8 +24,8 @@ pub struct AudioState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UploadAudioSelection {
-    pub samples: Vec<i16>,
+pub struct UploadAudioSelection<'a> {
+    pub samples: Cow<'a, [i16]>,
     pub was_trimmed: bool,
 }
 
@@ -65,6 +68,16 @@ fn begin_recording_cycle(state: &mut RecordingCycleState, buffer: &mut Vec<i16>)
     state.is_recording = true;
 }
 
+fn append_samples_capped(buffer: &mut Vec<i16>, new_samples: &[i16]) {
+    let remaining_capacity = MAX_RECORDED_SAMPLES.saturating_sub(buffer.len());
+    if remaining_capacity == 0 {
+        return;
+    }
+
+    let samples_to_append = remaining_capacity.min(new_samples.len());
+    buffer.extend_from_slice(&new_samples[..samples_to_append]);
+}
+
 fn finish_recording_cycle(
     state: &mut RecordingCycleState,
     buffer: &mut Vec<i16>,
@@ -72,6 +85,94 @@ fn finish_recording_cycle(
     state.armed = false;
     state.is_recording = false;
     take_recorded_samples(buffer)
+}
+
+fn mix_down_and_resample<T, Convert>(
+    data: &[T],
+    capture_channels: usize,
+    downsample_ratio: f64,
+    filter: &mut LowPassFilter,
+    mono_buf: &mut Vec<f64>,
+    resampled_buf: &mut Vec<i16>,
+    convert_sample: Convert,
+) where
+    T: Copy,
+    Convert: Fn(T) -> f64 + Copy,
+{
+    mono_buf.clear();
+    resampled_buf.clear();
+
+    if capture_channels == 1 {
+        mono_buf.extend(data.iter().copied().map(convert_sample));
+    } else {
+        for frame in data.chunks_exact(capture_channels) {
+            let sum: f64 = frame.iter().copied().map(convert_sample).sum();
+            mono_buf.push(sum / capture_channels as f64);
+        }
+    }
+
+    if downsample_ratio <= 1.0 {
+        resampled_buf.extend(
+            mono_buf
+                .iter()
+                .map(|sample| sample.round().clamp(-32768.0, 32767.0) as i16),
+        );
+        return;
+    }
+
+    let mut pos = 0.0f64;
+    while (pos as usize) < mono_buf.len() {
+        let filtered = filter.process(mono_buf[pos as usize]);
+        resampled_buf.push(filtered.round().clamp(-32768.0, 32767.0) as i16);
+        pos += downsample_ratio;
+    }
+}
+
+fn build_mono_input_stream<T, Convert, ErrFn>(
+    device: &cpal::Device,
+    stream_config: &cpal::StreamConfig,
+    sample_buffer: Arc<Mutex<Vec<i16>>>,
+    armed: Arc<AtomicBool>,
+    capture_channels: usize,
+    capture_rate: u32,
+    downsample_ratio: f64,
+    filter_cutoff: f64,
+    convert_sample: Convert,
+    err_fn: ErrFn,
+) -> Result<cpal::Stream, cpal::BuildStreamError>
+where
+    T: cpal::SizedSample,
+    Convert: Fn(T) -> f64 + Copy + Send + 'static,
+    ErrFn: FnMut(cpal::StreamError) + Send + 'static,
+{
+    let mut mono_buf: Vec<f64> = Vec::with_capacity(8192);
+    let mut resampled_buf: Vec<i16> = Vec::with_capacity((8192.0 / downsample_ratio) as usize + 16);
+    let mut filter = LowPassFilter::new(filter_cutoff, capture_rate as f64);
+
+    device.build_input_stream(
+        stream_config,
+        move |data: &[T], _: &cpal::InputCallbackInfo| {
+            if !armed.load(Ordering::SeqCst) {
+                return;
+            }
+
+            mix_down_and_resample(
+                data,
+                capture_channels,
+                downsample_ratio,
+                &mut filter,
+                &mut mono_buf,
+                &mut resampled_buf,
+                convert_sample,
+            );
+
+            if let Ok(mut buf) = sample_buffer.lock() {
+                append_samples_capped(&mut buf, &resampled_buf);
+            }
+        },
+        err_fn,
+        None,
+    )
 }
 
 fn start_persistent_input_stream(
@@ -102,112 +203,44 @@ fn start_persistent_input_stream(
 
     let filter_cutoff = (TARGET_SAMPLE_RATE as f64 / 2.0) * 0.875;
 
-    let err_armed = armed.clone();
-    let err_recording = is_recording.clone();
-    let err_rebuild = needs_rebuild.clone();
-    let err_fn = move |err| {
-        eprintln!("[FamVoice] Audio stream error: {}", err);
-        err_armed.store(false, Ordering::SeqCst);
-        err_recording.store(false, Ordering::SeqCst);
-        err_rebuild.store(true, Ordering::SeqCst);
+    let make_err_fn = || {
+        let err_armed = armed.clone();
+        let err_recording = is_recording.clone();
+        let err_rebuild = needs_rebuild.clone();
+
+        move |err| {
+            eprintln!("[FamVoice] Audio stream error: {}", err);
+            err_armed.store(false, Ordering::SeqCst);
+            err_recording.store(false, Ordering::SeqCst);
+            err_rebuild.store(true, Ordering::SeqCst);
+        }
     };
 
     let stream = match sample_format {
-        cpal::SampleFormat::I16 => {
-            let mut mono_buf: Vec<i16> = Vec::with_capacity(8192);
-            let mut resampled_buf: Vec<i16> =
-                Vec::with_capacity((8192.0 / downsample_ratio) as usize + 16);
-            let mut filter = LowPassFilter::new(filter_cutoff, capture_rate as f64);
-            let buffer_clone = sample_buffer.clone();
-            let armed_clone = armed.clone();
-
-            device.build_input_stream(
-                &stream_config,
-                move |data: &[i16], _: &_| {
-                    if !armed_clone.load(Ordering::SeqCst) {
-                        return;
-                    }
-
-                    mono_buf.clear();
-                    resampled_buf.clear();
-
-                    if capture_channels == 1 {
-                        mono_buf.extend_from_slice(data);
-                    } else {
-                        for frame in data.chunks_exact(capture_channels) {
-                            let sum: i32 = frame.iter().map(|&s| s as i32).sum();
-                            mono_buf.push((sum / capture_channels as i32) as i16);
-                        }
-                    }
-
-                    if downsample_ratio <= 1.0 {
-                        resampled_buf.extend_from_slice(&mono_buf);
-                    } else {
-                        let mut pos = 0.0f64;
-                        while (pos as usize) < mono_buf.len() {
-                            let filtered = filter.process(mono_buf[pos as usize] as f64);
-                            resampled_buf.push(filtered.clamp(-32768.0, 32767.0) as i16);
-                            pos += downsample_ratio;
-                        }
-                    }
-
-                    if let Ok(mut buf) = buffer_clone.lock() {
-                        buf.extend_from_slice(&resampled_buf);
-                    }
-                },
-                err_fn,
-                None,
-            )
-        }
-        cpal::SampleFormat::F32 => {
-            let mut mono_buf: Vec<i16> = Vec::with_capacity(8192);
-            let mut resampled_buf: Vec<i16> =
-                Vec::with_capacity((8192.0 / downsample_ratio) as usize + 16);
-            let mut filter = LowPassFilter::new(filter_cutoff, capture_rate as f64);
-            let buffer_clone = sample_buffer.clone();
-            let armed_clone = armed.clone();
-
-            device.build_input_stream(
-                &stream_config,
-                move |data: &[f32], _: &_| {
-                    if !armed_clone.load(Ordering::SeqCst) {
-                        return;
-                    }
-
-                    mono_buf.clear();
-                    resampled_buf.clear();
-
-                    if capture_channels == 1 {
-                        for &s in data {
-                            mono_buf.push((s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
-                        }
-                    } else {
-                        for frame in data.chunks_exact(capture_channels) {
-                            let sum: f32 = frame.iter().sum();
-                            let avg = (sum / capture_channels as f32).clamp(-1.0, 1.0);
-                            mono_buf.push((avg * i16::MAX as f32) as i16);
-                        }
-                    }
-
-                    if downsample_ratio <= 1.0 {
-                        resampled_buf.extend_from_slice(&mono_buf);
-                    } else {
-                        let mut pos = 0.0f64;
-                        while (pos as usize) < mono_buf.len() {
-                            let filtered = filter.process(mono_buf[pos as usize] as f64);
-                            resampled_buf.push(filtered.clamp(-32768.0, 32767.0) as i16);
-                            pos += downsample_ratio;
-                        }
-                    }
-
-                    if let Ok(mut buf) = buffer_clone.lock() {
-                        buf.extend_from_slice(&resampled_buf);
-                    }
-                },
-                err_fn,
-                None,
-            )
-        }
+        cpal::SampleFormat::I16 => build_mono_input_stream::<i16, _, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            armed.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            |sample| sample as f64,
+            make_err_fn(),
+        ),
+        cpal::SampleFormat::F32 => build_mono_input_stream::<f32, _, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            armed.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            |sample| sample.clamp(-1.0, 1.0) as f64 * i16::MAX as f64,
+            make_err_fn(),
+        ),
         other => {
             return Err(format!("Unsupported audio format: {:?}", other));
         }
@@ -341,8 +374,18 @@ pub fn encode_wav_in_memory(samples: &[i16]) -> Vec<u8> {
     // data sub-chunk
     buf.extend_from_slice(b"data");
     buf.extend_from_slice(&data_size.to_le_bytes());
-    for &s in samples {
-        buf.extend_from_slice(&s.to_le_bytes());
+    #[cfg(target_endian = "little")]
+    {
+        let byte_len = std::mem::size_of_val(samples);
+        let sample_bytes =
+            unsafe { std::slice::from_raw_parts(samples.as_ptr().cast::<u8>(), byte_len) };
+        buf.extend_from_slice(sample_bytes);
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        for &sample in samples {
+            buf.extend_from_slice(&sample.to_le_bytes());
+        }
     }
 
     buf
@@ -417,13 +460,13 @@ fn speech_window_end_frame(
     None
 }
 
-pub fn select_samples_for_upload(
-    samples: &[i16],
+pub fn select_samples_for_upload<'a>(
+    samples: &'a [i16],
     silence_threshold_rms: f64,
-) -> UploadAudioSelection {
+) -> UploadAudioSelection<'a> {
     if samples.len() < SPEECH_WINDOW_MIN_CLIP_SAMPLES {
         return UploadAudioSelection {
-            samples: samples.to_vec(),
+            samples: Cow::Borrowed(samples),
             was_trimmed: false,
         };
     }
@@ -431,7 +474,7 @@ pub fn select_samples_for_upload(
     let frame_levels = speech_frame_levels(samples);
     let Some(start_frame) = speech_window_start_frame(&frame_levels, silence_threshold_rms) else {
         return UploadAudioSelection {
-            samples: samples.to_vec(),
+            samples: Cow::Borrowed(samples),
             was_trimmed: false,
         };
     };
@@ -439,7 +482,7 @@ pub fn select_samples_for_upload(
         speech_window_end_frame(&frame_levels, silence_threshold_rms, start_frame)
     else {
         return UploadAudioSelection {
-            samples: samples.to_vec(),
+            samples: Cow::Borrowed(samples),
             was_trimmed: false,
         };
     };
@@ -451,7 +494,7 @@ pub fn select_samples_for_upload(
 
     if end_sample <= start_sample {
         return UploadAudioSelection {
-            samples: samples.to_vec(),
+            samples: Cow::Borrowed(samples),
             was_trimmed: false,
         };
     }
@@ -464,13 +507,13 @@ pub fn select_samples_for_upload(
         || (start_sample == 0 && end_sample == samples.len())
     {
         return UploadAudioSelection {
-            samples: samples.to_vec(),
+            samples: Cow::Borrowed(samples),
             was_trimmed: false,
         };
     }
 
     UploadAudioSelection {
-        samples: samples[start_sample..end_sample].to_vec(),
+        samples: Cow::Owned(samples[start_sample..end_sample].to_vec()),
         was_trimmed: true,
     }
 }
@@ -566,6 +609,19 @@ mod tests {
         assert_eq!(taken, Some(vec![1, 2, 3, 4]));
     }
 
+    #[test]
+    fn recording_buffer_is_capped_at_five_minutes() {
+        let mut samples = Vec::new();
+        let chunk = vec![1; MAX_RECORDED_SAMPLES / 2];
+
+        append_samples_capped(&mut samples, &chunk);
+        append_samples_capped(&mut samples, &chunk);
+        append_samples_capped(&mut samples, &[2; 128]);
+
+        assert_eq!(samples.len(), MAX_RECORDED_SAMPLES);
+        assert!(samples.iter().all(|sample| *sample == 1));
+    }
+
     fn silence_samples(length: usize) -> Vec<i16> {
         vec![0; length]
     }
@@ -632,7 +688,7 @@ mod tests {
         let selected = select_samples_for_upload(&samples, 100.0);
 
         assert!(!selected.was_trimmed);
-        assert_eq!(selected.samples, samples);
+        assert_eq!(selected.samples.as_ref(), samples.as_slice());
     }
 
     #[test]
@@ -647,5 +703,15 @@ mod tests {
         assert!(selected.was_trimmed);
         assert!(selected.samples.len() > SPEECH_WINDOW_FRAME_SAMPLES * 4);
         assert!(selected.samples.len() < samples.len());
+    }
+
+    #[test]
+    fn speech_window_borrows_original_samples_when_no_trim_is_needed() {
+        let samples = speech_samples(TARGET_SAMPLE_RATE as usize, 800);
+
+        let selected = select_samples_for_upload(&samples, 100.0);
+
+        assert!(!selected.was_trimmed);
+        assert!(matches!(selected.samples, Cow::Borrowed(_)));
     }
 }

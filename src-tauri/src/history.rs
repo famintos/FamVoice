@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const MAX_HISTORY_ITEM_CHARS: usize = 10_000;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct HistoryItem {
     pub id: u64,
@@ -64,14 +66,14 @@ impl HistoryState {
         let mut items = self.items.lock().unwrap();
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         items.insert(
             0,
             HistoryItem {
                 id,
-                text,
+                text: truncate_history_text(text),
                 timestamp,
             },
         );
@@ -94,10 +96,29 @@ impl HistoryState {
     }
 
     fn save_locked(&self, items: &[HistoryItem]) {
-        if let Ok(data) = serde_json::to_string_pretty(items) {
-            let _ = fs::write(&self.path, data);
+        match serde_json::to_string_pretty(items) {
+            Ok(data) => {
+                if let Err(error) = fs::write(&self.path, data) {
+                    eprintln!(
+                        "[FamVoice] Failed to write history to {}: {}",
+                        self.path.display(),
+                        error
+                    );
+                }
+            }
+            Err(error) => {
+                eprintln!("[FamVoice] Failed to serialize history: {}", error);
+            }
         }
     }
+}
+
+fn truncate_history_text(text: String) -> String {
+    if text.chars().count() <= MAX_HISTORY_ITEM_CHARS {
+        return text;
+    }
+
+    text.chars().take(MAX_HISTORY_ITEM_CHARS).collect()
 }
 
 #[cfg(test)]
@@ -140,5 +161,17 @@ mod tests {
             let items = state.items.lock().unwrap();
             assert_eq!(items.len(), 0);
         }
+    }
+
+    #[test]
+    fn test_history_add_truncates_large_items() {
+        let dir = tempdir().unwrap();
+        let state = HistoryState::load(dir.path().to_path_buf());
+        let text = "a".repeat(MAX_HISTORY_ITEM_CHARS + 25);
+
+        state.add(text);
+
+        let items = state.items.lock().unwrap();
+        assert_eq!(items[0].text.len(), MAX_HISTORY_ITEM_CHARS);
     }
 }

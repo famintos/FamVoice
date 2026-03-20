@@ -1,8 +1,31 @@
 use reqwest::multipart;
+use reqwest::StatusCode;
 use std::time::{Duration, Instant};
 
 fn model_supports_streaming(model: &str) -> bool {
     model != "whisper-1"
+}
+
+fn user_facing_api_error(status: StatusCode) -> String {
+    match status {
+        StatusCode::UNAUTHORIZED => {
+            "OpenAI authentication failed. Check the saved API key.".to_string()
+        }
+        StatusCode::TOO_MANY_REQUESTS => {
+            "OpenAI rejected the request due to rate limits or quota. Try again later.".to_string()
+        }
+        StatusCode::BAD_REQUEST => {
+            "OpenAI rejected the audio request. Verify the selected model and try again."
+                .to_string()
+        }
+        StatusCode::INTERNAL_SERVER_ERROR
+        | StatusCode::BAD_GATEWAY
+        | StatusCode::SERVICE_UNAVAILABLE
+        | StatusCode::GATEWAY_TIMEOUT => {
+            "OpenAI is temporarily unavailable. Try again in a moment.".to_string()
+        }
+        _ => format!("OpenAI request failed with status {}.", status.as_u16()),
+    }
 }
 
 pub async fn transcribe_audio(
@@ -47,8 +70,11 @@ pub async fn transcribe_audio(
         .map_err(|e| e.to_string())?;
 
     if !res.status().is_success() {
+        let status = res.status();
         let err_text = res.text().await.unwrap_or_default();
-        return Err(format!("API Error: {}", err_text));
+        #[cfg(debug_assertions)]
+        eprintln!("[FamVoice] OpenAI API error {}: {}", status, err_text);
+        return Err(user_facing_api_error(status));
     }
 
     if !use_streaming {

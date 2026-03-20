@@ -31,8 +31,9 @@ interface Replacement {
   replacement: string;
 }
 
-interface Settings {
-  api_key: string;
+interface SettingsViewModel {
+  api_key_present: boolean;
+  api_key_masked: string | null;
   model: string;
   language: string;
   auto_paste: boolean;
@@ -42,7 +43,23 @@ interface Settings {
   mic_sensitivity: number;
   prompt_optimization_enabled: boolean;
   prompt_optimizer_model: string;
-  anthropic_api_key: string;
+  anthropic_api_key_present: boolean;
+  anthropic_api_key_masked: string | null;
+  replacements: Replacement[];
+}
+
+interface SaveSettingsPayload {
+  api_key: string | null;
+  model: string;
+  language: string;
+  auto_paste: boolean;
+  preserve_clipboard: boolean;
+  hotkey: string;
+  widget_mode: boolean;
+  mic_sensitivity: number;
+  prompt_optimization_enabled: boolean;
+  prompt_optimizer_model: string;
+  anthropic_api_key: string | null;
   replacements: Replacement[];
 }
 
@@ -50,6 +67,11 @@ interface HistoryItem {
   id: number;
   text: string;
   timestamp: number;
+}
+
+interface WidgetWindowMetrics {
+  windowPosition: { x: number; y: number };
+  scaleFactor: number;
 }
 
 
@@ -93,6 +115,7 @@ const PROMPT_OPTIMIZER_MODELS = [
 ];
 
 const WIDGET_DRAG_START_GRACE_MS = 180;
+const WIDGET_CURSOR_POLL_INTERVAL_MS = 75;
 
 function isInteractiveDragTarget(target: EventTarget | null): boolean {
   return target instanceof Element
@@ -136,7 +159,9 @@ function formatHotkey(hotkey: string): string {
 
 
 function SettingsView() {
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settings, setSettings] = useState<SettingsViewModel | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [anthropicApiKeyInput, setAnthropicApiKeyInput] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -144,8 +169,12 @@ function SettingsView() {
 
 
   useEffect(() => {
-    invoke<Settings>("get_settings")
-      .then(setSettings)
+    invoke<SettingsViewModel>("get_settings")
+      .then((loadedSettings) => {
+        setSettings(loadedSettings);
+        setApiKeyInput("");
+        setAnthropicApiKeyInput("");
+      })
       .catch((error) => {
         console.error("Failed to load settings:", error);
         setErrorMessage(String(error));
@@ -157,11 +186,27 @@ function SettingsView() {
       });
   }, []);
 
-  const saveSettings = async (newSettings: Settings) => {
+  const saveSettings = async (newSettings: SettingsViewModel) => {
     try {
       setErrorMessage(null);
-      await invoke("save_settings", { newSettings });
-      setSettings(newSettings);
+      const payload: SaveSettingsPayload = {
+        model: newSettings.model,
+        language: newSettings.language,
+        auto_paste: newSettings.auto_paste,
+        preserve_clipboard: newSettings.preserve_clipboard,
+        hotkey: newSettings.hotkey,
+        widget_mode: newSettings.widget_mode,
+        mic_sensitivity: newSettings.mic_sensitivity,
+        prompt_optimization_enabled: newSettings.prompt_optimization_enabled,
+        prompt_optimizer_model: newSettings.prompt_optimizer_model,
+        replacements: newSettings.replacements,
+        api_key: apiKeyInput.trim() ? apiKeyInput.trim() : null,
+        anthropic_api_key: anthropicApiKeyInput.trim() ? anthropicApiKeyInput.trim() : null,
+      };
+      const savedSettings = await invoke<SettingsViewModel>("save_settings", { newSettings: payload });
+      setSettings(savedSettings);
+      setApiKeyInput("");
+      setAnthropicApiKeyInput("");
       try {
         if (autostart) await enable(); else await disable();
       } catch (e) {
@@ -262,11 +307,16 @@ function SettingsView() {
             OpenAI API Key
             <input
               type="password"
-              value={settings.api_key}
-              onChange={e => setSettings({ ...settings, api_key: e.target.value })}
+              value={apiKeyInput}
+              onChange={e => setApiKeyInput(e.target.value)}
               className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
-              placeholder="sk-..."
+              placeholder={settings.api_key_masked ?? "sk-..."}
             />
+            <span className="text-[10px] text-gray-500">
+              {settings.api_key_present
+                ? `Saved in your OS credential store as ${settings.api_key_masked}. Leave blank to keep it.`
+                : "Saved in your OS credential store after you enter one."}
+            </span>
           </label>
 
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
@@ -321,11 +371,16 @@ function SettingsView() {
             Anthropic API Key
             <input
               type="password"
-              value={settings.anthropic_api_key}
-              onChange={e => setSettings({ ...settings, anthropic_api_key: e.target.value })}
+              value={anthropicApiKeyInput}
+              onChange={e => setAnthropicApiKeyInput(e.target.value)}
               className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
-              placeholder="sk-ant-..."
+              placeholder={settings.anthropic_api_key_masked ?? "sk-ant-..."}
             />
+            <span className="text-[10px] text-gray-500">
+              {settings.anthropic_api_key_present
+                ? `Saved in your OS credential store as ${settings.anthropic_api_key_masked}. Leave blank to keep it.`
+                : "Saved in your OS credential store after you enter one."}
+            </span>
           </label>
         </section>
 
@@ -510,21 +565,37 @@ function MainView() {
   const [status, setStatus] = useState<Status>("idle");
   const [transcript, setTranscript] = useState("");
 
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settings, setSettings] = useState<SettingsViewModel | null>(null);
   const [activeTab, setActiveTab] = useState<"record" | "history">("record");
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [actionError, setActionError] = useState<string | null>(null);
   const widgetContainerRef = useRef<HTMLElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
   const ignoreCursorEventsRef = useRef<boolean | null>(null);
   const widgetDragGraceUntilRef = useRef(0);
+  const widgetWindowMetricsRef = useRef<WidgetWindowMetrics | null>(null);
   const appWindow = getCurrentWindow();
+
+  const formatErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error);
+
+  const reportActionError = (context: string, error: unknown) => {
+    console.error(`${context}:`, error);
+    setActionError(`${context}: ${formatErrorMessage(error)}`);
+  };
 
 
 
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then(setSettings);
-    loadHistory();
+    invoke<SettingsViewModel>("get_settings")
+      .then((loadedSettings) => {
+        setSettings(loadedSettings);
+      })
+      .catch((error) => {
+        reportActionError("Failed to load settings", error);
+      });
+    void loadHistory();
 
     const unlistenStatus = listen<Status>("status", (event) => {
       setStatus(event.payload);
@@ -534,7 +605,7 @@ function MainView() {
       setTranscript(event.payload);
     });
 
-    const unlistenSettings = listen<Settings>("settings-updated", (event) => {
+    const unlistenSettings = listen<SettingsViewModel>("settings-updated", (event) => {
       setSettings(event.payload);
     });
 
@@ -561,15 +632,19 @@ function MainView() {
 
     let frameId = 0;
     const resizeWindow = async () => {
-      const size = getWidgetWindowSize(container.getBoundingClientRect());
-      const previousSize = lastWidgetSizeRef.current;
+      try {
+        const size = getWidgetWindowSize(container.getBoundingClientRect());
+        const previousSize = lastWidgetSizeRef.current;
 
-      if (previousSize?.width === size.width && previousSize?.height === size.height) {
-        return;
+        if (previousSize?.width === size.width && previousSize?.height === size.height) {
+          return;
+        }
+
+        lastWidgetSizeRef.current = { width: size.width, height: size.height };
+        await invoke("resize_main_window", { width: size.width, height: size.height });
+      } catch (error) {
+        console.error("Failed to resize widget window:", error);
       }
-
-      lastWidgetSizeRef.current = { width: size.width, height: size.height };
-      await invoke("resize_main_window", { width: size.width, height: size.height });
     };
 
     const scheduleResize = () => {
@@ -596,89 +671,149 @@ function MainView() {
   useEffect(() => {
     if (!settings?.widget_mode) {
       ignoreCursorEventsRef.current = null;
+      widgetWindowMetricsRef.current = null;
       void appWindow.setIgnoreCursorEvents(false);
       return;
     }
 
     let cancelled = false;
 
+    const loadWindowMetrics = async (): Promise<WidgetWindowMetrics> => {
+      const [windowPosition, scaleFactor] = await Promise.all([
+        appWindow.innerPosition(),
+        appWindow.scaleFactor(),
+      ]);
+
+      return { windowPosition, scaleFactor };
+    };
+
     const syncCursorInteractivity = async () => {
-      if (cancelled) return;
+      try {
+        if (cancelled) return;
 
-      const container = widgetContainerRef.current;
-      if (!container) return;
+        const container = widgetContainerRef.current;
+        if (!container) return;
 
-      if (Date.now() < widgetDragGraceUntilRef.current) {
-        if (ignoreCursorEventsRef.current === false) {
+        if (Date.now() < widgetDragGraceUntilRef.current) {
+          if (ignoreCursorEventsRef.current === false) {
+            return;
+          }
+
+          ignoreCursorEventsRef.current = false;
+          await appWindow.setIgnoreCursorEvents(false);
           return;
         }
 
-        ignoreCursorEventsRef.current = false;
-        await appWindow.setIgnoreCursorEvents(false);
-        return;
-      }
+        const metrics = widgetWindowMetricsRef.current ?? await loadWindowMetrics();
+        widgetWindowMetricsRef.current = metrics;
 
-      const shouldProcessCursorEvents = await (async () => {
-        const [cursor, windowPosition, scaleFactor] = await Promise.all([
-          cursorPosition(),
-          appWindow.innerPosition(),
-          appWindow.scaleFactor(),
-        ]);
-
+        const cursor = await cursorPosition();
         const bounds = getWidgetInteractiveBounds({
           rect: container.getBoundingClientRect(),
-          windowPosition,
-          scaleFactor,
+          windowPosition: metrics.windowPosition,
+          scaleFactor: metrics.scaleFactor,
         });
+        const shouldProcessCursorEvents = isPointInsideBounds(cursor, bounds);
 
-        return isPointInsideBounds(cursor, bounds);
-      })();
+        const nextIgnoreValue = !shouldProcessCursorEvents;
+        if (ignoreCursorEventsRef.current === nextIgnoreValue) {
+          return;
+        }
 
-      const nextIgnoreValue = !shouldProcessCursorEvents;
-      if (ignoreCursorEventsRef.current === nextIgnoreValue) {
-        return;
+        ignoreCursorEventsRef.current = nextIgnoreValue;
+        await appWindow.setIgnoreCursorEvents(nextIgnoreValue);
+      } catch (error) {
+        console.error("Failed to sync widget interactivity:", error);
       }
+    };
 
-      ignoreCursorEventsRef.current = nextIgnoreValue;
-      await appWindow.setIgnoreCursorEvents(nextIgnoreValue);
+    const syncFromWindowMove = ({ payload }: { payload: { x: number; y: number } }) => {
+      widgetWindowMetricsRef.current = {
+        ...(widgetWindowMetricsRef.current ?? { scaleFactor: 1 }),
+        windowPosition: payload,
+      };
+      void syncCursorInteractivity();
+    };
+
+    const syncFromScaleChange = ({ payload }: { payload: { scaleFactor: number } }) => {
+      widgetWindowMetricsRef.current = {
+        ...(widgetWindowMetricsRef.current ?? { windowPosition: { x: 0, y: 0 } }),
+        scaleFactor: payload.scaleFactor,
+      };
+      void syncCursorInteractivity();
     };
 
     void syncCursorInteractivity();
+    const unlistenMoved = appWindow.onMoved(syncFromWindowMove);
+    const unlistenScaleChanged = appWindow.onScaleChanged(syncFromScaleChange);
     const intervalId = window.setInterval(() => {
       void syncCursorInteractivity();
-    }, 16);
+    }, WIDGET_CURSOR_POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
       ignoreCursorEventsRef.current = null;
+      widgetWindowMetricsRef.current = null;
+      unlistenMoved.then(f => f());
+      unlistenScaleChanged.then(f => f());
       void appWindow.setIgnoreCursorEvents(false);
     };
   }, [appWindow, settings?.widget_mode]);
 
   const loadHistory = async () => {
-    const h = await invoke<HistoryItem[]>("get_history");
-    setHistory(h);
+    try {
+      const h = await invoke<HistoryItem[]>("get_history");
+      setHistory(h);
+      setActionError(null);
+    } catch (error) {
+      reportActionError("Failed to load history", error);
+    }
   };
 
   const handleOpenSettings = async () => {
-    await invoke("open_settings_window");
+    try {
+      setActionError(null);
+      await invoke("open_settings_window");
+    } catch (error) {
+      reportActionError("Failed to open settings", error);
+    }
   };
 
   const copyToClipboard = async (text: string) => {
-    await navigator.clipboard.writeText(text);
+    try {
+      setActionError(null);
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      reportActionError("Failed to copy transcript", error);
+    }
   };
 
   const repasteHistory = async (text: string) => {
-    await invoke("repaste_history_item", { text });
+    try {
+      setActionError(null);
+      await invoke("repaste_history_item", { text });
+    } catch (error) {
+      reportActionError("Failed to repaste history item", error);
+    }
   };
 
   const deleteHistory = async (id: number) => {
-    await invoke("delete_history_item", { id });
+    try {
+      setActionError(null);
+      await invoke("delete_history_item", { id });
+    } catch (error) {
+      reportActionError("Failed to delete history item", error);
+    }
   };
 
   const clearHistory = async () => {
-    await invoke("clear_history");
+    try {
+      setActionError(null);
+      await invoke("clear_history");
+    } catch (error) {
+      reportActionError("Failed to clear history", error);
+    }
   };
 
   const showStatusDot = status === "transcribing" || status === "success" || status === "error";
@@ -779,7 +914,13 @@ function MainView() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {actionError && (
+          <div className="mx-4 mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200 no-drag">
+            {actionError}
+          </div>
+        )}
+        <div className="flex-1 overflow-hidden">
         {activeTab === "record" ? (
           <div data-tauri-drag-region className="h-full flex flex-col items-center justify-center p-6 relative">
             <div className="flex items-center justify-center h-12 mb-2 pointer-events-none">
@@ -876,6 +1017,7 @@ function MainView() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </main>
   );

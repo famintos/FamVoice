@@ -1,54 +1,70 @@
 mod audio;
 mod clipboard;
+mod glossary;
 mod history;
 mod injection;
 mod input_hook;
+mod mic_analysis;
 mod prompt_optimizer;
 mod settings;
 mod transcription;
+mod window;
 
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{collections::VecDeque, time::Duration};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, Size, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use audio::AudioState;
 use clipboard::ClipboardState;
 use history::HistoryState;
-use settings::{validate_settings, AppSettings, SettingsState};
+use settings::{AppSettings, FrontendSettings, SaveSettingsRequest, SettingsState};
 
 const PASTE_CLIPBOARD_SETTLE_DELAY_MS: u64 = 5;
 const CLIPBOARD_RESTORE_DELAY_MS: u64 = 40;
+const STATUS_RESET_DELAY_MS: u64 = 2_000;
 const PROMPT_OPTIMIZER_TIMEOUT_MS: u64 = 10_000;
 const PROMPT_OPTIMIZER_SLOW_MODEL_TIMEOUT_MS: u64 = 30_000;
-const DEFAULT_WINDOW_WIDTH: f64 = 260.0;
-const DEFAULT_WINDOW_HEIGHT: f64 = 200.0;
-const DEFAULT_WIDGET_WIDTH: f64 = 128.0;
-const DEFAULT_WIDGET_HEIGHT: f64 = 44.0;
+const MIN_RESIZE_DIMENSION: f64 = 50.0;
+const MAX_RESIZE_DIMENSION: f64 = 4000.0;
+const MAX_REPASTE_TEXT_BYTES: usize = 50 * 1024;
 
 pub struct HttpClientState {
     pub client: reqwest::Client,
 }
 
 pub struct BackgroundTasksState {
-    handles: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    handles: std::sync::Mutex<VecDeque<tokio::task::JoinHandle<()>>>,
 }
 
 impl BackgroundTasksState {
     fn new() -> Self {
         Self {
-            handles: std::sync::Mutex::new(Vec::new()),
+            handles: std::sync::Mutex::new(VecDeque::new()),
         }
     }
 
     fn spawn(&self, handle: tokio::task::JoinHandle<()>) {
         if let Ok(mut handles) = self.handles.lock() {
-            handles.push(handle);
+            handles.push_back(handle);
             if handles.len() > 10 {
-                handles.remove(0);
+                if let Some(oldest_handle) = handles.pop_front() {
+                    oldest_handle.abort();
+                }
+            }
+        }
+    }
+}
+
+impl Drop for BackgroundTasksState {
+    fn drop(&mut self) {
+        if let Ok(handles) = self.handles.get_mut() {
+            for handle in handles.drain(..) {
+                handle.abort();
             }
         }
     }
@@ -60,12 +76,10 @@ use std::sync::Mutex;
 fn register_hotkey(app: &AppHandle, hotkey: &str) {
     input_hook::reset_mouse_hotkey_state();
 
-    // Update global mouse listener config
     if let Some(state) = app.try_state::<HotkeyConfigState>() {
         *state.hotkey.lock().unwrap() = hotkey.to_string();
     }
 
-    // Unregister all existing keyboard shortcuts
     let _ = app.global_shortcut().unregister_all();
 
     if input_hook::is_mouse_hotkey(hotkey) {
@@ -83,29 +97,18 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) {
                     if !is_recording {
                         let app_clone = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            let audio_state: State<AudioState> = app_clone.state();
-                            let _ = start_recording_cmd(app_clone.clone(), audio_state).await;
+                            let _ = start_recording_cmd(app_clone.clone()).await;
                         });
                     }
                 } else if event.state() == ShortcutState::Released {
+                    let state: State<AudioState> = app.state();
+                    let is_recording = state.is_recording.load(std::sync::atomic::Ordering::SeqCst);
+                    if !is_recording {
+                        return;
+                    }
                     let app_clone = app.clone();
                     tauri::async_runtime::spawn(async move {
-                        let audio_state: State<AudioState> = app_clone.state();
-                        let settings_state: State<SettingsState> = app_clone.state();
-                        let history_state: State<HistoryState> = app_clone.state();
-                        let clipboard_state: State<ClipboardState> = app_clone.state();
-                        let http_state: State<HttpClientState> = app_clone.state();
-                        let tasks_state: State<BackgroundTasksState> = app_clone.state();
-                        let _ = stop_recording_cmd(
-                            app_clone.clone(),
-                            tasks_state,
-                            audio_state,
-                            settings_state,
-                            history_state,
-                            clipboard_state,
-                            http_state,
-                        )
-                        .await;
+                        let _ = stop_recording_cmd(app_clone.clone()).await;
                     });
                 }
             });
@@ -115,98 +118,46 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) {
 }
 
 #[tauri::command]
-fn get_settings(state: State<'_, SettingsState>) -> AppSettings {
-    state.settings.lock().unwrap().clone()
-}
-
-fn main_window_dimensions(widget_mode: bool) -> (f64, f64) {
-    if widget_mode {
-        (DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT)
-    } else {
-        (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
-    }
-}
-
-fn set_main_window_size(
-    window: &WebviewWindow,
-    width: f64,
-    height: f64,
-    center: bool,
-) -> Result<(), String> {
-    window.set_resizable(true).map_err(|e| e.to_string())?;
-    window
-        .set_min_size(None::<Size>)
-        .map_err(|e| e.to_string())?;
-    window
-        .set_max_size(None::<Size>)
-        .map_err(|e| e.to_string())?;
-
-    let size = LogicalSize::new(width, height);
-    window.set_size(size).map_err(|e| e.to_string())?;
-    window
-        .set_min_size(Some(LogicalSize::new(width, height)))
-        .map_err(|e| e.to_string())?;
-    window
-        .set_max_size(Some(LogicalSize::new(width, height)))
-        .map_err(|e| e.to_string())?;
-    window.set_resizable(false).map_err(|e| e.to_string())?;
-    let _ = window.set_maximizable(false);
-
-    if center {
-        let _ = window.center();
-    }
-
-    Ok(())
-}
-
-fn apply_main_window_mode(app: &AppHandle, widget_mode: bool, center: bool) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    let (width, height) = main_window_dimensions(widget_mode);
-    set_main_window_size(&window, width, height, center)
+fn get_settings(state: State<'_, SettingsState>) -> FrontendSettings {
+    state.settings.lock().unwrap().to_frontend()
 }
 
 #[tauri::command]
 async fn save_settings(
     app: AppHandle,
     state: State<'_, SettingsState>,
-    new_settings: AppSettings,
-) -> Result<(), String> {
-    if let Err(errors) = validate_settings(&new_settings) {
-        return Err(format!("Invalid settings: {}", errors.join(", ")));
+    new_settings: SaveSettingsRequest,
+) -> Result<FrontendSettings, String> {
+    let previous = state.settings.lock().unwrap().clone();
+    let saved = state.save_request(new_settings)?;
+    let frontend = saved.to_frontend();
+
+    if previous.widget_mode != saved.widget_mode {
+        window::apply_main_window_mode(&app, saved.widget_mode, true)?;
     }
 
-    let (old_settings, old_hotkey) = {
-        let mut settings = state.settings.lock().unwrap();
-        let old_settings = settings.clone();
-        let old_hotkey = old_settings.hotkey.clone();
-        *settings = new_settings.clone();
-        (old_settings, old_hotkey)
-    };
-    if let Err(e) = state.save() {
-        *state.settings.lock().unwrap() = old_settings;
-        return Err(format!("Failed to save settings: {}", e));
+    if previous.hotkey != saved.hotkey {
+        register_hotkey(&app, &saved.hotkey);
     }
 
-    let _ = app.emit("settings-updated", new_settings.clone());
+    let _ = app.emit("settings-updated", frontend.clone());
 
-    if old_settings.widget_mode != new_settings.widget_mode {
-        apply_main_window_mode(&app, new_settings.widget_mode, true)?;
+    Ok(frontend)
+}
+
+fn sanitize_window_dimension(value: f64, label: &str) -> Result<f64, String> {
+    if !value.is_finite() {
+        return Err(format!("{label} must be finite"));
     }
 
-    if old_hotkey != new_settings.hotkey {
-        register_hotkey(&app, &new_settings.hotkey);
-    }
-    Ok(())
+    Ok(value.clamp(MIN_RESIZE_DIMENSION, MAX_RESIZE_DIMENSION))
 }
 
 #[tauri::command]
 fn resize_main_window(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    set_main_window_size(&window, width, height, false)
+    let width = sanitize_window_dimension(width, "width")?;
+    let height = sanitize_window_dimension(height, "height")?;
+    window::resize_main_window(&app, width, height)
 }
 
 #[tauri::command]
@@ -227,53 +178,33 @@ fn clear_history(app: AppHandle, state: State<'_, HistoryState>) {
 }
 
 #[tauri::command]
-async fn repaste_history_item(
-    _clipboard_state: State<'_, ClipboardState>,
-    text: String,
-) -> Result<(), String> {
-    if let Err(e) = clipboard::set_clipboard(&text) {
-        return Err(format!("Failed to set clipboard: {}", e));
+async fn repaste_history_item(app: AppHandle, text: String) -> Result<(), String> {
+    if text.len() > MAX_REPASTE_TEXT_BYTES {
+        return Err("History item is too large to repaste".to_string());
     }
+
+    let clipboard_state: State<ClipboardState> = app.state();
+    if let Err(error) = clipboard::set_clipboard(&*clipboard_state, &text) {
+        return Err(format!("Failed to set clipboard: {}", error));
+    }
+
     tokio::time::sleep(paste_clipboard_settle_delay()).await;
-    if let Err(e) = injection::simulate_paste() {
-        return Err(format!("Failed to simulate paste: {}", e));
+    if let Err(error) = injection::simulate_paste() {
+        return Err(format!("Failed to simulate paste: {}", error));
     }
+
     Ok(())
 }
 
 #[tauri::command]
 async fn close_settings_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.close();
-    }
+    window::close_settings_window(&app);
     Ok(())
 }
 
 #[tauri::command]
 async fn open_settings_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.show();
-        let _ = window.set_focus();
-        return Ok(());
-    }
-
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        "settings",
-        tauri::WebviewUrl::App("index.html?view=settings".into()),
-    )
-    .title("Settings")
-    .inner_size(340.0, 520.0)
-    .resizable(false)
-    .decorations(false)
-    .transparent(true)
-    .shadow(false)
-    .always_on_top(true)
-    .center()
-    .build()
-    .map_err(|e| e.to_string())?;
-
-    Ok(())
+    window::open_settings_window(&app)
 }
 
 fn transcription_language_override(language_preference: &str) -> Option<&str> {
@@ -285,125 +216,21 @@ fn transcription_language_override(language_preference: &str) -> Option<&str> {
 }
 
 #[tauri::command]
-async fn start_recording_cmd(
-    app: AppHandle,
-    audio_state: State<'_, AudioState>,
-) -> Result<(), String> {
+async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
+    let audio_state: State<AudioState> = app.state();
+
     match audio::start_recording(&*audio_state).await {
         Ok(()) => {
             let _ = app.emit("status", "recording");
             Ok(())
         }
-        Err(e) => {
-            eprintln!("[FamVoice] Failed to start recording: {}", e);
+        Err(error) => {
+            eprintln!("[FamVoice] Failed to start recording: {}", error);
             let _ = app.emit("status", "error");
-            let _ = app.emit("transcript", e.clone());
-            Err(e)
+            let _ = app.emit("transcript", error.clone());
+            Err(error)
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct GlossaryRule {
-    target: String,
-    replacement: String,
-}
-
-fn is_word_char(ch: char) -> bool {
-    ch.is_alphanumeric() || ch == '\'' || ch == '_'
-}
-
-fn is_single_word_target(target: &str) -> bool {
-    !target.is_empty() && target.chars().all(is_word_char)
-}
-
-fn sorted_glossary_rules(
-    replacements: &[settings::Replacement],
-) -> (Vec<GlossaryRule>, Vec<GlossaryRule>) {
-    let mut phrase_rules = Vec::new();
-    let mut single_word_rules = Vec::new();
-
-    for replacement in replacements {
-        let target = replacement.target.trim();
-        if target.is_empty() {
-            continue;
-        }
-
-        let rule = GlossaryRule {
-            target: target.to_string(),
-            replacement: replacement.replacement.clone(),
-        };
-
-        if is_single_word_target(target) {
-            single_word_rules.push(rule);
-        } else {
-            phrase_rules.push(rule);
-        }
-    }
-
-    let sort_rules = |rules: &mut Vec<GlossaryRule>| {
-        rules.sort_by(|left, right| {
-            right
-                .target
-                .chars()
-                .count()
-                .cmp(&left.target.chars().count())
-                .then_with(|| left.target.cmp(&right.target))
-        });
-    };
-
-    sort_rules(&mut phrase_rules);
-    sort_rules(&mut single_word_rules);
-    (phrase_rules, single_word_rules)
-}
-
-fn replace_whole_word_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
-    let target_lower = target.to_lowercase();
-    let mut output = String::with_capacity(text.len());
-    let mut chars = text.char_indices().peekable();
-
-    while let Some((_, ch)) = chars.peek().copied() {
-        if !is_word_char(ch) {
-            output.push(ch);
-            chars.next();
-            continue;
-        }
-
-        let mut token = String::new();
-        while let Some((_, word_char)) = chars.peek().copied() {
-            if !is_word_char(word_char) {
-                break;
-            }
-            token.push(word_char);
-            chars.next();
-        }
-
-        if token.to_lowercase() == target_lower {
-            output.push_str(replacement);
-        } else {
-            output.push_str(&token);
-        }
-    }
-
-    output
-}
-
-fn finalize_transcript(mut text: String, replacements: &[settings::Replacement]) -> String {
-    let (phrase_rules, single_word_rules) = sorted_glossary_rules(replacements);
-
-    for rule in phrase_rules {
-        text = text.replace(&rule.target, &rule.replacement);
-    }
-
-    for rule in single_word_rules {
-        text = replace_whole_word_case_insensitive(&text, &rule.target, &rule.replacement);
-    }
-
-    if text.ends_with('.') {
-        text.pop();
-    }
-
-    text
 }
 
 fn prompt_optimizer_timeout(model: &str) -> std::time::Duration {
@@ -514,117 +341,6 @@ where
     }
 }
 
-const MIC_MIN_SILENCE_THRESHOLD_RMS: f64 = 42.0;
-const MIC_MAX_SILENCE_THRESHOLD_RMS: f64 = 12.0;
-const MIC_MIN_TARGET_RMS: f64 = 1200.0;
-const MIC_MAX_TARGET_RMS: f64 = 2200.0;
-const MIC_TARGET_PEAK: f64 = 12000.0;
-const MIC_MAX_AUTO_GAIN: f64 = 8.0;
-const MIC_MIN_AUTO_GAIN_TO_APPLY: f64 = 1.2;
-
-#[derive(Clone, Copy, Debug)]
-struct MicAudioLevels {
-    rms: f64,
-    peak: f64,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct MicLevelDetails {
-    rms_dbfs: f64,
-    peak_percent: f64,
-}
-
-fn mic_interpolate(min_value: f64, max_value: f64, mic_sensitivity: u8) -> f64 {
-    let ratio = f64::from(mic_sensitivity.min(settings::MAX_MIC_SENSITIVITY))
-        / f64::from(settings::MAX_MIC_SENSITIVITY);
-    min_value + (max_value - min_value) * ratio
-}
-
-fn mic_silence_threshold(mic_sensitivity: u8) -> f64 {
-    mic_interpolate(
-        MIC_MIN_SILENCE_THRESHOLD_RMS,
-        MIC_MAX_SILENCE_THRESHOLD_RMS,
-        mic_sensitivity,
-    )
-}
-
-fn mic_target_rms(mic_sensitivity: u8) -> f64 {
-    mic_interpolate(MIC_MIN_TARGET_RMS, MIC_MAX_TARGET_RMS, mic_sensitivity)
-}
-
-fn mic_analyze_levels(samples: &[i16]) -> MicAudioLevels {
-    if samples.is_empty() {
-        return MicAudioLevels {
-            rms: 0.0,
-            peak: 0.0,
-        };
-    }
-
-    let mut sum_squares = 0.0;
-    let mut peak: f64 = 0.0;
-
-    for &sample in samples {
-        let sample_f64 = sample as f64;
-        sum_squares += sample_f64 * sample_f64;
-        peak = peak.max((sample as i32).abs() as f64);
-    }
-
-    MicAudioLevels {
-        rms: (sum_squares / samples.len() as f64).sqrt(),
-        peak,
-    }
-}
-
-fn mic_dbfs(level: f64) -> f64 {
-    if level <= 0.0 {
-        f64::NEG_INFINITY
-    } else {
-        20.0 * (level / i16::MAX as f64).log10()
-    }
-}
-
-fn mic_level_details(levels: MicAudioLevels) -> MicLevelDetails {
-    MicLevelDetails {
-        rms_dbfs: mic_dbfs(levels.rms),
-        peak_percent: (levels.peak / i16::MAX as f64 * 100.0).clamp(0.0, 100.0),
-    }
-}
-
-fn mic_should_reject_for_silence(levels: MicAudioLevels, mic_sensitivity: u8) -> bool {
-    levels.rms < mic_silence_threshold(mic_sensitivity)
-}
-
-fn mic_auto_gain(levels: MicAudioLevels, mic_sensitivity: u8) -> Option<f64> {
-    if levels.rms <= 0.0 || levels.peak <= 0.0 {
-        return None;
-    }
-
-    let target_rms = mic_target_rms(mic_sensitivity);
-    if levels.rms >= target_rms {
-        return None;
-    }
-
-    let gain = (target_rms / levels.rms)
-        .min(MIC_TARGET_PEAK / levels.peak)
-        .min(MIC_MAX_AUTO_GAIN);
-
-    (gain > MIC_MIN_AUTO_GAIN_TO_APPLY).then_some(gain)
-}
-
-fn mic_apply_gain(samples: &mut [i16], gain: f64) {
-    for sample in samples {
-        *sample = ((*sample as f64) * gain)
-            .round()
-            .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
-    }
-}
-
-fn mic_normalize_quiet_audio(samples: &mut [i16], mic_sensitivity: u8) -> Option<f64> {
-    let gain = mic_auto_gain(mic_analyze_levels(samples), mic_sensitivity)?;
-    mic_apply_gain(samples, gain);
-    Some(gain)
-}
-
 fn should_restore_clipboard(
     auto_paste: bool,
     preserve_clipboard: bool,
@@ -645,19 +361,8 @@ fn clipboard_restore_delay() -> std::time::Duration {
     std::time::Duration::from_millis(CLIPBOARD_RESTORE_DELAY_MS)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TranscriptPath {
-    Upload,
-}
-
-fn transcript_path_label(path: TranscriptPath) -> &'static str {
-    match path {
-        TranscriptPath::Upload => "upload",
-    }
-}
-
-fn upload_transcript_path(_settings: &AppSettings) -> TranscriptPath {
-    TranscriptPath::Upload
+fn status_reset_delay() -> std::time::Duration {
+    std::time::Duration::from_millis(STATUS_RESET_DELAY_MS)
 }
 
 fn emit_history_updated(app: &AppHandle, history_state: &HistoryState) {
@@ -666,22 +371,40 @@ fn emit_history_updated(app: &AppHandle, history_state: &HistoryState) {
     }
 }
 
-#[tauri::command]
-async fn stop_recording_cmd(
-    app: AppHandle,
-    tasks_state: State<'_, BackgroundTasksState>,
-    audio_state: State<'_, AudioState>,
-    settings_state: State<'_, SettingsState>,
-    history_state: State<'_, HistoryState>,
-    clipboard_state: State<'_, ClipboardState>,
-    http_state: State<'_, HttpClientState>,
-) -> Result<(), String> {
-    let t_total = std::time::Instant::now();
-    let _ = app.emit("status", "transcribing");
-    let mut samples = match audio::stop_recording(&*audio_state).await {
-        Some(s) => s,
+fn schedule_status_reset(app: AppHandle, tasks_state: &BackgroundTasksState) {
+    let handle = tokio::spawn(async move {
+        tokio::time::sleep(status_reset_delay()).await;
+        let _ = app.emit("status", "idle");
+    });
+    tasks_state.spawn(handle);
+}
+
+fn emit_transient_recording_error(
+    app: &AppHandle,
+    tasks_state: &BackgroundTasksState,
+    message: &str,
+) {
+    let _ = app.emit("status", "error");
+    let _ = app.emit("transcript", message);
+    schedule_status_reset(app.clone(), tasks_state);
+}
+
+struct PreparedRecording {
+    settings: AppSettings,
+    samples: Vec<i16>,
+    silence_threshold: f64,
+}
+
+async fn capture_and_prepare_samples(
+    app: &AppHandle,
+    tasks_state: &BackgroundTasksState,
+    audio_state: &AudioState,
+    settings_state: &SettingsState,
+) -> Result<PreparedRecording, String> {
+    let mut samples = match audio::stop_recording(audio_state).await {
+        Some(samples) => samples,
         None => {
-            eprintln!("[FamVoice] stop_recording returned None — was not recording");
+            eprintln!("[FamVoice] stop_recording returned None, was not recording");
             let _ = app.emit("status", "idle");
             return Err("Not recording".into());
         }
@@ -689,22 +412,15 @@ async fn stop_recording_cmd(
 
     if samples.is_empty() {
         eprintln!("[FamVoice] No audio samples recorded");
-        let _ = app.emit("status", "error");
-        let _ = app.emit("transcript", "No audio recorded");
-        let app_clone = app.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-            let _ = app_clone.emit("status", "idle");
-        });
-        tasks_state.spawn(handle);
+        emit_transient_recording_error(app, tasks_state, "No audio recorded");
         return Err("No audio recorded".into());
     }
 
     let settings = settings_state.settings.lock().unwrap().clone();
-    let levels = mic_analyze_levels(&samples);
-    let silence_threshold = mic_silence_threshold(settings.mic_sensitivity);
-    let level_details = mic_level_details(levels);
-    let silence_threshold_dbfs = mic_dbfs(silence_threshold);
+    let levels = mic_analysis::analyze(&samples);
+    let silence_threshold = mic_analysis::silence_threshold(settings.mic_sensitivity);
+    let level_details = mic_analysis::level_details(levels);
+    let silence_threshold_dbfs = mic_analysis::dbfs(silence_threshold);
     eprintln!(
         "[FamVoice] Audio levels: rms {:.2} ({:.1} dBFS), peak {:.0} ({:.1}%), silence threshold {:.2} ({:.1} dBFS), sensitivity {}",
         levels.rms,
@@ -716,23 +432,16 @@ async fn stop_recording_cmd(
         settings.mic_sensitivity
     );
 
-    if mic_should_reject_for_silence(levels, settings.mic_sensitivity) {
+    if mic_analysis::should_reject_for_silence(levels, settings.mic_sensitivity) {
         eprintln!("[FamVoice] Silence detected, skipping transcription");
-        let _ = app.emit("status", "error");
-        let _ = app.emit("transcript", "No voice detected");
-
-        let app_clone = app.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-            let _ = app_clone.emit("status", "idle");
-        });
-        tasks_state.spawn(handle);
+        emit_transient_recording_error(app, tasks_state, "No voice detected");
         return Err("No voice detected".into());
     }
 
-    if let Some(gain) = mic_normalize_quiet_audio(&mut samples, settings.mic_sensitivity) {
-        let boosted_levels = mic_analyze_levels(&samples);
-        let boosted_details = mic_level_details(boosted_levels);
+    if let Some(gain) = mic_analysis::normalize_quiet_audio(&mut samples, settings.mic_sensitivity)
+    {
+        let boosted_levels = mic_analysis::analyze(&samples);
+        let boosted_details = mic_analysis::level_details(boosted_levels);
         eprintln!(
             "[FamVoice] Applied mic gain {:.2}x -> rms {:.2} ({:.1} dBFS), peak {:.0} ({:.1}%)",
             gain,
@@ -750,142 +459,204 @@ async fn stop_recording_cmd(
         return Err("API key is empty".into());
     }
 
+    Ok(PreparedRecording {
+        settings,
+        samples,
+        silence_threshold,
+    })
+}
+
+async fn transcribe_recording(
+    http_client: &reqwest::Client,
+    settings: &AppSettings,
+    samples: Vec<i16>,
+    silence_threshold: f64,
+    started_at: std::time::Instant,
+) -> Result<String, String> {
     let t_encode = std::time::Instant::now();
     let upload_audio = audio::select_samples_for_upload(&samples, silence_threshold);
+    let sample_rate = 16_000.0;
+
     if upload_audio.was_trimmed {
         eprintln!(
             "[FamVoice] Speech window trimmed upload from {} samples ({:.1}s) to {} samples ({:.1}s)",
             samples.len(),
-            samples.len() as f64 / 16000.0,
+            samples.len() as f64 / sample_rate,
             upload_audio.samples.len(),
-            upload_audio.samples.len() as f64 / 16000.0
+            upload_audio.samples.len() as f64 / sample_rate
         );
     }
 
-    let wav_bytes = audio::encode_wav_in_memory(&upload_audio.samples);
+    let wav_bytes = audio::encode_wav_in_memory(upload_audio.samples.as_ref());
     let t_api = std::time::Instant::now();
     eprintln!(
         "[FamVoice] WAV encode: {} samples ({:.1}s) -> {} bytes in {:.0}ms",
         upload_audio.samples.len(),
-        upload_audio.samples.len() as f64 / 16000.0,
+        upload_audio.samples.len() as f64 / sample_rate,
         wav_bytes.len(),
         t_encode.elapsed().as_secs_f64() * 1000.0
     );
 
-    let transcript_path = upload_transcript_path(&settings);
     eprintln!(
-        "[FamVoice] Transcribing with model: {}, language preference: {}, path: {}",
-        settings.model,
-        settings.language,
-        transcript_path_label(transcript_path)
+        "[FamVoice] Transcribing with model: {}, language preference: {}, path: upload",
+        settings.model, settings.language
     );
     let lang = transcription_language_override(&settings.language);
-    let transcription_result = transcription::transcribe_audio(
-        &http_state.client,
+    let text = transcription::transcribe_audio(
+        http_client,
         wav_bytes,
         &settings.api_key,
         &settings.model,
         lang,
     )
-    .await
-    .map(|text| (transcript_path, text));
-    drop(samples);
+    .await?;
 
-    match transcription_result {
-        Ok((transcript_path, text)) => {
-            let finalized_text = finalize_transcript(text, &settings.replacements);
-            let text = resolve_final_output_for_paste(
-                &settings,
-                finalized_text,
-                prompt_optimizer_timeout(&settings.prompt_optimizer_model),
-                |request| {
-                    prompt_optimizer::optimize_prompt(
-                        &http_state.client,
-                        settings.anthropic_api_key.trim(),
-                        request,
-                    )
-                },
+    let finalized_text = glossary::finalize_transcript(text, &settings.replacements);
+    let text = resolve_final_output_for_paste(
+        settings,
+        finalized_text,
+        prompt_optimizer_timeout(&settings.prompt_optimizer_model),
+        |request| {
+            prompt_optimizer::optimize_prompt(
+                http_client,
+                settings.anthropic_api_key.trim(),
+                request,
             )
-            .await;
-            let preview = if text.len() > 100 {
-                &text[..100]
-            } else {
-                &text
-            };
-            eprintln!("[FamVoice] Transcript ready: path={} | API {:.0}ms | Total {:.0}ms | Result ({} chars): {:?}",
-                transcript_path_label(transcript_path),
-                t_api.elapsed().as_secs_f64() * 1000.0,
-                t_total.elapsed().as_secs_f64() * 1000.0,
-                text.len(), preview);
+        },
+    )
+    .await;
+    let preview = if text.len() > 100 {
+        &text[..100]
+    } else {
+        &text
+    };
+    eprintln!(
+        "[FamVoice] Transcript ready: path=upload | API {:.0}ms | Total {:.0}ms | Result ({} chars): {:?}",
+        t_api.elapsed().as_secs_f64() * 1000.0,
+        started_at.elapsed().as_secs_f64() * 1000.0,
+        text.len(),
+        preview
+    );
 
-            if settings.auto_paste && settings.preserve_clipboard {
-                clipboard::save_clipboard(&*clipboard_state);
-            }
+    Ok(text)
+}
 
-            if let Err(e) = clipboard::set_clipboard(&text) {
-                eprintln!("[FamVoice] Failed to set clipboard: {}", e);
-            }
+async fn deliver_transcript(
+    app: &AppHandle,
+    tasks_state: &BackgroundTasksState,
+    history_state: &HistoryState,
+    clipboard_state: &ClipboardState,
+    settings: &AppSettings,
+    text: String,
+) {
+    if settings.auto_paste && settings.preserve_clipboard {
+        clipboard::save_clipboard(clipboard_state);
+    }
 
-            let mut paste_successful = true;
-            let mut paste_error = None;
+    if let Err(error) = clipboard::set_clipboard(clipboard_state, &text) {
+        eprintln!("[FamVoice] Failed to set clipboard: {}", error);
+    }
 
-            if settings.auto_paste {
-                tokio::time::sleep(paste_clipboard_settle_delay()).await;
-                if let Err(e) = injection::simulate_paste() {
-                    eprintln!("[FamVoice] Failed to simulate paste: {}", e);
-                    paste_successful = false;
-                    paste_error = Some(e);
-                }
-            }
+    let mut paste_successful = true;
+    let mut paste_error = None;
 
-            if should_restore_clipboard(
-                settings.auto_paste,
-                settings.preserve_clipboard,
-                paste_successful,
-            ) {
-                let saved_clipboard = clipboard::saved_clipboard_text(&*clipboard_state);
-                let handle = tokio::spawn(async move {
-                    tokio::time::sleep(clipboard_restore_delay()).await;
-                    if let Some(text) = saved_clipboard {
-                        if let Err(error) = clipboard::restore_clipboard_text(&text) {
-                            eprintln!("[FamVoice] Failed to restore clipboard: {}", error);
-                        }
-                    }
-                });
-                tasks_state.spawn(handle);
-            }
-
-            if should_store_history(settings.auto_paste, paste_successful) {
-                history_state.add(text.clone());
-                emit_history_updated(&app, &history_state);
-            }
-
-            if !paste_successful {
-                let _ = app.emit("status", "error");
-                let error_msg = format!(
-                    "Paste failed: {}. Transcript is on clipboard.",
-                    paste_error.unwrap_or_default()
-                );
-                let _ = app.emit("transcript", error_msg);
-            } else {
-                let _ = app.emit("transcript", text);
-                let _ = app.emit("status", "success");
-            }
-        }
-        Err(e) => {
-            eprintln!("[FamVoice] Transcription error: {}", e);
-            let _ = app.emit("status", "error");
-            let _ = app.emit("transcript", e.clone());
-            return Err(e);
+    if settings.auto_paste {
+        tokio::time::sleep(paste_clipboard_settle_delay()).await;
+        if let Err(error) = injection::simulate_paste() {
+            eprintln!("[FamVoice] Failed to simulate paste: {}", error);
+            paste_successful = false;
+            paste_error = Some(error);
         }
     }
 
-    let app_clone = app.clone();
-    let handle = tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-        let _ = app_clone.emit("status", "idle");
-    });
-    tasks_state.spawn(handle);
+    if should_restore_clipboard(
+        settings.auto_paste,
+        settings.preserve_clipboard,
+        paste_successful,
+    ) {
+        let saved_clipboard = clipboard::saved_clipboard_text(clipboard_state);
+        let app_handle = app.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(clipboard_restore_delay()).await;
+            if let Some(text) = saved_clipboard {
+                let clipboard_state: State<ClipboardState> = app_handle.state();
+                if let Err(error) = clipboard::restore_clipboard_text(&*clipboard_state, &text) {
+                    eprintln!("[FamVoice] Failed to restore clipboard: {}", error);
+                }
+            }
+        });
+        tasks_state.spawn(handle);
+    }
+
+    if should_store_history(settings.auto_paste, paste_successful) {
+        history_state.add(text.clone());
+        emit_history_updated(app, history_state);
+    }
+
+    if !paste_successful {
+        let _ = app.emit("status", "error");
+        let error_msg = format!(
+            "Paste failed: {}. Transcript is on clipboard.",
+            paste_error.unwrap_or_default()
+        );
+        let _ = app.emit("transcript", error_msg);
+        return;
+    }
+
+    let _ = app.emit("transcript", text);
+    let _ = app.emit("status", "success");
+}
+
+#[tauri::command]
+async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
+    let audio_state: State<AudioState> = app.state();
+    if !audio_state
+        .is_recording
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        eprintln!("[FamVoice] stop_recording_cmd ignored because recording is already idle");
+        return Err("Not recording".into());
+    }
+
+    let _ = app.emit("status", "transcribing");
+
+    let tasks_state: State<BackgroundTasksState> = app.state();
+    let settings_state: State<SettingsState> = app.state();
+    let history_state: State<HistoryState> = app.state();
+    let clipboard_state: State<ClipboardState> = app.state();
+    let http_state: State<HttpClientState> = app.state();
+    let started_at = std::time::Instant::now();
+
+    let prepared =
+        capture_and_prepare_samples(&app, &tasks_state, &audio_state, &settings_state).await?;
+    let text = match transcribe_recording(
+        &http_state.client,
+        &prepared.settings,
+        prepared.samples,
+        prepared.silence_threshold,
+        started_at,
+    )
+    .await
+    {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("[FamVoice] Transcription error: {}", error);
+            let _ = app.emit("status", "error");
+            let _ = app.emit("transcript", error.clone());
+            return Err(error);
+        }
+    };
+
+    deliver_transcript(
+        &app,
+        &tasks_state,
+        &history_state,
+        &clipboard_state,
+        &prepared.settings,
+        text,
+    )
+    .await;
+    schedule_status_reset(app.clone(), &tasks_state);
     Ok(())
 }
 
@@ -893,109 +664,10 @@ async fn stop_recording_cmd(
 mod tests {
     use super::*;
     use crate::settings::AppSettings;
-    use crate::settings::Replacement;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
-
-    #[test]
-    fn test_upload_transcript_path_treats_gpt_4o_mini_transcribe_as_upload() {
-        let settings = AppSettings {
-            model: "gpt-4o-mini-transcribe".to_string(),
-            ..AppSettings::default()
-        };
-
-        assert_eq!(
-            upload_transcript_path(&settings),
-            TranscriptPath::Upload
-        );
-    }
-
-    #[test]
-    fn test_upload_transcript_path_ignores_experimental_env_flags() {
-        let settings = AppSettings {
-            api_key: "sk-test".to_string(),
-            model: "gpt-4o-mini-transcribe".to_string(),
-            ..AppSettings::default()
-        };
-        std::env::set_var("FAMVOICE_ENABLE_REALTIME_EXPERIMENTAL", "1");
-
-        assert_eq!(upload_transcript_path(&settings), TranscriptPath::Upload);
-
-        std::env::remove_var("FAMVOICE_ENABLE_REALTIME_EXPERIMENTAL");
-    }
-
-    #[test]
-    fn test_finalize_transcript_applies_replacements_and_trims_trailing_period() {
-        let transcript = finalize_transcript(
-            "omg hello.".to_string(),
-            &[Replacement {
-                target: "omg".to_string(),
-                replacement: "Oh my gosh".to_string(),
-            }],
-        );
-
-        assert_eq!(transcript, "Oh my gosh hello");
-    }
-
-    #[test]
-    fn test_finalize_transcript_skips_blank_replacement_targets() {
-        let transcript = finalize_transcript(
-            "hello".to_string(),
-            &[Replacement {
-                target: "   ".to_string(),
-                replacement: "ignored".to_string(),
-            }],
-        );
-
-        assert_eq!(transcript, "hello");
-    }
-
-    #[test]
-    fn test_finalize_transcript_replaces_single_words_without_touching_substrings() {
-        let transcript = finalize_transcript(
-            "partial art party".to_string(),
-            &[Replacement {
-                target: "art".to_string(),
-                replacement: "design".to_string(),
-            }],
-        );
-
-        assert_eq!(transcript, "partial design party");
-    }
-
-    #[test]
-    fn test_finalize_transcript_replaces_single_words_case_insensitively() {
-        let transcript = finalize_transcript(
-            "OMG hello".to_string(),
-            &[Replacement {
-                target: "omg".to_string(),
-                replacement: "Oh my gosh".to_string(),
-            }],
-        );
-
-        assert_eq!(transcript, "Oh my gosh hello");
-    }
-
-    #[test]
-    fn test_finalize_transcript_prefers_longer_phrase_rules_before_single_words() {
-        let transcript = finalize_transcript(
-            "new york is new".to_string(),
-            &[
-                Replacement {
-                    target: "new".to_string(),
-                    replacement: "fresh".to_string(),
-                },
-                Replacement {
-                    target: "new york".to_string(),
-                    replacement: "NYC".to_string(),
-                },
-            ],
-        );
-
-        assert_eq!(transcript, "NYC is fresh");
-    }
 
     #[test]
     fn test_transcription_language_override_keeps_preference_modes_unset() {
@@ -1218,63 +890,6 @@ mod tests {
         assert!(message.contains("request failed"));
         assert!(message.contains("using finalized transcript"));
     }
-
-    #[test]
-    fn test_main_window_dimensions_use_compact_widget_size() {
-        assert_eq!(
-            main_window_dimensions(true),
-            (DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT)
-        );
-        assert_eq!(
-            main_window_dimensions(false),
-            (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
-        );
-    }
-
-    #[test]
-    fn mic_sensitivity_lowers_the_silence_threshold() {
-        assert!(mic_silence_threshold(100) < mic_silence_threshold(0));
-    }
-
-    #[test]
-    fn mic_rejects_near_silent_audio_at_default_sensitivity() {
-        let levels = mic_analyze_levels(&[0, 10, -10, 0, 5, -5]);
-
-        assert!(mic_should_reject_for_silence(
-            levels,
-            settings::DEFAULT_MIC_SENSITIVITY,
-        ));
-    }
-
-    #[test]
-    fn mic_high_sensitivity_keeps_quiet_speech_that_low_sensitivity_rejects() {
-        let levels = mic_analyze_levels(&[20, -20, 15, -15, 25, -25]);
-
-        assert!(mic_should_reject_for_silence(levels, 0));
-        assert!(!mic_should_reject_for_silence(levels, 100));
-    }
-
-    #[test]
-    fn mic_normalize_quiet_audio_boosts_samples_with_a_gain_cap() {
-        let mut samples = vec![100, -100, 50, -50];
-
-        let gain = mic_normalize_quiet_audio(&mut samples, 100).unwrap();
-
-        assert_eq!(gain, 8.0);
-        assert_eq!(samples, vec![800, -800, 400, -400]);
-    }
-
-    #[test]
-    fn mic_level_details_include_dbfs_and_peak_percent() {
-        let details = mic_level_details(MicAudioLevels {
-            rms: 1024.0,
-            peak: 8192.0,
-        });
-
-        assert!(details.rms_dbfs < 0.0);
-        assert!(details.rms_dbfs > -40.0);
-        assert!((details.peak_percent - 25.0).abs() < 0.1);
-    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1304,12 +919,11 @@ pub fn run() {
                 .build()
                 .expect("Failed to create HTTP client");
 
-            // Pre-warm HTTPS connection to OpenAI (TCP + TLS handshake in background)
-            // Saves ~100-300ms on the first transcription request
             let warmup_client = http_client.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = warmup_client
                     .head("https://api.openai.com/v1/models")
+                    .timeout(Duration::from_secs(5))
                     .send()
                     .await;
                 eprintln!("[FamVoice] HTTPS connection to OpenAI pre-warmed");
@@ -1365,7 +979,6 @@ pub fn run() {
                 hotkey: hotkey_shared.clone(),
             });
 
-            // Register initial shortcut and start mouse listener
             let hotkey = {
                 let state: State<SettingsState> = app.state();
                 let settings = state.settings.lock().unwrap();
@@ -1380,7 +993,7 @@ pub fn run() {
 
             register_hotkey(app.handle(), &hotkey);
             input_hook::start_mouse_listener(app.handle().clone(), hotkey_shared);
-            apply_main_window_mode(app.handle(), widget_mode, false)?;
+            window::apply_main_window_mode(app.handle(), widget_mode, false)?;
 
             Ok(())
         })

@@ -115,7 +115,10 @@ mod tests {
             result,
             Err(PromptOptimizerError::UnsupportedModel { .. })
         ));
-        assert!(result.unwrap_err().to_string().contains("unsupported model"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported model"));
     }
 
     #[test]

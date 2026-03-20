@@ -129,8 +129,7 @@ mod tests {
             "must discourage unrelated refactors"
         );
         assert!(
-            !instruction.contains("no markdown")
-                && !instruction.contains("not add any markdown"),
+            !instruction.contains("no markdown") && !instruction.contains("not add any markdown"),
             "must not keep the old no-markdown rule"
         );
     }
