@@ -25,7 +25,10 @@
       "Bash(cargo build:*)",
       "Bash(git push:*)",
       "Bash(cargo tauri:*)",
-      "Bash(npx tauri:*)"
+      "Bash(npx tauri:*)",
+      "Bash(find /c/Users/henri/Desktop/app_test/FamVoice -type f \\\\\\(-name tailwind.config.* -o -name .prettierrc* -o -name .eslint* \\\\\\))",
+      "Bash(python3 -c \":*)",
+      "Bash(cargo audit:*)"
     ]
   }
 }
