@@ -355,9 +355,9 @@ impl SettingsState {
                     needs_resave = true;
                 }
             }
-            Err(error) => {
+            Err(_error) => {
                 #[cfg(debug_assertions)]
-                eprintln!("[FamVoice] {error}");
+                eprintln!("[FamVoice] {_error}");
                 if let Some(secret) = disk_settings.api_key.clone() {
                     settings.api_key = secret;
                 }
@@ -372,9 +372,9 @@ impl SettingsState {
                     needs_resave = true;
                 }
             }
-            Err(error) => {
+            Err(_error) => {
                 #[cfg(debug_assertions)]
-                eprintln!("[FamVoice] {error}");
+                eprintln!("[FamVoice] {_error}");
                 if let Some(secret) = disk_settings.anthropic_api_key.clone() {
                     settings.anthropic_api_key = secret;
                 }
@@ -389,9 +389,9 @@ impl SettingsState {
 
         if needs_resave {
             let snapshot = state.settings.lock().unwrap().clone();
-            if let Err(error) = state.persist(&snapshot, None) {
+            if let Err(_error) = state.persist(&snapshot, None) {
                 #[cfg(debug_assertions)]
-                eprintln!("[FamVoice] Failed to migrate settings into secure storage: {error}");
+                eprintln!("[FamVoice] Failed to migrate settings into secure storage: {_error}");
             }
         }
 
@@ -456,22 +456,22 @@ fn load_disk_settings(app_dir: &PathBuf, path: &PathBuf) -> DiskSettings {
     match fs::read_to_string(path) {
         Ok(data) => match serde_json::from_str::<DiskSettings>(&data) {
             Ok(settings) => settings,
-            Err(error) => {
+            Err(_error) => {
                 #[cfg(debug_assertions)]
                 eprintln!(
                     "[FamVoice] Failed to parse settings.json: {}, creating backup",
-                    error
+                    _error
                 );
                 let backup_path = app_dir.join("settings.json.corrupt");
                 let _ = fs::copy(path, &backup_path);
                 DiskSettings::default()
             }
         },
-        Err(error) => {
+        Err(_error) => {
             #[cfg(debug_assertions)]
             eprintln!(
                 "[FamVoice] Failed to read settings.json: {}, creating backup",
-                error
+                _error
             );
             let backup_path = app_dir.join("settings.json.corrupt");
             let _ = fs::copy(path, &backup_path);

@@ -71,9 +71,9 @@ pub async fn transcribe_audio(
 
     if !res.status().is_success() {
         let status = res.status();
-        let err_text = res.text().await.unwrap_or_default();
+        let _err_text = res.text().await.unwrap_or_default();
         #[cfg(debug_assertions)]
-        eprintln!("[FamVoice] OpenAI API error {}: {}", status, err_text);
+        eprintln!("[FamVoice] OpenAI API error {}: {}", status, _err_text);
         return Err(user_facing_api_error(status));
     }
 
