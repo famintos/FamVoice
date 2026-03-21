@@ -24,8 +24,8 @@ use clipboard::ClipboardState;
 use history::HistoryState;
 use settings::{AppSettings, FrontendSettings, SaveSettingsRequest, SettingsState};
 
-const PASTE_CLIPBOARD_SETTLE_DELAY_MS: u64 = 5;
-const CLIPBOARD_RESTORE_DELAY_MS: u64 = 40;
+const PASTE_CLIPBOARD_SETTLE_DELAY_MS: u64 = 2;
+const CLIPBOARD_RESTORE_DELAY_MS: u64 = 25;
 const STATUS_RESET_DELAY_MS: u64 = 2_000;
 const PROMPT_OPTIMIZER_TIMEOUT_MS: u64 = 10_000;
 const PROMPT_OPTIMIZER_SLOW_MODEL_TIMEOUT_MS: u64 = 30_000;
@@ -452,10 +452,18 @@ async fn capture_and_prepare_samples(
         );
     }
 
-    if settings.api_key.is_empty() {
-        eprintln!("[FamVoice] API key is empty!");
+    if settings.transcription_api_key().is_empty() {
+        let provider_label = if settings.transcription_provider == "groq" {
+            "Groq"
+        } else {
+            "OpenAI"
+        };
+        eprintln!("[FamVoice] {} API key is empty!", provider_label);
         let _ = app.emit("status", "error");
-        let _ = app.emit("transcript", "API key is empty. Set it in Settings.");
+        let _ = app.emit(
+            "transcript",
+            format!("{} API key missing", provider_label),
+        );
         return Err("API key is empty".into());
     }
 
@@ -487,27 +495,39 @@ async fn transcribe_recording(
         );
     }
 
-    let wav_bytes = audio::encode_wav_in_memory(upload_audio.samples.as_ref());
+    let (audio_bytes, audio_mime, audio_ext, format_label) =
+        match audio::encode_flac_in_memory(upload_audio.samples.as_ref()) {
+            Ok(flac_bytes) => (flac_bytes, "audio/flac", "audio.flac", "FLAC"),
+            Err(flac_err) => {
+                eprintln!("[FamVoice] FLAC encode failed, falling back to WAV: {}", flac_err);
+                let wav = audio::encode_wav_in_memory(upload_audio.samples.as_ref());
+                (wav, "audio/wav", "audio.wav", "WAV")
+            }
+        };
     let t_api = std::time::Instant::now();
     eprintln!(
-        "[FamVoice] WAV encode: {} samples ({:.1}s) -> {} bytes in {:.0}ms",
+        "[FamVoice] {} encode: {} samples ({:.1}s) -> {} bytes in {:.0}ms",
+        format_label,
         upload_audio.samples.len(),
         upload_audio.samples.len() as f64 / sample_rate,
-        wav_bytes.len(),
+        audio_bytes.len(),
         t_encode.elapsed().as_secs_f64() * 1000.0
     );
 
     eprintln!(
-        "[FamVoice] Transcribing with model: {}, language preference: {}, path: upload",
-        settings.model, settings.language
+        "[FamVoice] Transcribing with provider: {}, model: {}, language preference: {}, path: upload",
+        settings.transcription_provider, settings.model, settings.language
     );
     let lang = transcription_language_override(&settings.language);
     let text = transcription::transcribe_audio(
         http_client,
-        wav_bytes,
-        &settings.api_key,
+        audio_bytes,
+        settings.transcription_api_key(),
         &settings.model,
         lang,
+        &settings.transcription_provider,
+        audio_mime,
+        audio_ext,
     )
     .await?;
 
@@ -696,7 +716,7 @@ mod tests {
     fn test_release_to_paste_path_uses_short_clipboard_settle_delay() {
         assert_eq!(
             paste_clipboard_settle_delay(),
-            std::time::Duration::from_millis(5)
+            std::time::Duration::from_millis(2)
         );
     }
 
@@ -704,7 +724,7 @@ mod tests {
     fn test_clipboard_restore_happens_after_short_background_delay() {
         assert_eq!(
             clipboard_restore_delay(),
-            std::time::Duration::from_millis(40)
+            std::time::Duration::from_millis(25)
         );
     }
 
@@ -901,6 +921,8 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -920,13 +942,19 @@ pub fn run() {
                 .expect("Failed to create HTTP client");
 
             let warmup_client = http_client.clone();
+            let warmup_provider = {
+                let state: State<SettingsState> = app.state();
+                let settings = state.settings.lock().unwrap();
+                settings.transcription_provider.clone()
+            };
             tauri::async_runtime::spawn(async move {
+                let endpoint = transcription::warmup_endpoint(&warmup_provider);
                 let _ = warmup_client
-                    .head("https://api.openai.com/v1/models")
+                    .head(endpoint)
                     .timeout(Duration::from_secs(5))
                     .send()
                     .await;
-                eprintln!("[FamVoice] HTTPS connection to OpenAI pre-warmed");
+                eprintln!("[FamVoice] HTTPS connection to {} pre-warmed", warmup_provider);
             });
 
             app.manage(HttpClientState {

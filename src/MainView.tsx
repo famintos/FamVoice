@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { cursorPosition, getCurrentWindow } from "@tauri-apps/api/window";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   AlertCircle,
   Copy,
@@ -34,6 +36,7 @@ export function MainView() {
   const [settings, setSettings] = useState<SettingsViewModel | null>(null);
   const [activeTab, setActiveTab] = useState<"record" | "history">("record");
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const widgetContainerRef = useRef<HTMLElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
   const ignoreCursorEventsRef = useRef<boolean | null>(null);
@@ -201,6 +204,19 @@ export function MainView() {
     };
   }, [appWindow, settings?.widget_mode]);
 
+  useEffect(() => {
+    check()
+      .then(async (update) => {
+        if (!update) return;
+        console.log(`Update available: ${update.version}`);
+        await update.downloadAndInstall();
+        setPendingUpdate(update);
+      })
+      .catch((error) => {
+        console.error("Update check failed:", error);
+      });
+  }, []);
+
   const loadHistory = async () => {
     const items = await invoke<HistoryItem[]>("get_history");
     setHistory(items);
@@ -208,6 +224,10 @@ export function MainView() {
 
   const handleOpenSettings = async () => {
     await invoke("open_settings_window");
+  };
+
+  const handleUpdate = async () => {
+    await relaunch();
   };
 
   const copyToClipboard = async (text: string) => {
@@ -228,10 +248,19 @@ export function MainView() {
 
   const showStatusDot = status === "transcribing" || status === "success" || status === "error";
 
+  const missingTranscriptionKey = settings && (
+    (settings.transcription_provider === "groq" && !settings.groq_api_key_present) ||
+    (settings.transcription_provider === "openai" && !settings.api_key_present)
+  );
+
+  const missingAnthropicKey = settings && settings.prompt_optimization_enabled && !settings.anthropic_api_key_present;
+
   if (settings?.widget_mode) {
     return (
       <WidgetView
         status={status}
+        missingApiKey={!!missingTranscriptionKey}
+        updateReady={!!pendingUpdate}
         containerRef={widgetContainerRef}
         onMouseDownCapture={(e) => {
           if (e.button !== 0) return;
@@ -245,7 +274,11 @@ export function MainView() {
         }}
         onContextMenu={(e) => {
           e.preventDefault();
-          void handleOpenSettings();
+          if (pendingUpdate) {
+            void handleUpdate();
+          } else {
+            void handleOpenSettings();
+          }
         }}
       />
     );
@@ -323,7 +356,7 @@ export function MainView() {
             </p>
 
             {transcript && (
-              <div className="mt-4 px-3 py-2 bg-black/40 backdrop-blur-sm rounded-lg border border-white/5 text-[11px] text-gray-300 w-full max-h-20 overflow-y-auto custom-scrollbar shadow-inner text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="mt-4 px-3 py-2 bg-black/40 backdrop-blur-sm rounded-lg border border-white/5 text-[11px] text-gray-300 w-full shadow-inner text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
                 {status === "error" ? (
                   <div className="flex items-center justify-center gap-1.5 text-red-400">
                     <AlertCircle size={12} />
@@ -335,7 +368,37 @@ export function MainView() {
               </div>
             )}
 
-            {status === "idle" && !transcript && (
+            {status === "idle" && !transcript && pendingUpdate && (
+              <button
+                onClick={handleUpdate}
+                className="mt-4 px-3 py-2 bg-green-500/10 border border-green-500/20 rounded-lg text-[11px] text-green-300 cursor-pointer hover:bg-green-500/20 transition-all no-drag animate-in fade-in duration-300 w-full"
+              >
+                v{pendingUpdate.version} ready — click to restart
+              </button>
+            )}
+
+            {status === "idle" && !transcript && (missingTranscriptionKey || missingAnthropicKey) && (
+              <div className="mt-4 flex flex-col gap-2 w-full no-drag animate-in fade-in duration-300">
+                {missingTranscriptionKey && (
+                  <button
+                    onClick={handleOpenSettings}
+                    className="px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[11px] text-amber-300 cursor-pointer hover:bg-amber-500/20 transition-all"
+                  >
+                    {settings.transcription_provider === "groq" ? "Groq" : "OpenAI"} key missing
+                  </button>
+                )}
+                {missingAnthropicKey && (
+                  <button
+                    onClick={handleOpenSettings}
+                    className="px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[11px] text-amber-300 cursor-pointer hover:bg-amber-500/20 transition-all"
+                  >
+                    Anthropic key missing
+                  </button>
+                )}
+              </div>
+            )}
+
+            {status === "idle" && !transcript && !missingTranscriptionKey && !missingAnthropicKey && (
               <div className="mt-8 flex flex-col items-center gap-2 opacity-20 pointer-events-none">
                 <p className="text-[10px] uppercase tracking-widest font-bold">Ready</p>
               </div>

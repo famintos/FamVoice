@@ -6,10 +6,13 @@ use std::sync::Mutex;
 
 const SETTINGS_SERVICE_NAME: &str = "com.famvoice.app";
 const OPENAI_API_KEY_ACCOUNT: &str = "openai_api_key";
+const GROQ_API_KEY_ACCOUNT: &str = "groq_api_key";
 const ANTHROPIC_API_KEY_ACCOUNT: &str = "anthropic_api_key";
 const MAX_API_KEY_LEN: usize = 200;
-pub const SUPPORTED_MODELS: [&str; 3] =
+pub const SUPPORTED_PROVIDERS: [&str; 2] = ["openai", "groq"];
+pub const OPENAI_MODELS: [&str; 3] =
     ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"];
+pub const GROQ_MODELS: [&str; 1] = ["whisper-large-v3-turbo"];
 pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 3] = ["auto", "pt", "en"];
 pub const MIN_MIC_SENSITIVITY: u8 = 0;
 pub const MAX_MIC_SENSITIVITY: u8 = 100;
@@ -22,8 +25,19 @@ pub struct Replacement {
     pub replacement: String,
 }
 
+fn default_provider() -> String {
+    "openai".to_string()
+}
+
 fn default_model() -> String {
-    SUPPORTED_MODELS[0].to_string()
+    OPENAI_MODELS[0].to_string()
+}
+
+fn models_for_provider(provider: &str) -> &'static [&'static str] {
+    match provider {
+        "groq" => &GROQ_MODELS,
+        _ => &OPENAI_MODELS,
+    }
 }
 
 fn default_language() -> String {
@@ -92,7 +106,9 @@ fn mask_secret(secret: &str) -> Option<String> {
 
 #[derive(Clone)]
 pub struct AppSettings {
+    pub transcription_provider: String,
     pub api_key: String,
+    pub groq_api_key: String,
     pub model: String,
     pub language: String,
     pub auto_paste: bool,
@@ -109,7 +125,9 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            transcription_provider: default_provider(),
             api_key: String::new(),
+            groq_api_key: String::new(),
             model: default_model(),
             language: default_language(),
             auto_paste: default_auto_paste(),
@@ -128,8 +146,11 @@ impl Default for AppSettings {
 impl AppSettings {
     pub fn to_frontend(&self) -> FrontendSettings {
         FrontendSettings {
+            transcription_provider: self.transcription_provider.clone(),
             api_key_present: !self.api_key.trim().is_empty(),
             api_key_masked: mask_secret(&self.api_key),
+            groq_api_key_present: !self.groq_api_key.trim().is_empty(),
+            groq_api_key_masked: mask_secret(&self.groq_api_key),
             model: self.model.clone(),
             language: self.language.clone(),
             auto_paste: self.auto_paste,
@@ -144,12 +165,22 @@ impl AppSettings {
             replacements: self.replacements.clone(),
         }
     }
+
+    pub fn transcription_api_key(&self) -> &str {
+        match self.transcription_provider.as_str() {
+            "groq" => &self.groq_api_key,
+            _ => &self.api_key,
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
 pub struct FrontendSettings {
+    pub transcription_provider: String,
     pub api_key_present: bool,
     pub api_key_masked: Option<String>,
+    pub groq_api_key_present: bool,
+    pub groq_api_key_masked: Option<String>,
     pub model: String,
     pub language: String,
     pub auto_paste: bool,
@@ -166,8 +197,11 @@ pub struct FrontendSettings {
 
 #[derive(Clone, Deserialize)]
 pub struct SaveSettingsRequest {
+    pub transcription_provider: String,
     #[serde(default)]
     pub api_key: Option<String>,
+    #[serde(default)]
+    pub groq_api_key: Option<String>,
     pub model: String,
     pub language: String,
     pub auto_paste: bool,
@@ -185,7 +219,11 @@ pub struct SaveSettingsRequest {
 impl SaveSettingsRequest {
     fn merge_with_existing(self, existing: &AppSettings) -> AppSettings {
         AppSettings {
+            transcription_provider: self.transcription_provider,
             api_key: self.api_key.unwrap_or_else(|| existing.api_key.clone()),
+            groq_api_key: self
+                .groq_api_key
+                .unwrap_or_else(|| existing.groq_api_key.clone()),
             model: self.model,
             language: self.language,
             auto_paste: self.auto_paste,
@@ -206,9 +244,14 @@ impl SaveSettingsRequest {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct DiskSettings {
+    #[serde(default = "default_provider")]
+    transcription_provider: String,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     api_key: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    groq_api_key: Option<String>,
     #[serde(default = "default_model")]
     model: String,
     #[serde(default = "default_language")]
@@ -237,7 +280,9 @@ struct DiskSettings {
 impl Default for DiskSettings {
     fn default() -> Self {
         Self {
+            transcription_provider: default_provider(),
             api_key: None,
+            groq_api_key: None,
             model: default_model(),
             language: default_language(),
             auto_paste: default_auto_paste(),
@@ -256,7 +301,9 @@ impl Default for DiskSettings {
 impl From<&AppSettings> for DiskSettings {
     fn from(settings: &AppSettings) -> Self {
         Self {
+            transcription_provider: settings.transcription_provider.clone(),
             api_key: None,
+            groq_api_key: None,
             model: settings.model.clone(),
             language: settings.language.clone(),
             auto_paste: settings.auto_paste,
@@ -330,6 +377,7 @@ impl SettingsState {
         let secret_store = SecretStore::new(service_name);
 
         let mut settings = AppSettings {
+            transcription_provider: disk_settings.transcription_provider.clone(),
             model: disk_settings.model.clone(),
             language: normalize_language_preference(&disk_settings.language),
             auto_paste: disk_settings.auto_paste,
@@ -345,38 +393,36 @@ impl SettingsState {
 
         let mut needs_resave = settings.language != disk_settings.language
             || disk_settings.api_key.is_some()
+            || disk_settings.groq_api_key.is_some()
             || disk_settings.anthropic_api_key.is_some();
 
-        match secret_store.get_secret(OPENAI_API_KEY_ACCOUNT) {
-            Ok(Some(secret)) => settings.api_key = secret,
-            Ok(None) => {
-                if let Some(secret) = disk_settings.api_key.clone() {
-                    settings.api_key = secret;
-                    needs_resave = true;
-                }
-            }
-            Err(_error) => {
-                #[cfg(debug_assertions)]
-                eprintln!("[FamVoice] {_error}");
-                if let Some(secret) = disk_settings.api_key.clone() {
-                    settings.api_key = secret;
-                }
-            }
-        }
+        let secret_accounts: [(&str, &mut String, Option<String>); 3] = [
+            (OPENAI_API_KEY_ACCOUNT, &mut settings.api_key, disk_settings.api_key.clone()),
+            (GROQ_API_KEY_ACCOUNT, &mut settings.groq_api_key, disk_settings.groq_api_key.clone()),
+            (ANTHROPIC_API_KEY_ACCOUNT, &mut settings.anthropic_api_key, disk_settings.anthropic_api_key.clone()),
+        ];
 
-        match secret_store.get_secret(ANTHROPIC_API_KEY_ACCOUNT) {
-            Ok(Some(secret)) => settings.anthropic_api_key = secret,
-            Ok(None) => {
-                if let Some(secret) = disk_settings.anthropic_api_key.clone() {
-                    settings.anthropic_api_key = secret;
-                    needs_resave = true;
+        for (account, field, disk_fallback) in secret_accounts {
+            match secret_store.get_secret(account) {
+                Ok(Some(secret)) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[FamVoice] Keyring {account}: loaded ({} chars)", secret.len());
+                    *field = secret;
                 }
-            }
-            Err(_error) => {
-                #[cfg(debug_assertions)]
-                eprintln!("[FamVoice] {_error}");
-                if let Some(secret) = disk_settings.anthropic_api_key.clone() {
-                    settings.anthropic_api_key = secret;
+                Ok(None) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[FamVoice] Keyring {account}: empty");
+                    if let Some(secret) = disk_fallback {
+                        *field = secret;
+                        needs_resave = true;
+                    }
+                }
+                Err(_error) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[FamVoice] Keyring {account}: error — {_error}");
+                    if let Some(secret) = disk_fallback {
+                        *field = secret;
+                    }
                 }
             }
         }
@@ -399,12 +445,26 @@ impl SettingsState {
     }
 
     pub fn save_request(&self, request: SaveSettingsRequest) -> Result<AppSettings, String> {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[FamVoice] save_request: provider={}, openai={}, groq={}, anthropic={}",
+            request.transcription_provider,
+            request.api_key.as_deref().map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
+            request.groq_api_key.as_deref().map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
+            request.anthropic_api_key.as_deref().map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
+        );
         let mut settings = self
             .settings
             .lock()
             .map_err(|_| "Failed to lock settings".to_string())?;
         let previous = settings.clone();
         let next = request.merge_with_existing(&previous);
+
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[FamVoice] after merge: openai={} chars, groq={} chars, anthropic={} chars",
+            next.api_key.len(), next.groq_api_key.len(), next.anthropic_api_key.len()
+        );
 
         if let Err(errors) = validate_settings(&next) {
             return Err(format!("Invalid settings: {}", errors.join(", ")));
@@ -437,6 +497,8 @@ impl SettingsState {
     fn write_secrets(&self, settings: &AppSettings) -> Result<(), String> {
         self.secret_store
             .write_secret(OPENAI_API_KEY_ACCOUNT, &settings.api_key)?;
+        self.secret_store
+            .write_secret(GROQ_API_KEY_ACCOUNT, &settings.groq_api_key)?;
         self.secret_store
             .write_secret(ANTHROPIC_API_KEY_ACCOUNT, &settings.anthropic_api_key)
     }
@@ -483,8 +545,20 @@ fn load_disk_settings(app_dir: &PathBuf, path: &PathBuf) -> DiskSettings {
 pub fn validate_settings(settings: &AppSettings) -> Result<(), Vec<String>> {
     let mut errors = Vec::new();
 
+    if !SUPPORTED_PROVIDERS.contains(&settings.transcription_provider.as_str()) {
+        errors.push(format!(
+            "Unsupported provider: {}. Use one of: {}",
+            settings.transcription_provider,
+            SUPPORTED_PROVIDERS.join(", ")
+        ));
+    }
+
     if settings.api_key.len() > MAX_API_KEY_LEN {
-        errors.push("API key is too long".to_string());
+        errors.push("OpenAI API key is too long".to_string());
+    }
+
+    if settings.groq_api_key.len() > MAX_API_KEY_LEN {
+        errors.push("Groq API key is too long".to_string());
     }
 
     if settings.anthropic_api_key.len() > MAX_ANTHROPIC_API_KEY_LEN {
@@ -494,11 +568,13 @@ pub fn validate_settings(settings: &AppSettings) -> Result<(), Vec<String>> {
         ));
     }
 
-    if !SUPPORTED_MODELS.contains(&settings.model.as_str()) {
+    let valid_models = models_for_provider(&settings.transcription_provider);
+    if !valid_models.contains(&settings.model.as_str()) {
         errors.push(format!(
-            "Unsupported model: {}. Use one of: {}",
+            "Unsupported model for {}: {}. Use one of: {}",
+            settings.transcription_provider,
             settings.model,
-            SUPPORTED_MODELS.join(", ")
+            valid_models.join(", ")
         ));
     }
 
@@ -567,7 +643,9 @@ mod tests {
 
     fn sample_save_request() -> SaveSettingsRequest {
         SaveSettingsRequest {
+            transcription_provider: "openai".to_string(),
             api_key: Some("sk-test".to_string()),
+            groq_api_key: None,
             model: "gpt-4o-mini-transcribe".to_string(),
             language: "auto".to_string(),
             auto_paste: true,
@@ -584,7 +662,9 @@ mod tests {
 
     fn sample_settings() -> AppSettings {
         AppSettings {
+            transcription_provider: "openai".to_string(),
             api_key: "sk-test".to_string(),
+            groq_api_key: String::new(),
             model: "gpt-4o-mini-transcribe".to_string(),
             language: "auto".to_string(),
             auto_paste: true,
@@ -611,6 +691,7 @@ mod tests {
     fn test_to_frontend_masks_secrets() {
         let settings = AppSettings {
             api_key: "sk-test-openai".to_string(),
+            groq_api_key: "gsk-test-groq".to_string(),
             anthropic_api_key: "sk-ant-test".to_string(),
             ..sample_settings()
         };
@@ -619,6 +700,8 @@ mod tests {
 
         assert!(frontend.api_key_present);
         assert_eq!(frontend.api_key_masked.as_deref(), Some("sk-...enai"));
+        assert!(frontend.groq_api_key_present);
+        assert_eq!(frontend.groq_api_key_masked.as_deref(), Some("gsk...groq"));
         assert!(frontend.anthropic_api_key_present);
         assert_eq!(
             frontend.anthropic_api_key_masked.as_deref(),
@@ -634,12 +717,14 @@ mod tests {
         {
             let mut settings = state.settings.lock().unwrap();
             settings.api_key = "sk-existing".to_string();
+            settings.groq_api_key = "gsk-existing".to_string();
             settings.anthropic_api_key = "sk-ant-existing".to_string();
         }
 
         let saved = state
             .save_request(SaveSettingsRequest {
                 api_key: None,
+                groq_api_key: None,
                 anthropic_api_key: None,
                 widget_mode: true,
                 prompt_optimization_enabled: true,
@@ -649,6 +734,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(saved.api_key, "sk-existing");
+        assert_eq!(saved.groq_api_key, "gsk-existing");
         assert_eq!(saved.anthropic_api_key, "sk-ant-existing");
         assert!(saved.widget_mode);
         assert!(saved.prompt_optimization_enabled);
@@ -661,6 +747,7 @@ mod tests {
 
         state
             .save_request(SaveSettingsRequest {
+                groq_api_key: Some("gsk-secret".to_string()),
                 anthropic_api_key: Some("sk-ant-secret".to_string()),
                 replacements: vec![Replacement {
                     target: "hello".to_string(),
@@ -673,6 +760,7 @@ mod tests {
         let settings_json = fs::read_to_string(dir.path().join("settings.json")).unwrap();
 
         assert!(!settings_json.contains("sk-test"));
+        assert!(!settings_json.contains("gsk-secret"));
         assert!(!settings_json.contains("sk-ant-secret"));
         assert!(settings_json.contains("\"model\""));
     }
@@ -694,6 +782,7 @@ mod tests {
   "prompt_optimization_enabled": true,
   "prompt_optimizer_model": "claude-sonnet-4-6",
   "anthropic_api_key": "sk-ant-old",
+  "groq_api_key": "gsk-old",
   "replacements": []
 }"#,
         )
@@ -704,9 +793,11 @@ mod tests {
         let migrated_json = fs::read_to_string(path).unwrap();
 
         assert_eq!(settings.api_key, "sk-test");
+        assert_eq!(settings.groq_api_key, "gsk-old");
         assert_eq!(settings.anthropic_api_key, "sk-ant-old");
         assert_eq!(settings.language, "pt");
         assert!(!migrated_json.contains("sk-test"));
+        assert!(!migrated_json.contains("gsk-old"));
         assert!(!migrated_json.contains("sk-ant-old"));
         assert!(!migrated_json.contains("pt-first"));
     }

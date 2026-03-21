@@ -6,8 +6,11 @@ export interface Replacement {
 }
 
 export interface SettingsViewModel {
+  transcription_provider: string;
   api_key_present: boolean;
   api_key_masked: string | null;
+  groq_api_key_present: boolean;
+  groq_api_key_masked: string | null;
   model: string;
   language: string;
   auto_paste: boolean;
@@ -23,7 +26,9 @@ export interface SettingsViewModel {
 }
 
 export interface SaveSettingsPayload {
+  transcription_provider: string;
   api_key: string | null;
+  groq_api_key: string | null;
   model: string;
   language: string;
   auto_paste: boolean;

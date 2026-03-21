@@ -10,7 +10,13 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { DEFAULT_HOTKEY, LANGUAGES, PROMPT_OPTIMIZER_MODELS } from "./appConstants";
+import {
+  DEFAULT_HOTKEY,
+  LANGUAGES,
+  MODELS_BY_PROVIDER,
+  PROMPT_OPTIMIZER_MODELS,
+  TRANSCRIPTION_PROVIDERS,
+} from "./appConstants";
 import { buildHotkeyString, formatHotkey, isInteractiveDragTarget } from "./appHelpers";
 import type { Replacement, SaveSettingsPayload, SettingsViewModel } from "./appTypes";
 
@@ -46,11 +52,13 @@ function toSettingsDraft(settings: SettingsViewModel): SettingsDraft {
 function toSavePayload(
   settings: SettingsDraft,
   apiKeyInput: string,
+  groqApiKeyInput: string,
   anthropicApiKeyInput: string,
 ): SaveSettingsPayload {
   return {
     ...settings,
     api_key: apiKeyInput.trim() ? apiKeyInput.trim() : null,
+    groq_api_key: groqApiKeyInput.trim() ? groqApiKeyInput.trim() : null,
     anthropic_api_key: anthropicApiKeyInput.trim() ? anthropicApiKeyInput.trim() : null,
     replacements: settings.replacements.map(({ id: _id, ...replacement }) => replacement),
   };
@@ -59,6 +67,7 @@ function toSavePayload(
 export function SettingsView() {
   const [settings, setSettings] = useState<SettingsDraft | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [groqApiKeyInput, setGroqApiKeyInput] = useState("");
   const [anthropicApiKeyInput, setAnthropicApiKeyInput] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -70,6 +79,7 @@ export function SettingsView() {
       .then((loadedSettings) => {
         setSettings(toSettingsDraft(loadedSettings));
         setApiKeyInput("");
+        setGroqApiKeyInput("");
         setAnthropicApiKeyInput("");
       })
       .catch((error) => {
@@ -86,10 +96,11 @@ export function SettingsView() {
   const saveSettings = async (newSettings: SettingsDraft) => {
     try {
       setErrorMessage(null);
-      const payload = toSavePayload(newSettings, apiKeyInput, anthropicApiKeyInput);
+      const payload = toSavePayload(newSettings, apiKeyInput, groqApiKeyInput, anthropicApiKeyInput);
       const savedSettings = await invoke<SettingsViewModel>("save_settings", { newSettings: payload });
       setSettings(toSettingsDraft(savedSettings));
       setApiKeyInput("");
+      setGroqApiKeyInput("");
       setAnthropicApiKeyInput("");
       try {
         if (autostart) await enable(); else await disable();
@@ -196,22 +207,63 @@ export function SettingsView() {
 
       <div className="flex-1 flex flex-col gap-5 overflow-y-auto overflow-x-hidden pr-2 custom-scrollbar pb-4">
         <section className="space-y-3">
-          <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">General</h3>
+          <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Transcription</h3>
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
-            OpenAI API Key
-            <input
-              type="password"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
-              placeholder={settings.api_key_masked ?? "sk-..."}
-            />
-            <span className="text-[10px] text-gray-500">
-              {settings.api_key_present
-                ? `Saved in your OS credential store as ${settings.api_key_masked}. Leave blank to keep it.`
-                : "Saved in your OS credential store after you enter one."}
-            </span>
+            Provider
+            <select
+              value={settings.transcription_provider}
+              onChange={(e) => {
+                const provider = e.target.value;
+                const models = MODELS_BY_PROVIDER[provider] ?? [];
+                setSettings({
+                  ...settings,
+                  transcription_provider: provider,
+                  model: models[0]?.value ?? "",
+                });
+              }}
+              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
+            >
+              {TRANSCRIPTION_PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
           </label>
+
+          {settings.transcription_provider === "openai" && (
+            <label className="text-xs text-gray-400 flex flex-col gap-1.5">
+              OpenAI API Key
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
+                placeholder={settings.api_key_masked ?? "sk-..."}
+              />
+              <span className="text-[10px] text-gray-500">
+                {settings.api_key_present
+                  ? `Saved in your OS credential store as ${settings.api_key_masked}. Leave blank to keep it.`
+                  : "Saved in your OS credential store after you enter one."}
+              </span>
+            </label>
+          )}
+
+          {settings.transcription_provider === "groq" && (
+            <label className="text-xs text-gray-400 flex flex-col gap-1.5">
+              Groq API Key
+              <input
+                type="password"
+                value={groqApiKeyInput}
+                onChange={(e) => setGroqApiKeyInput(e.target.value)}
+                className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
+                placeholder={settings.groq_api_key_masked ?? "gsk_..."}
+              />
+              <span className="text-[10px] text-gray-500">
+                {settings.groq_api_key_present
+                  ? `Saved in your OS credential store as ${settings.groq_api_key_masked}. Leave blank to keep it.`
+                  : "Saved in your OS credential store after you enter one."}
+              </span>
+            </label>
+          )}
 
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
             Model
@@ -220,9 +272,9 @@ export function SettingsView() {
               onChange={(e) => setSettings({ ...settings, model: e.target.value })}
               className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
             >
-              <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
-              <option value="gpt-4o-transcribe">gpt-4o-transcribe (High Accuracy)</option>
-              <option value="whisper-1">whisper-1 (Legacy / Fallback)</option>
+              {(MODELS_BY_PROVIDER[settings.transcription_provider] ?? []).map((model) => (
+                <option key={model.value} value={model.value}>{model.label}</option>
+              ))}
             </select>
           </label>
         </section>

@@ -2,46 +2,78 @@ use reqwest::multipart;
 use reqwest::StatusCode;
 use std::time::{Duration, Instant};
 
-fn model_supports_streaming(model: &str) -> bool {
+fn model_supports_streaming(model: &str, provider: &str) -> bool {
+    if provider == "groq" {
+        return false;
+    }
     model != "whisper-1"
 }
 
-fn user_facing_api_error(status: StatusCode) -> String {
+fn api_endpoint(provider: &str) -> &'static str {
+    match provider {
+        "groq" => "https://api.groq.com/openai/v1/audio/transcriptions",
+        _ => "https://api.openai.com/v1/audio/transcriptions",
+    }
+}
+
+pub fn warmup_endpoint(provider: &str) -> &'static str {
+    match provider {
+        "groq" => "https://api.groq.com/openai/v1/models",
+        _ => "https://api.openai.com/v1/models",
+    }
+}
+
+fn provider_label(provider: &str) -> &'static str {
+    match provider {
+        "groq" => "Groq",
+        _ => "OpenAI",
+    }
+}
+
+fn user_facing_api_error(status: StatusCode, provider: &str) -> String {
+    let label = provider_label(provider);
     match status {
         StatusCode::UNAUTHORIZED => {
-            "OpenAI authentication failed. Check the saved API key.".to_string()
+            format!("{label} authentication failed. Check the saved API key.")
         }
         StatusCode::TOO_MANY_REQUESTS => {
-            "OpenAI rejected the request due to rate limits or quota. Try again later.".to_string()
+            format!("{label} rejected the request due to rate limits or quota. Try again later.")
         }
         StatusCode::BAD_REQUEST => {
-            "OpenAI rejected the audio request. Verify the selected model and try again."
-                .to_string()
+            format!("{label} rejected the audio request. Verify the selected model and try again.")
         }
         StatusCode::INTERNAL_SERVER_ERROR
         | StatusCode::BAD_GATEWAY
         | StatusCode::SERVICE_UNAVAILABLE
         | StatusCode::GATEWAY_TIMEOUT => {
-            "OpenAI is temporarily unavailable. Try again in a moment.".to_string()
+            format!("{label} is temporarily unavailable. Try again in a moment.")
         }
-        _ => format!("OpenAI request failed with status {}.", status.as_u16()),
+        _ => format!("{label} request failed with status {}.", status.as_u16()),
     }
 }
 
 pub async fn transcribe_audio(
     client: &reqwest::Client,
-    wav_bytes: Vec<u8>,
+    audio_bytes: Vec<u8>,
     api_key: &str,
     model: &str,
     language: Option<&str>,
+    provider: &str,
+    mime_type: &str,
+    file_name: &str,
 ) -> Result<String, String> {
-    eprintln!("[FamVoice] Sending {} bytes to API", wav_bytes.len());
+    eprintln!(
+        "[FamVoice] Sending {} bytes ({}) to {} API",
+        audio_bytes.len(),
+        mime_type,
+        provider_label(provider)
+    );
 
-    let use_streaming = model_supports_streaming(model);
+    let use_streaming = model_supports_streaming(model, provider);
 
-    let file_part = multipart::Part::bytes(wav_bytes)
-        .file_name("audio.wav")
-        .mime_str("audio/wav")
+    let file_part = multipart::Part::bytes(audio_bytes)
+        .file_name(file_name.to_string())
+        .mime_str(mime_type)
         .map_err(|e| e.to_string())?;
 
     let mut form = multipart::Form::new()
@@ -59,11 +91,16 @@ pub async fn transcribe_audio(
         }
     }
 
+    let endpoint = api_endpoint(provider);
+    let request_timeout = match provider {
+        "groq" => Duration::from_secs(10),
+        _ => Duration::from_secs(30),
+    };
     let t_request = Instant::now();
     let mut res = client
-        .post("https://api.openai.com/v1/audio/transcriptions")
+        .post(endpoint)
         .header("Authorization", format!("Bearer {}", api_key))
-        .timeout(Duration::from_secs(30))
+        .timeout(request_timeout)
         .multipart(form)
         .send()
         .await
@@ -73,8 +110,13 @@ pub async fn transcribe_audio(
         let status = res.status();
         let _err_text = res.text().await.unwrap_or_default();
         #[cfg(debug_assertions)]
-        eprintln!("[FamVoice] OpenAI API error {}: {}", status, _err_text);
-        return Err(user_facing_api_error(status));
+        eprintln!(
+            "[FamVoice] {} API error {}: {}",
+            provider_label(provider),
+            status,
+            _err_text
+        );
+        return Err(user_facing_api_error(status, provider));
     }
 
     if !use_streaming {

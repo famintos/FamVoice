@@ -5,6 +5,8 @@ import type { Status } from "./appTypes";
 
 interface WidgetViewProps {
   status: Status;
+  missingApiKey: boolean;
+  updateReady: boolean;
   containerRef: RefObject<HTMLElement | null>;
   onMouseDownCapture: MouseEventHandler<HTMLElement>;
   onContextMenu: MouseEventHandler<HTMLElement>;
@@ -12,6 +14,8 @@ interface WidgetViewProps {
 
 export function WidgetView({
   status,
+  missingApiKey,
+  updateReady,
   containerRef,
   onMouseDownCapture,
   onContextMenu,
@@ -39,6 +43,12 @@ export function WidgetView({
           )}
           {status === "error" && (
             <div className="w-2 h-2 bg-red-500 rounded-full" />
+          )}
+          {status === "idle" && missingApiKey && (
+            <div className="w-2 h-2 bg-amber-500 rounded-full" title="API key missing — right-click to configure" />
+          )}
+          {status === "idle" && updateReady && (
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" title="Update ready — right-click to restart" />
           )}
           <VoiceWave isPlaying={status === "recording"} />
         </div>

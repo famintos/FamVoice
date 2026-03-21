@@ -391,6 +391,33 @@ pub fn encode_wav_in_memory(samples: &[i16]) -> Vec<u8> {
     buf
 }
 
+/// Encode PCM samples as FLAC bytes in memory (16kHz, mono, 16-bit).
+/// Typically compresses to ~30-40% of the equivalent WAV size.
+pub fn encode_flac_in_memory(samples: &[i16]) -> Result<Vec<u8>, String> {
+    use flacenc::component::BitRepr;
+    use flacenc::error::Verify;
+
+    let samples_i32: Vec<i32> = samples.iter().map(|&s| s as i32).collect();
+
+    let config = flacenc::config::Encoder::default()
+        .into_verified()
+        .map_err(|e| format!("Invalid FLAC encoder config: {:?}", e))?;
+
+    let source =
+        flacenc::source::MemSource::from_samples(&samples_i32, 1, 16, TARGET_SAMPLE_RATE as usize);
+
+    let flac_stream =
+        flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+            .map_err(|e| format!("FLAC encode failed: {:?}", e))?;
+
+    let mut sink = flacenc::bitsink::ByteSink::new();
+    flac_stream
+        .write(&mut sink)
+        .map_err(|e| format!("FLAC write failed: {:?}", e))?;
+
+    Ok(sink.as_slice().to_vec())
+}
+
 fn take_recorded_samples(buffer: &mut Vec<i16>) -> Option<Vec<i16>> {
     if buffer.is_empty() {
         return None;
