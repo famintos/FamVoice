@@ -25,3 +25,9 @@ dist-ssr
 *.sw?
 settings.json
 *.bak
+
+# AI agent configs
+AGENTS.md
+GEMINI.md
+.claude/
+docs/superpowers/
