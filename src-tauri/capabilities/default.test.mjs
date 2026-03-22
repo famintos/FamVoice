@@ -12,3 +12,14 @@ test("default capability allows manual window dragging", () => {
     "expected core:window:allow-start-dragging permission",
   );
 });
+
+test("default capability allows updater checks and relaunch", () => {
+  assert.ok(
+    capability.permissions.includes("updater:default"),
+    "expected updater:default permission",
+  );
+  assert.ok(
+    capability.permissions.includes("process:default"),
+    "expected process:default permission",
+  );
+});

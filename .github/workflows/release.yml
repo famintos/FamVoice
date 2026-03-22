@@ -42,3 +42,23 @@ jobs:
           releaseBody: 'See assets to download and install.'
           releaseDraft: false
           prerelease: false
+
+      - name: Verify updater endpoint is publicly reachable
+        shell: pwsh
+        run: |
+          $config = Get-Content 'src-tauri/tauri.conf.json' | ConvertFrom-Json
+          $endpoint = $config.plugins.updater.endpoints[0]
+
+          if (-not $endpoint) {
+            throw "No updater endpoint configured in src-tauri/tauri.conf.json"
+          }
+
+          try {
+            $response = Invoke-WebRequest -Uri $endpoint -UseBasicParsing -MaximumRedirection 5
+          } catch {
+            throw "Updater endpoint '$endpoint' is not anonymously reachable after release. If you are using GitHub Releases, private repositories return 404 to end users and Tauri auto-update will not work."
+          }
+
+          if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
+            throw "Updater endpoint '$endpoint' returned HTTP $($response.StatusCode). End users need anonymous access to latest.json for Tauri auto-update to work."
+          }

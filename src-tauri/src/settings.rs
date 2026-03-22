@@ -218,12 +218,18 @@ pub struct SaveSettingsRequest {
 
 impl SaveSettingsRequest {
     fn merge_with_existing(self, existing: &AppSettings) -> AppSettings {
+        fn keep_existing_or_new(value: Option<String>, existing: &str) -> String {
+            match value {
+                Some(value) if value.trim().is_empty() => existing.to_string(),
+                Some(value) => value,
+                None => existing.to_string(),
+            }
+        }
+
         AppSettings {
             transcription_provider: self.transcription_provider,
-            api_key: self.api_key.unwrap_or_else(|| existing.api_key.clone()),
-            groq_api_key: self
-                .groq_api_key
-                .unwrap_or_else(|| existing.groq_api_key.clone()),
+            api_key: keep_existing_or_new(self.api_key, &existing.api_key),
+            groq_api_key: keep_existing_or_new(self.groq_api_key, &existing.groq_api_key),
             model: self.model,
             language: self.language,
             auto_paste: self.auto_paste,
@@ -233,9 +239,7 @@ impl SaveSettingsRequest {
             mic_sensitivity: self.mic_sensitivity,
             prompt_optimization_enabled: self.prompt_optimization_enabled,
             prompt_optimizer_model: self.prompt_optimizer_model,
-            anthropic_api_key: self
-                .anthropic_api_key
-                .unwrap_or_else(|| existing.anthropic_api_key.clone()),
+            anthropic_api_key: keep_existing_or_new(self.anthropic_api_key, &existing.anthropic_api_key),
             replacements: self.replacements,
         }
     }
@@ -738,6 +742,32 @@ mod tests {
         assert_eq!(saved.anthropic_api_key, "sk-ant-existing");
         assert!(saved.widget_mode);
         assert!(saved.prompt_optimization_enabled);
+    }
+
+    #[test]
+    fn test_save_request_keeps_existing_secret_when_field_is_blank() {
+        let dir = tempdir().unwrap();
+        let state = test_state(&dir);
+
+        {
+            let mut settings = state.settings.lock().unwrap();
+            settings.api_key = "sk-existing".to_string();
+            settings.groq_api_key = "gsk-existing".to_string();
+            settings.anthropic_api_key = "sk-ant-existing".to_string();
+        }
+
+        let saved = state
+            .save_request(SaveSettingsRequest {
+                api_key: Some("   ".to_string()),
+                groq_api_key: Some("\t".to_string()),
+                anthropic_api_key: Some("\n".to_string()),
+                ..sample_save_request()
+            })
+            .unwrap();
+
+        assert_eq!(saved.api_key, "sk-existing");
+        assert_eq!(saved.groq_api_key, "gsk-existing");
+        assert_eq!(saved.anthropic_api_key, "sk-ant-existing");
     }
 
     #[test]
