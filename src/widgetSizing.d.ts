@@ -22,7 +22,9 @@ export interface ScreenBounds {
   bottom: number;
 }
 
+export const WIDGET_CHROME_PADDING: number;
 export function getWidgetWindowSize(rect: WidgetBounds): LogicalSize;
+export function getWidgetWindowSizeWithChrome(rect: WidgetBounds): LogicalSize;
 export function getWidgetInteractiveBounds(args: {
   rect: WidgetRect;
   windowPosition: ScreenPoint;

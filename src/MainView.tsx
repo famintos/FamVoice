@@ -26,7 +26,7 @@ import { VoiceWave } from "./components/VoiceWave";
 import { WidgetView } from "./WidgetView";
 import {
   getWidgetInteractiveBounds,
-  getWidgetWindowSize,
+  getWidgetWindowSizeWithChrome,
   isPointInsideBounds,
 } from "./widgetSizing.js";
 
@@ -37,6 +37,7 @@ export function MainView() {
   const [activeTab, setActiveTab] = useState<"record" | "history">("record");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const [highlightKey, setHighlightKey] = useState(0);
   const widgetContainerRef = useRef<HTMLElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
   const ignoreCursorEventsRef = useRef<boolean | null>(null);
@@ -64,11 +65,16 @@ export function MainView() {
       setHistory(event.payload);
     });
 
+    const unlistenHighlight = listen("highlight-widget", () => {
+      setHighlightKey((k) => k + 1);
+    });
+
     return () => {
       unlistenStatus.then((fn) => fn());
       unlistenTranscript.then((fn) => fn());
       unlistenSettings.then((fn) => fn());
       unlistenHistory.then((fn) => fn());
+      unlistenHighlight.then((fn) => fn());
     };
   }, []);
 
@@ -83,7 +89,7 @@ export function MainView() {
 
     let frameId = 0;
     const resizeWindow = async () => {
-      const size = getWidgetWindowSize(container.getBoundingClientRect());
+      const size = getWidgetWindowSizeWithChrome(container.getBoundingClientRect());
       const previousSize = lastWidgetSizeRef.current;
 
       if (previousSize?.width === size.width && previousSize?.height === size.height) {
@@ -261,6 +267,8 @@ export function MainView() {
         status={status}
         missingApiKey={!!missingTranscriptionKey}
         updateReady={!!pendingUpdate}
+        highlightKey={highlightKey}
+        errorMessage={status === "error" ? transcript : undefined}
         containerRef={widgetContainerRef}
         onMouseDownCapture={(e) => {
           if (e.button !== 0) return;

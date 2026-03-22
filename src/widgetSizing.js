@@ -1,9 +1,19 @@
 import { LogicalSize } from "@tauri-apps/api/dpi";
 
+// Extra transparent space around the widget so outline effects have room to render
+export const WIDGET_CHROME_PADDING = 10;
+
 export function getWidgetWindowSize(rect) {
   return new LogicalSize(
     Math.max(1, Math.ceil(rect.width)),
     Math.max(1, Math.ceil(rect.height)),
+  );
+}
+
+export function getWidgetWindowSizeWithChrome(rect) {
+  return new LogicalSize(
+    Math.max(1, Math.ceil(rect.width) + WIDGET_CHROME_PADDING * 2),
+    Math.max(1, Math.ceil(rect.height) + WIDGET_CHROME_PADDING * 2),
   );
 }
 

@@ -974,8 +974,15 @@ pub fn run() {
                     TrayIconEvent::Click {
                         button: MouseButton::Left,
                         ..
+                    } => {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
                     }
-                    | TrayIconEvent::DoubleClick {
+                    TrayIconEvent::DoubleClick {
                         button: MouseButton::Left,
                         ..
                     } => {
@@ -985,6 +992,7 @@ pub fn run() {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
+                        let _ = app.emit("highlight-widget", ());
                     }
                     _ => {}
                 })
