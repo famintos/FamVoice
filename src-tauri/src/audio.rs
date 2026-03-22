@@ -192,7 +192,7 @@ fn start_persistent_input_stream(
 
     let sample_format = default_config.sample_format();
     let stream_config: cpal::StreamConfig = default_config.into();
-    let capture_rate = stream_config.sample_rate.0;
+    let capture_rate = stream_config.sample_rate;
     let capture_channels = stream_config.channels as usize;
     let downsample_ratio = capture_rate as f64 / TARGET_SAMPLE_RATE as f64;
 
