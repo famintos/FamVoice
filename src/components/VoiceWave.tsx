@@ -19,21 +19,19 @@ export function VoiceWave({
 }) {
   const containerClass = size === "large" ? "h-8 gap-[3px]" : "h-4 gap-[2px]";
   const barClass = size === "large" ? "w-[3px]" : "w-[2px]";
-  const pausedHeight = size === "large" ? "20%" : "22%";
 
   return (
     <div
-      className={`flex items-center justify-center ${containerClass} pointer-events-none`}
-      style={isPlaying ? { filter: "drop-shadow(0 0 5px rgba(59,130,246,0.65))" } : undefined}
+      className={`flex items-center justify-center ${containerClass} pointer-events-none${isPlaying ? " wave-glow" : ""}`}
     >
       {BARS.map((bar, i) => (
         <div
           key={i}
-          className={`wave-bar ${barClass} bg-primary rounded-full ${!isPlaying ? "pause-animation" : ""}`}
+          className={`${barClass} bg-primary rounded-full ${isPlaying ? "wave-bar" : "wave-idle"}`}
           style={{
-            height: isPlaying ? `${bar.peak * 100}%` : pausedHeight,
-            animationDuration: `${bar.dur}s`,
-            animationDelay: `${bar.delay}s`,
+            height: `${bar.peak * 100}%`,
+            animationDuration: isPlaying ? `${bar.dur}s` : "2s",
+            animationDelay: isPlaying ? `${bar.delay}s` : `${i * 0.15}s`,
             "--wave-peak": bar.peak,
           } as React.CSSProperties}
         />

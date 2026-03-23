@@ -47,10 +47,30 @@ button, input, select, .no-drag {
 .wave-bar {
   animation: wave-bounce 1s infinite cubic-bezier(0.42, 0, 0.58, 1);
   transform-origin: center;
+  will-change: transform;
 }
 
-.pause-animation {
-  animation-play-state: paused !important;
+.wave-bar.wave-paused {
+  animation-play-state: paused;
+}
+
+@keyframes wave-idle {
+  0%, 100% { transform: scaleY(0.15); }
+  50% { transform: scaleY(0.35); }
+}
+
+.wave-idle {
+  animation: wave-idle 2s infinite ease-in-out;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.wave-idle.wave-paused {
+  animation-play-state: paused;
+}
+
+.wave-glow {
+  filter: drop-shadow(0 0 5px rgba(59, 130, 246, 0.65));
 }
 
 .custom-scrollbar::-webkit-scrollbar {
