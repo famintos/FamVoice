@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
   Plus,
   RefreshCw,
@@ -72,7 +75,25 @@ export function SettingsView() {
   const [autostart, setAutostart] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState("");
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
+  const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const appWindow = getCurrentWindow();
+
+  const refreshUpdate = async () => {
+    setIsCheckingForUpdates(true);
+    try {
+      const update = await check();
+      setAvailableUpdate(update);
+    } catch (error) {
+      console.error("Update check failed:", error);
+      setAvailableUpdate(null);
+    } finally {
+      setIsCheckingForUpdates(false);
+    }
+  };
 
   useEffect(() => {
     invoke<SettingsViewModel>("get_settings")
@@ -86,11 +107,30 @@ export function SettingsView() {
         console.error("Failed to load settings:", error);
         setErrorMessage(String(error));
       });
+
     isEnabled()
       .then(setAutostart)
       .catch((error) => {
         console.error("Autostart status error:", error);
       });
+
+    getVersion()
+      .then(setAppVersion)
+      .catch((error) => {
+        console.error("Failed to load app version:", error);
+      });
+
+    void refreshUpdate();
+
+    const unlistenFocusChanged = appWindow.onFocusChanged(({ payload: focused }) => {
+      if (focused) {
+        void refreshUpdate();
+      }
+    });
+
+    return () => {
+      unlistenFocusChanged.then((fn) => fn());
+    };
   }, []);
 
   const saveSettings = async (newSettings: SettingsDraft) => {
@@ -111,6 +151,21 @@ export function SettingsView() {
     } catch (error) {
       console.error("Failed to save settings:", error);
       setErrorMessage(String(error));
+    }
+  };
+
+  const handleApplyUpdate = async () => {
+    if (!availableUpdate || isApplyingUpdate) return;
+
+    try {
+      setUpdateError(null);
+      setIsApplyingUpdate(true);
+      await availableUpdate.downloadAndInstall();
+      await relaunch();
+    } catch (error) {
+      console.error("Failed to apply update:", error);
+      setUpdateError(String(error));
+      setIsApplyingUpdate(false);
     }
   };
 
@@ -463,6 +518,54 @@ export function SettingsView() {
               />
               <span>Launch on Startup</span>
             </label>
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Update</h3>
+            <button
+              onClick={() => void refreshUpdate()}
+              className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+              type="button"
+            >
+              <RefreshCw size={10} />
+              Refresh
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-3">
+            <div className="flex items-center justify-between text-xs text-gray-300">
+              <span>Current version</span>
+              <span className="text-gray-400">{appVersion ? `v${appVersion}` : "Loading..."}</span>
+            </div>
+
+            {isCheckingForUpdates ? (
+              <p className="text-[11px] text-gray-400">Checking for updates...</p>
+            ) : availableUpdate ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-gray-300">
+                  <span>Update available</span>
+                  <span className="text-sky-300">v{availableUpdate.version}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyUpdate}
+                  disabled={isApplyingUpdate}
+                  className="w-full rounded-lg border border-sky-400/30 bg-sky-500/10 py-2 text-xs font-bold text-sky-200 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isApplyingUpdate ? "Updating..." : "Update"}
+                </button>
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-400">No update available.</p>
+            )}
+
+            {updateError && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+                {updateError}
+              </div>
+            )}
           </div>
         </section>
 

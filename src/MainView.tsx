@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { cursorPosition, getCurrentWindow } from "@tauri-apps/api/window";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import {
   AlertCircle,
   Copy,
@@ -37,6 +36,8 @@ export function MainView() {
   const [activeTab, setActiveTab] = useState<"record" | "history">("record");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const [isUpdateNoticeOpen, setIsUpdateNoticeOpen] = useState(false);
+  const [hasDismissedUpdateNotice, setHasDismissedUpdateNotice] = useState(false);
   const [highlightKey, setHighlightKey] = useState(0);
   const widgetContainerRef = useRef<HTMLElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
@@ -212,11 +213,13 @@ export function MainView() {
 
   useEffect(() => {
     check()
-      .then(async (update) => {
+      .then((update) => {
         if (!update) return;
         console.log(`Update available: ${update.version}`);
-        await update.downloadAndInstall();
         setPendingUpdate(update);
+        if (!hasDismissedUpdateNotice) {
+          setIsUpdateNoticeOpen(true);
+        }
       })
       .catch((error) => {
         console.error("Update check failed:", error);
@@ -230,10 +233,6 @@ export function MainView() {
 
   const handleOpenSettings = async () => {
     await invoke("open_settings_window");
-  };
-
-  const handleUpdate = async () => {
-    await relaunch();
   };
 
   const copyToClipboard = async (text: string) => {
@@ -266,7 +265,6 @@ export function MainView() {
       <WidgetView
         status={status}
         missingApiKey={!!missingTranscriptionKey}
-        updateReady={!!pendingUpdate}
         highlightKey={highlightKey}
         errorMessage={status === "error" ? transcript : undefined}
         containerRef={widgetContainerRef}
@@ -282,11 +280,7 @@ export function MainView() {
         }}
         onContextMenu={(e) => {
           e.preventDefault();
-          if (pendingUpdate) {
-            void handleUpdate();
-          } else {
-            void handleOpenSettings();
-          }
+          void handleOpenSettings();
         }}
       />
     );
@@ -294,6 +288,41 @@ export function MainView() {
 
   return (
     <main data-tauri-drag-region className="w-full h-full flex flex-col bg-[#0f0f13]/85 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/10 relative overflow-hidden text-white">
+      {pendingUpdate && isUpdateNoticeOpen && (
+        <div className="absolute inset-x-3 top-3 z-20 no-drag">
+          <div className="rounded-2xl border border-sky-400/25 bg-[#111827]/95 px-4 py-3 shadow-2xl backdrop-blur-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold text-sky-200">A new update is available</p>
+                <p className="text-[10px] text-slate-300">v{pendingUpdate.version}</p>
+                <p className="text-[10px] text-slate-400">Open Settings to download and install it manually.</p>
+              </div>
+              <button
+                onClick={() => {
+                  setHasDismissedUpdateNotice(true);
+                  setIsUpdateNoticeOpen(false);
+                }}
+                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Dismiss update notice"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={() => {
+                  void handleOpenSettings();
+                  setIsUpdateNoticeOpen(false);
+                }}
+                className="rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-200 transition-colors hover:bg-sky-500/20"
+              >
+                Open Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div data-tauri-drag-region className="flex justify-between items-center px-4 pt-3 pb-1">
         <div className="flex items-center gap-2 pointer-events-none select-none text-gray-300">
           <FamVoiceLogo size={16} />
@@ -374,15 +403,6 @@ export function MainView() {
                   transcript
                 )}
               </div>
-            )}
-
-            {status === "idle" && !transcript && pendingUpdate && (
-              <button
-                onClick={handleUpdate}
-                className="mt-4 px-3 py-2 bg-green-500/10 border border-green-500/20 rounded-lg text-[11px] text-green-300 cursor-pointer hover:bg-green-500/20 transition-all no-drag animate-in fade-in duration-300 w-full"
-              >
-                v{pendingUpdate.version} ready — click to restart
-              </button>
             )}
 
             {status === "idle" && !transcript && (missingTranscriptionKey || missingAnthropicKey) && (

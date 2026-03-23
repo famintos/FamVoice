@@ -11,10 +11,10 @@ FamVoice uses a standard Tauri architecture, combining a lightweight Rust backen
 ## Backend (`src-tauri/`)
 - **Tauri (v2):** Manages the system tray, window lifecycle, and global shortcuts.
 - **Audio (`audio.rs`):** Uses `cpal` to capture microphone input directly into a WAV file via `hound`.
-- **Transcription (`transcription.rs`):** Posts the WAV file to OpenAI's audio transcription endpoint using `reqwest`.
+- **Transcription (`transcription.rs`):** Posts the WAV file to the selected provider's audio transcription endpoint (OpenAI or Groq) using `reqwest`.
 - **Clipboard (`clipboard.rs`):** Interacts with the system clipboard using `arboard` to safely read, store, and write text.
 - **Injection (`injection.rs`):** Uses `enigo` to simulate the `Ctrl+V` (or `Cmd+V`) keystrokes, pasting the transcribed text directly into the user's active window.
-- **Settings (`settings.rs`):** Manages local JSON persistence for user preferences, including the new Phrase Replacements.
+- **Settings (`settings.rs`):** Manages local JSON persistence for user preferences and stores provider API keys in the OS credential store / keyring.
 - **History (`history.rs`):** Maintains a rolling log of recent transcripts, serialized to disk, enabling users to re-paste or review old dictations.
 
 ## IPC Commands

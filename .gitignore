@@ -16,6 +16,11 @@ dist-ssr
 .env
 .env.*
 !.env.example
+history.json
+history.json.corrupt
+settings.json
+settings.json.corrupt
+*.corrupt
 *.key
 *.pem
 *.p12

@@ -50,6 +50,7 @@ test("widget right click opens settings from the widget container", () => {
   assert.match(widgetViewSource, /onContextMenu=\{onContextMenu\}/);
   assert.match(widgetBranchBlock, /onContextMenu=\{\(e\) => \{/);
   assert.match(widgetBranchBlock, /void handleOpenSettings\(\)/);
+  assert.doesNotMatch(widgetBranchBlock, /void handleUpdate\(\)/);
 });
 
 test("widget drag start sets a grace period before requesting the window drag", () => {
@@ -81,4 +82,10 @@ test("record tab keeps waves visible outside the transcribing and result states"
 
   assert.match(mainViewSource, /const showStatusDot = status === "transcribing" \|\| status === "success" \|\| status === "error";/);
   assert.match(recordTabBlock, /<VoiceWave isPlaying=\{status === "recording"\} size="large" \/>/);
+});
+
+test("widget does not expose an update-ready indicator or tooltip", () => {
+  assert.doesNotMatch(widgetViewSource, /updateReady/);
+  assert.doesNotMatch(widgetViewSource, /Update ready/);
+  assert.doesNotMatch(widgetViewSource, /right-click to restart/);
 });

@@ -9,7 +9,7 @@ Built with **Tauri v2** (Rust) + **React** + **Tailwind CSS**.
 1. Press and hold a global hotkey (default `Ctrl+Shift+Space`)
 2. Speak into your microphone
 3. Release the hotkey
-4. Your speech is transcribed via OpenAI and automatically pasted into the active window
+4. Your speech is transcribed via OpenAI or Groq and automatically pasted into the active window
 
 No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 
@@ -18,6 +18,7 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 - **Global Hotkey** - Works in any application, configurable shortcut
 - **Instant Paste** - Transcribed text is injected directly into the focused input field
 - **Clipboard Preservation** - Optionally restores your clipboard after pasting
+- **Bring Your Own Keys** - FamVoice is a local desktop client; you provide your own OpenAI, Groq, and optional Anthropic API keys
 - **Prompt Optimization** - Optional AI pass (Anthropic) that rewrites your dictation into a polished implementation prompt for coding agents
 - **Glossary Replacements** - Auto-correct specific words or phrases (e.g. "omg" -> "Oh my gosh")
 - **Widget Mode** - Minimal floating overlay showing only the recording waveform
@@ -31,20 +32,31 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 - `gpt-4o-mini-transcribe` (default)
 - `gpt-4o-transcribe`
 - `whisper-1`
+- `whisper-large-v3-turbo` (Groq)
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v20.19+ or v22.12+)
 - [Rust](https://www.rust-lang.org/tools/install) (stable)
 - [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform
-- An OpenAI API key (for transcription)
+- An OpenAI API key or Groq API key (for transcription)
 - *(Optional)* An Anthropic API key (for prompt optimization)
+
+## Privacy And Keys
+
+FamVoice does not ship with a shared backend API key. It runs as a local desktop client and uses the provider keys you enter in **Settings**.
+
+- OpenAI key: required when transcription provider is `OpenAI`
+- Groq key: required when transcription provider is `Groq`
+- Anthropic key: optional, only used when prompt optimization is enabled
+
+API keys are stored in your OS credential store / keyring, not committed to the repo and not intended to live in plaintext project files.
 
 ## Getting Started
 
 ```bash
 # Clone the repo
-git clone git@github.com:famintos/FamVoice.git
+git clone https://github.com/famintos/FamVoice.git
 cd FamVoice
 
 # Install dependencies
@@ -57,7 +69,11 @@ npm run tauri dev
 npm run tauri build
 ```
 
-On first launch, open **Settings** and paste your OpenAI API key.
+On first launch, open **Settings**, choose your transcription provider, and paste the corresponding API key.
+
+## Auto-Update
+
+The shipped updater is configured to read release artifacts from the public GitHub Releases feed for this repository. If you publish a fork or move the code to a private repository, update the Tauri updater endpoint before shipping or auto-update will either break or point at the upstream FamVoice releases.
 
 ## Architecture
 
