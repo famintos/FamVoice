@@ -9,6 +9,8 @@ const TARGET_SAMPLE_RATE: u32 = 16000;
 const MAX_RECORDING_DURATION_SECONDS: usize = 5 * 60;
 const MAX_RECORDED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * MAX_RECORDING_DURATION_SECONDS;
 
+const PREROLL_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 500) / 1000;
+
 const SPEECH_WINDOW_FRAME_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 20) / 1000;
 const SPEECH_WINDOW_MIN_SPEECH_FRAMES: usize = 3;
 const SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 300) / 1000;
@@ -60,8 +62,13 @@ struct RecordingCycleState {
     is_recording: bool,
 }
 
-fn begin_recording_cycle(state: &mut RecordingCycleState, buffer: &mut Vec<i16>) {
+fn begin_recording_cycle(
+    state: &mut RecordingCycleState,
+    buffer: &mut Vec<i16>,
+    preroll: &mut Vec<i16>,
+) {
     buffer.clear();
+    buffer.append(preroll);
     state.armed = true;
     state.is_recording = true;
 }
@@ -130,6 +137,7 @@ fn build_mono_input_stream<T, Convert, ErrFn>(
     device: &cpal::Device,
     stream_config: &cpal::StreamConfig,
     sample_buffer: Arc<Mutex<Vec<i16>>>,
+    preroll_buffer: Arc<Mutex<Vec<i16>>>,
     armed: Arc<AtomicBool>,
     capture_channels: usize,
     capture_rate: u32,
@@ -150,10 +158,6 @@ where
     device.build_input_stream(
         stream_config,
         move |data: &[T], _: &cpal::InputCallbackInfo| {
-            if !armed.load(Ordering::Acquire) {
-                return;
-            }
-
             mix_down_and_resample(
                 data,
                 capture_channels,
@@ -163,6 +167,17 @@ where
                 &mut resampled_buf,
                 convert_sample,
             );
+
+            if !armed.load(Ordering::Acquire) {
+                if let Ok(mut buf) = preroll_buffer.lock() {
+                    buf.extend_from_slice(&resampled_buf);
+                    if buf.len() > PREROLL_SAMPLES {
+                        let excess = buf.len() - PREROLL_SAMPLES;
+                        buf.drain(..excess);
+                    }
+                }
+                return;
+            }
 
             if let Ok(mut buf) = sample_buffer.lock() {
                 append_samples_capped(&mut buf, &resampled_buf);
@@ -175,6 +190,7 @@ where
 
 fn start_persistent_input_stream(
     sample_buffer: Arc<Mutex<Vec<i16>>>,
+    preroll_buffer: Arc<Mutex<Vec<i16>>>,
     armed: Arc<AtomicBool>,
     is_recording: Arc<AtomicBool>,
     needs_rebuild: Arc<AtomicBool>,
@@ -219,6 +235,7 @@ fn start_persistent_input_stream(
             &device,
             &stream_config,
             sample_buffer.clone(),
+            preroll_buffer.clone(),
             armed.clone(),
             capture_channels,
             capture_rate,
@@ -231,6 +248,7 @@ fn start_persistent_input_stream(
             &device,
             &stream_config,
             sample_buffer.clone(),
+            preroll_buffer.clone(),
             armed.clone(),
             capture_channels,
             capture_rate,
@@ -264,6 +282,8 @@ impl Default for AudioState {
         std::thread::spawn(move || {
             let sample_buffer: Arc<Mutex<Vec<i16>>> =
                 Arc::new(Mutex::new(Vec::new()));
+            let preroll_buffer: Arc<Mutex<Vec<i16>>> =
+                Arc::new(Mutex::new(Vec::with_capacity(PREROLL_SAMPLES)));
             let mut recording_state = RecordingCycleState {
                 armed: false,
                 is_recording: false,
@@ -277,16 +297,10 @@ impl Default for AudioState {
                             stream.take();
                         }
 
-                        if let Some(ref s) = stream {
-                            if let Err(e) = s.play() {
-                                eprintln!("[FamVoice] Failed to resume mic, rebuilding: {}", e);
-                                stream.take();
-                            }
-                        }
-
                         if stream.is_none() {
                             match start_persistent_input_stream(
                                 sample_buffer.clone(),
+                                preroll_buffer.clone(),
                                 armed_clone.clone(),
                                 is_recording_clone.clone(),
                                 needs_rebuild_clone.clone(),
@@ -303,7 +317,8 @@ impl Default for AudioState {
 
                         {
                             let mut buffer = sample_buffer.lock().unwrap();
-                            begin_recording_cycle(&mut recording_state, &mut buffer);
+                            let mut preroll = preroll_buffer.lock().unwrap();
+                            begin_recording_cycle(&mut recording_state, &mut buffer, &mut preroll);
                         }
                         armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
@@ -316,9 +331,6 @@ impl Default for AudioState {
                         };
                         armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
-                        if let Some(ref s) = stream {
-                            let _ = s.pause();
-                        }
 
                         if let Some(samples) = samples {
                             eprintln!(
@@ -572,12 +584,13 @@ mod tests {
     #[test]
     fn recording_cycle_start_clears_stale_samples_and_arms_capture() {
         let mut samples = vec![7, 8, 9];
+        let mut preroll = Vec::new();
         let mut state = RecordingCycleState {
             armed: false,
             is_recording: false,
         };
 
-        begin_recording_cycle(&mut state, &mut samples);
+        begin_recording_cycle(&mut state, &mut samples, &mut preroll);
 
         assert!(samples.is_empty());
         assert_eq!(
@@ -587,6 +600,21 @@ mod tests {
                 is_recording: true,
             }
         );
+    }
+
+    #[test]
+    fn recording_cycle_start_prepends_preroll_samples() {
+        let mut samples = Vec::new();
+        let mut preroll = vec![10, 20, 30];
+        let mut state = RecordingCycleState {
+            armed: false,
+            is_recording: false,
+        };
+
+        begin_recording_cycle(&mut state, &mut samples, &mut preroll);
+
+        assert_eq!(samples, vec![10, 20, 30]);
+        assert!(preroll.is_empty());
     }
 
     #[test]
