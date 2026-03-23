@@ -71,12 +71,12 @@ button, input, select, .no-drag {
 }
 
 @keyframes widget-highlight-pulse {
-  0%   { outline: 2px solid rgba(99, 179, 237, 1);    outline-offset: 1px; }
-  65%  { outline: 2px solid rgba(99, 179, 237, 0.25); outline-offset: 5px; }
-  100% { outline: 2px solid rgba(99, 179, 237, 0);    outline-offset: 7px; }
+  0%   { outline: 3px solid rgba(99, 179, 237, 1);    outline-offset: 1px; box-shadow: 0 0 16px 4px rgba(99, 179, 237, 0.5); }
+  65%  { outline: 3px solid rgba(99, 179, 237, 0.3);  outline-offset: 6px; box-shadow: 0 0 24px 8px rgba(99, 179, 237, 0.15); }
+  100% { outline: 3px solid rgba(99, 179, 237, 0);    outline-offset: 8px; box-shadow: 0 0 0 0 rgba(99, 179, 237, 0); }
 }
 
 .widget-highlight {
-  animation: widget-highlight-pulse 0.85s ease-out 3;
+  animation: widget-highlight-pulse 1s ease-out 3;
   animation-fill-mode: none;
 }
