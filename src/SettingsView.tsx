@@ -231,7 +231,13 @@ export function SettingsView() {
 
           {settings.transcription_provider === "openai" && (
             <label className="text-xs text-gray-400 flex flex-col gap-1.5">
-              OpenAI API Key
+              <div className="flex items-center justify-between">
+                <span>OpenAI API Key</span>
+                <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.api_key_present ? "text-green-400" : "text-amber-400"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${settings.api_key_present ? "bg-green-400" : "bg-amber-400"}`} />
+                  {settings.api_key_present ? "Configured" : "Not set"}
+                </span>
+              </div>
               <input
                 type="password"
                 value={apiKeyInput}
@@ -249,7 +255,13 @@ export function SettingsView() {
 
           {settings.transcription_provider === "groq" && (
             <label className="text-xs text-gray-400 flex flex-col gap-1.5">
-              Groq API Key
+              <div className="flex items-center justify-between">
+                <span>Groq API Key</span>
+                <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.groq_api_key_present ? "text-green-400" : "text-amber-400"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${settings.groq_api_key_present ? "bg-green-400" : "bg-amber-400"}`} />
+                  {settings.groq_api_key_present ? "Configured" : "Not set"}
+                </span>
+              </div>
               <input
                 type="password"
                 value={groqApiKeyInput}
@@ -314,7 +326,13 @@ export function SettingsView() {
           </label>
 
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
-            Anthropic API Key
+            <div className="flex items-center justify-between">
+              <span>Anthropic API Key</span>
+              <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.anthropic_api_key_present ? "text-green-400" : "text-amber-400"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${settings.anthropic_api_key_present ? "bg-green-400" : "bg-amber-400"}`} />
+                {settings.anthropic_api_key_present ? "Configured" : "Not set"}
+              </span>
+            </div>
             <input
               type="password"
               value={anthropicApiKeyInput}
