@@ -268,28 +268,20 @@ impl Default for AudioState {
                 armed: false,
                 is_recording: false,
             };
-            let mut stream = match start_persistent_input_stream(
-                sample_buffer.clone(),
-                armed_clone.clone(),
-                is_recording_clone.clone(),
-                needs_rebuild_clone.clone(),
-            ) {
-                Ok(stream) => Some(stream),
-                Err(error) => {
-                    eprintln!(
-                        "[FamVoice] Persistent microphone stream unavailable at startup: {}",
-                        error
-                    );
-                    needs_rebuild_clone.store(true, Ordering::SeqCst);
-                    None
-                }
-            };
+            let mut stream: Option<cpal::Stream> = None;
 
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
                     AudioCommand::Start(reply) => {
                         if needs_rebuild_clone.swap(false, Ordering::SeqCst) {
                             stream.take();
+                        }
+
+                        if let Some(ref s) = stream {
+                            if let Err(e) = s.play() {
+                                eprintln!("[FamVoice] Failed to resume mic, rebuilding: {}", e);
+                                stream.take();
+                            }
                         }
 
                         if stream.is_none() {
@@ -324,6 +316,9 @@ impl Default for AudioState {
                         };
                         armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
+                        if let Some(ref s) = stream {
+                            let _ = s.pause();
+                        }
 
                         if let Some(samples) = samples {
                             eprintln!(
