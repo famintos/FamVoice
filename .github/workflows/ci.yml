@@ -38,3 +38,9 @@ jobs:
 
       - name: Check Rust backend
         run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Run frontend tests
+        run: node --test src/*.test.mjs

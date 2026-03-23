@@ -52,26 +52,23 @@ fn user_facing_api_error(status: StatusCode, provider: &str) -> String {
     }
 }
 
-pub async fn transcribe_audio(
-    client: &reqwest::Client,
-    audio_bytes: Vec<u8>,
-    api_key: &str,
+/// Returns true if a reqwest error is a transient network-level failure worth retrying.
+/// Does NOT consider HTTP status errors retryable (those are handled after a successful send).
+fn is_transient_network_error(err: &reqwest::Error) -> bool {
+    err.is_connect() || err.is_timeout() || err.is_request()
+}
+
+/// Build the multipart form for the transcription request. The form is consumed
+/// by each send attempt, so we rebuild it for retries.
+fn build_form(
+    audio_bytes: &[u8],
     model: &str,
     language: Option<&str>,
-    provider: &str,
+    use_streaming: bool,
     mime_type: &str,
     file_name: &str,
-) -> Result<String, String> {
-    eprintln!(
-        "[FamVoice] Sending {} bytes ({}) to {} API",
-        audio_bytes.len(),
-        mime_type,
-        provider_label(provider)
-    );
-
-    let use_streaming = model_supports_streaming(model, provider);
-
-    let file_part = multipart::Part::bytes(audio_bytes)
+) -> Result<multipart::Form, String> {
+    let file_part = multipart::Part::bytes(audio_bytes.to_vec())
         .file_name(file_name.to_string())
         .mime_str(mime_type)
         .map_err(|e| e.to_string())?;
@@ -91,20 +88,71 @@ pub async fn transcribe_audio(
         }
     }
 
+    Ok(form)
+}
+
+pub async fn transcribe_audio(
+    client: &reqwest::Client,
+    audio_bytes: Vec<u8>,
+    api_key: &str,
+    model: &str,
+    language: Option<&str>,
+    provider: &str,
+    mime_type: &str,
+    file_name: &str,
+) -> Result<String, String> {
+    eprintln!(
+        "[FamVoice] Sending {} bytes ({}) to {} API",
+        audio_bytes.len(),
+        mime_type,
+        provider_label(provider)
+    );
+
+    let use_streaming = model_supports_streaming(model, provider);
+
     let endpoint = api_endpoint(provider);
     let request_timeout = match provider {
         "groq" => Duration::from_secs(10),
         _ => Duration::from_secs(30),
     };
     let t_request = Instant::now();
-    let mut res = client
-        .post(endpoint)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .timeout(request_timeout)
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+
+    // Send with a single retry for transient network errors (connection failures, timeouts).
+    // HTTP-level errors (4xx, 5xx) are NOT retried — only connection-level failures.
+    let mut res = {
+        let form = build_form(&audio_bytes, model, language, use_streaming, mime_type, file_name)?;
+        let result = client
+            .post(endpoint)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .timeout(request_timeout)
+            .multipart(form)
+            .send()
+            .await;
+
+        match result {
+            Ok(response) => response,
+            Err(err) if is_transient_network_error(&err) => {
+                eprintln!(
+                    "[FamVoice] Transient network error, retrying in 1.5s: {}",
+                    err
+                );
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+
+                let retry_form = build_form(
+                    &audio_bytes, model, language, use_streaming, mime_type, file_name,
+                )?;
+                client
+                    .post(endpoint)
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .timeout(request_timeout)
+                    .multipart(retry_form)
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+            Err(err) => return Err(err.to_string()),
+        }
+    };
 
     if !res.status().is_success() {
         let status = res.status();

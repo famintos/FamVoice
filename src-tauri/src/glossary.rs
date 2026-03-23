@@ -53,6 +53,39 @@ fn sorted_glossary_rules(
     (phrase_rules, single_word_rules)
 }
 
+fn replace_phrase_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
+    let target_lower = target.to_lowercase();
+    let target_char_count = target_lower.chars().count();
+
+    if target_char_count == 0 {
+        return text.to_string();
+    }
+
+    let mut output = String::with_capacity(text.len());
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        // Check if a case-insensitive match starts at position i
+        let remaining_chars = chars.len() - i;
+        if remaining_chars >= target_char_count {
+            let candidate: String = chars[i..i + target_char_count]
+                .iter()
+                .map(|(_, ch)| *ch)
+                .collect();
+            if candidate.to_lowercase() == target_lower {
+                output.push_str(replacement);
+                i += target_char_count;
+                continue;
+            }
+        }
+        output.push(chars[i].1);
+        i += 1;
+    }
+
+    output
+}
+
 fn replace_whole_word_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
     let target_lower = target.to_lowercase();
     let mut output = String::with_capacity(text.len());
@@ -91,7 +124,7 @@ pub(crate) fn finalize_transcript(
     let (phrase_rules, single_word_rules) = sorted_glossary_rules(replacements);
 
     for rule in phrase_rules {
-        text = text.replace(&rule.target, &rule.replacement);
+        text = replace_phrase_case_insensitive(&text, &rule.target, &rule.replacement);
     }
 
     for rule in single_word_rules {

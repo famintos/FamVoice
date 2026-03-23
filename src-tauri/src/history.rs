@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -63,52 +64,93 @@ impl HistoryState {
     }
 
     pub fn add(&self, text: String) {
-        let mut items = self.items.lock().unwrap();
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        items.insert(
-            0,
-            HistoryItem {
-                id,
-                text: truncate_history_text(text),
-                timestamp,
-            },
-        );
-        if items.len() > 100 {
-            items.truncate(100);
-        }
-        self.save_locked(&items);
+        let serialized = {
+            let mut items = self.items.lock().unwrap_or_else(|e| {
+                eprintln!("[FamVoice] History lock poisoned in add(), recovering");
+                e.into_inner()
+            });
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+            items.insert(
+                0,
+                HistoryItem {
+                    id,
+                    text: truncate_history_text(text),
+                    timestamp,
+                },
+            );
+            if items.len() > 100 {
+                items.truncate(100);
+            }
+            serialize_items(&items)
+        };
+        // Lock is dropped here; file write happens outside the Mutex
+        self.write_to_disk(serialized);
     }
 
     pub fn delete(&self, id: u64) {
-        let mut items = self.items.lock().unwrap();
-        items.retain(|item| item.id != id);
-        self.save_locked(&items);
+        let serialized = {
+            let mut items = self.items.lock().unwrap_or_else(|e| {
+                eprintln!("[FamVoice] History lock poisoned in delete(), recovering");
+                e.into_inner()
+            });
+            items.retain(|item| item.id != id);
+            serialize_items(&items)
+        };
+        // Lock is dropped here; file write happens outside the Mutex
+        self.write_to_disk(serialized);
     }
 
     pub fn clear(&self) {
-        let mut items = self.items.lock().unwrap();
-        items.clear();
-        self.save_locked(&items);
+        let serialized = {
+            let mut items = self.items.lock().unwrap_or_else(|e| {
+                eprintln!("[FamVoice] History lock poisoned in clear(), recovering");
+                e.into_inner()
+            });
+            items.clear();
+            serialize_items(&items)
+        };
+        // Lock is dropped here; file write happens outside the Mutex
+        self.write_to_disk(serialized);
     }
 
-    fn save_locked(&self, items: &[HistoryItem]) {
-        match serde_json::to_string_pretty(items) {
-            Ok(data) => {
-                if let Err(error) = fs::write(&self.path, data) {
-                    eprintln!(
-                        "[FamVoice] Failed to write history to {}: {}",
-                        self.path.display(),
-                        error
-                    );
-                }
-            }
-            Err(error) => {
-                eprintln!("[FamVoice] Failed to serialize history: {}", error);
-            }
+    /// Write pre-serialized JSON to disk. Called after the Mutex lock is released
+    /// so that file I/O does not block other threads waiting on the lock.
+    fn write_to_disk(&self, serialized: Option<String>) {
+        let Some(data) = serialized else { return };
+
+        // Use OpenOptions for explicit control over file creation and write mode.
+        // TODO: On Windows, restrict file permissions via platform-specific ACLs
+        // (e.g., SetSecurityInfo / SECURITY_ATTRIBUTES) so that only the current
+        // user can read history.json. Rust's std::fs permissions model maps to
+        // Unix chmod bits and has no effect on Windows NTFS ACLs.
+        let result = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&self.path)
+            .and_then(|mut file| file.write_all(data.as_bytes()));
+
+        if let Err(error) = result {
+            eprintln!(
+                "[FamVoice] Failed to write history to {}: {}",
+                self.path.display(),
+                error
+            );
+        }
+    }
+}
+
+/// Serialize history items to a JSON string. Returns None on serialization failure.
+fn serialize_items(items: &[HistoryItem]) -> Option<String> {
+    match serde_json::to_string_pretty(items) {
+        Ok(data) => Some(data),
+        Err(error) => {
+            eprintln!("[FamVoice] Failed to serialize history: {}", error);
+            None
         }
     }
 }

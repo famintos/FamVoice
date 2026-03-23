@@ -9,8 +9,6 @@ const TARGET_SAMPLE_RATE: u32 = 16000;
 const MAX_RECORDING_DURATION_SECONDS: usize = 5 * 60;
 const MAX_RECORDED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * MAX_RECORDING_DURATION_SECONDS;
 
-/// Pre-allocated buffer capacity: ~60 seconds at 16kHz mono
-const INITIAL_SAMPLE_CAPACITY: usize = TARGET_SAMPLE_RATE as usize * 60;
 const SPEECH_WINDOW_FRAME_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 20) / 1000;
 const SPEECH_WINDOW_MIN_SPEECH_FRAMES: usize = 3;
 const SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 300) / 1000;
@@ -152,7 +150,7 @@ where
     device.build_input_stream(
         stream_config,
         move |data: &[T], _: &cpal::InputCallbackInfo| {
-            if !armed.load(Ordering::SeqCst) {
+            if !armed.load(Ordering::Acquire) {
                 return;
             }
 
@@ -210,7 +208,7 @@ fn start_persistent_input_stream(
 
         move |err| {
             eprintln!("[FamVoice] Audio stream error: {}", err);
-            err_armed.store(false, Ordering::SeqCst);
+            err_armed.store(false, Ordering::Release);
             err_recording.store(false, Ordering::SeqCst);
             err_rebuild.store(true, Ordering::SeqCst);
         }
@@ -265,7 +263,7 @@ impl Default for AudioState {
         let needs_rebuild_clone = needs_rebuild.clone();
         std::thread::spawn(move || {
             let sample_buffer: Arc<Mutex<Vec<i16>>> =
-                Arc::new(Mutex::new(Vec::with_capacity(INITIAL_SAMPLE_CAPACITY)));
+                Arc::new(Mutex::new(Vec::new()));
             let mut recording_state = RecordingCycleState {
                 armed: false,
                 is_recording: false,
@@ -315,7 +313,7 @@ impl Default for AudioState {
                             let mut buffer = sample_buffer.lock().unwrap();
                             begin_recording_cycle(&mut recording_state, &mut buffer);
                         }
-                        armed_clone.store(recording_state.armed, Ordering::SeqCst);
+                        armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
                         let _ = reply.send(Ok(()));
                     }
@@ -324,7 +322,7 @@ impl Default for AudioState {
                             let mut buffer = sample_buffer.lock().unwrap();
                             finish_recording_cycle(&mut recording_state, &mut buffer)
                         };
-                        armed_clone.store(recording_state.armed, Ordering::SeqCst);
+                        armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
 
                         if let Some(samples) = samples {
@@ -397,6 +395,9 @@ pub fn encode_flac_in_memory(samples: &[i16]) -> Result<Vec<u8>, String> {
     use flacenc::component::BitRepr;
     use flacenc::error::Verify;
 
+    // TODO: flacenc::source::MemSource stores Vec<i32> internally and from_samples
+    // accepts &[i32], so this i16->i32 widening copy is unavoidable (~3.7MB for 60s).
+    // If flacenc adds an i16 source in the future, switch to avoid this allocation.
     let samples_i32: Vec<i32> = samples.iter().map(|&s| s as i32).collect();
 
     let config = flacenc::config::Encoder::default()
@@ -423,9 +424,7 @@ fn take_recorded_samples(buffer: &mut Vec<i16>) -> Option<Vec<i16>> {
         return None;
     }
 
-    let mut taken = Vec::with_capacity(buffer.capacity());
-    std::mem::swap(buffer, &mut taken);
-    Some(taken)
+    Some(std::mem::take(buffer))
 }
 
 fn frame_rms(samples: &[i16]) -> f64 {

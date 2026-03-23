@@ -29,6 +29,8 @@ import {
   isPointInsideBounds,
 } from "./widgetSizing.js";
 
+const appWindow = getCurrentWindow();
+
 export function MainView() {
   const [status, setStatus] = useState<Status>("idle");
   const [transcript, setTranscript] = useState("");
@@ -44,7 +46,7 @@ export function MainView() {
   const ignoreCursorEventsRef = useRef<boolean | null>(null);
   const widgetDragGraceUntilRef = useRef(0);
   const widgetWindowMetricsRef = useRef<WidgetWindowMetrics | null>(null);
-  const appWindow = getCurrentWindow();
+  const lastCursorPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     invoke<SettingsViewModel>("get_settings").then(setSettings);
@@ -126,6 +128,7 @@ export function MainView() {
     if (!settings?.widget_mode) {
       ignoreCursorEventsRef.current = null;
       widgetWindowMetricsRef.current = null;
+      lastCursorPositionRef.current = null;
       void appWindow.setIgnoreCursorEvents(false);
       return;
     }
@@ -161,6 +164,12 @@ export function MainView() {
       widgetWindowMetricsRef.current = metrics;
 
       const cursor = await cursorPosition();
+      const lastCursor = lastCursorPositionRef.current;
+      if (lastCursor && lastCursor.x === cursor.x && lastCursor.y === cursor.y) {
+        return;
+      }
+      lastCursorPositionRef.current = { x: cursor.x, y: cursor.y };
+
       const bounds = getWidgetInteractiveBounds({
         rect: container.getBoundingClientRect(),
         windowPosition: metrics.windowPosition,
@@ -182,6 +191,7 @@ export function MainView() {
         ...(widgetWindowMetricsRef.current ?? { scaleFactor: 1 }),
         windowPosition: payload,
       };
+      lastCursorPositionRef.current = null;
       void syncCursorInteractivity();
     };
 
@@ -190,6 +200,7 @@ export function MainView() {
         ...(widgetWindowMetricsRef.current ?? { windowPosition: { x: 0, y: 0 } }),
         scaleFactor: payload.scaleFactor,
       };
+      lastCursorPositionRef.current = null;
       void syncCursorInteractivity();
     };
 
@@ -205,11 +216,12 @@ export function MainView() {
       window.clearInterval(intervalId);
       ignoreCursorEventsRef.current = null;
       widgetWindowMetricsRef.current = null;
+      lastCursorPositionRef.current = null;
       unlistenMoved.then((fn) => fn());
       unlistenScaleChanged.then((fn) => fn());
       void appWindow.setIgnoreCursorEvents(false);
     };
-  }, [appWindow, settings?.widget_mode]);
+  }, [settings?.widget_mode]);
 
   useEffect(() => {
     check()

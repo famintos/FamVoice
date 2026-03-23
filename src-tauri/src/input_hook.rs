@@ -138,7 +138,10 @@ fn handle_event(
     event: Event,
 ) -> Option<Event> {
     let current_hotkey = {
-        let lock = hotkey_shared.lock().unwrap();
+        let lock = hotkey_shared.lock().unwrap_or_else(|e| {
+            eprintln!("[FamVoice] Hotkey config lock poisoned, recovering");
+            e.into_inner()
+        });
         lock.clone()
     };
 

@@ -1,5 +1,5 @@
 {
-  "name": "tauri-app",
+  "name": "famvoice",
   "private": true,
   "version": "0.3.4",
   "type": "module",
@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "node --test src/*.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

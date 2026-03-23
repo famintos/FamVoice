@@ -438,10 +438,19 @@ impl SettingsState {
         };
 
         if needs_resave {
-            let snapshot = state.settings.lock().unwrap().clone();
-            if let Err(_error) = state.persist(&snapshot, None) {
-                #[cfg(debug_assertions)]
-                eprintln!("[FamVoice] Failed to migrate settings into secure storage: {_error}");
+            match state.settings.lock() {
+                Ok(guard) => {
+                    let snapshot = guard.clone();
+                    drop(guard);
+                    if let Err(_error) = state.persist(&snapshot, None) {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[FamVoice] Failed to migrate settings into secure storage: {_error}");
+                    }
+                }
+                Err(_error) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[FamVoice] Failed to acquire settings lock for migration: {_error}");
+                }
             }
         }
 
@@ -719,7 +728,7 @@ mod tests {
         let state = test_state(&dir);
 
         {
-            let mut settings = state.settings.lock().unwrap();
+            let mut settings = state.settings.lock().expect("Failed to acquire settings lock");
             settings.api_key = "sk-existing".to_string();
             settings.groq_api_key = "gsk-existing".to_string();
             settings.anthropic_api_key = "sk-ant-existing".to_string();
@@ -750,7 +759,7 @@ mod tests {
         let state = test_state(&dir);
 
         {
-            let mut settings = state.settings.lock().unwrap();
+            let mut settings = state.settings.lock().expect("Failed to acquire settings lock");
             settings.api_key = "sk-existing".to_string();
             settings.groq_api_key = "gsk-existing".to_string();
             settings.anthropic_api_key = "sk-ant-existing".to_string();
@@ -819,7 +828,7 @@ mod tests {
         .unwrap();
 
         let state = test_state(&dir);
-        let settings = state.settings.lock().unwrap().clone();
+        let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
         let migrated_json = fs::read_to_string(path).unwrap();
 
         assert_eq!(settings.api_key, "sk-test");

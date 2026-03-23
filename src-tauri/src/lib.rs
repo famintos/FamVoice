@@ -77,7 +77,9 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) {
     input_hook::reset_mouse_hotkey_state();
 
     if let Some(state) = app.try_state::<HotkeyConfigState>() {
-        *state.hotkey.lock().unwrap() = hotkey.to_string();
+        if let Ok(mut guard) = state.hotkey.lock() {
+            *guard = hotkey.to_string();
+        }
     }
 
     let _ = app.global_shortcut().unregister_all();
@@ -93,8 +95,16 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) {
             .on_shortcut(shortcut, move |app, _shortcut, event| {
                 if event.state() == ShortcutState::Pressed {
                     let state: State<AudioState> = app.state();
-                    let is_recording = state.is_recording.load(std::sync::atomic::Ordering::SeqCst);
-                    if !is_recording {
+                    if state
+                        .is_recording
+                        .compare_exchange(
+                            false,
+                            true,
+                            std::sync::atomic::Ordering::SeqCst,
+                            std::sync::atomic::Ordering::SeqCst,
+                        )
+                        .is_ok()
+                    {
                         let app_clone = app.clone();
                         tauri::async_runtime::spawn(async move {
                             let _ = start_recording_cmd(app_clone.clone()).await;
@@ -102,14 +112,21 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) {
                     }
                 } else if event.state() == ShortcutState::Released {
                     let state: State<AudioState> = app.state();
-                    let is_recording = state.is_recording.load(std::sync::atomic::Ordering::SeqCst);
-                    if !is_recording {
-                        return;
+                    if state
+                        .is_recording
+                        .compare_exchange(
+                            true,
+                            false,
+                            std::sync::atomic::Ordering::SeqCst,
+                            std::sync::atomic::Ordering::SeqCst,
+                        )
+                        .is_ok()
+                    {
+                        let app_clone = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = stop_recording_cmd(app_clone.clone()).await;
+                        });
                     }
-                    let app_clone = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let _ = stop_recording_cmd(app_clone.clone()).await;
-                    });
                 }
             });
     } else {
@@ -118,8 +135,12 @@ fn register_hotkey(app: &AppHandle, hotkey: &str) {
 }
 
 #[tauri::command]
-fn get_settings(state: State<'_, SettingsState>) -> FrontendSettings {
-    state.settings.lock().unwrap().to_frontend()
+fn get_settings(state: State<'_, SettingsState>) -> Result<FrontendSettings, String> {
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
+    Ok(settings.to_frontend())
 }
 
 #[tauri::command]
@@ -128,7 +149,11 @@ async fn save_settings(
     state: State<'_, SettingsState>,
     new_settings: SaveSettingsRequest,
 ) -> Result<FrontendSettings, String> {
-    let previous = state.settings.lock().unwrap().clone();
+    let previous = state
+        .settings
+        .lock()
+        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
+        .clone();
     let saved = state.save_request(new_settings)?;
     let frontend = saved.to_frontend();
 
@@ -161,8 +186,12 @@ fn resize_main_window(app: AppHandle, width: f64, height: f64) -> Result<(), Str
 }
 
 #[tauri::command]
-fn get_history(state: State<'_, HistoryState>) -> Vec<history::HistoryItem> {
-    state.items.lock().unwrap().clone()
+fn get_history(state: State<'_, HistoryState>) -> Result<Vec<history::HistoryItem>, String> {
+    let items = state
+        .items
+        .lock()
+        .map_err(|e| format!("Failed to acquire history lock: {}", e))?;
+    Ok(items.clone())
 }
 
 #[tauri::command]
@@ -184,12 +213,43 @@ async fn repaste_history_item(app: AppHandle, text: String) -> Result<(), String
     }
 
     let clipboard_state: State<ClipboardState> = app.state();
+    let settings_state: State<SettingsState> = app.state();
+    let preserve_clipboard = settings_state
+        .settings
+        .lock()
+        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
+        .preserve_clipboard;
+
+    if preserve_clipboard {
+        clipboard::save_clipboard(&*clipboard_state);
+    }
+
     if let Err(error) = clipboard::set_clipboard(&*clipboard_state, &text) {
         return Err(format!("Failed to set clipboard: {}", error));
     }
 
     tokio::time::sleep(paste_clipboard_settle_delay()).await;
-    if let Err(error) = injection::simulate_paste() {
+    let paste_result = injection::simulate_paste();
+
+    if preserve_clipboard {
+        let saved_clipboard = clipboard::saved_clipboard_text(&*clipboard_state);
+        let tasks_state: State<BackgroundTasksState> = app.state();
+        let app_handle = app.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(clipboard_restore_delay()).await;
+            if let Some(saved_text) = saved_clipboard {
+                let clipboard_state: State<ClipboardState> = app_handle.state();
+                if let Err(error) =
+                    clipboard::restore_clipboard_text(&*clipboard_state, &saved_text)
+                {
+                    eprintln!("[FamVoice] Failed to restore clipboard after repaste: {}", error);
+                }
+            }
+        });
+        tasks_state.spawn(handle);
+    }
+
+    if let Err(error) = paste_result {
         return Err(format!("Failed to simulate paste: {}", error));
     }
 
@@ -341,6 +401,7 @@ where
     }
 }
 
+#[cfg(test)]
 fn should_restore_clipboard(
     auto_paste: bool,
     preserve_clipboard: bool,
@@ -349,6 +410,7 @@ fn should_restore_clipboard(
     auto_paste && preserve_clipboard && paste_successful
 }
 
+#[cfg(test)]
 fn should_store_history(auto_paste: bool, paste_successful: bool) -> bool {
     auto_paste && paste_successful
 }
@@ -366,8 +428,8 @@ fn status_reset_delay() -> std::time::Duration {
 }
 
 fn emit_history_updated(app: &AppHandle, history_state: &HistoryState) {
-    if let Ok(history) = history_state.items.lock().map(|items| items.clone()) {
-        let _ = app.emit("history-updated", history);
+    if let Ok(items) = history_state.items.lock() {
+        let _ = app.emit("history-updated", &*items);
     }
 }
 
@@ -416,7 +478,11 @@ async fn capture_and_prepare_samples(
         return Err("No audio recorded".into());
     }
 
-    let settings = settings_state.settings.lock().unwrap().clone();
+    let settings = settings_state
+        .settings
+        .lock()
+        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
+        .clone();
     let levels = mic_analysis::analyze(&samples);
     let silence_threshold = mic_analysis::silence_threshold(settings.mic_sensitivity);
     let level_details = mic_analysis::level_details(levels);
@@ -545,18 +611,21 @@ async fn transcribe_recording(
         },
     )
     .await;
-    let preview = if text.len() > 100 {
-        &text[..100]
-    } else {
-        &text
-    };
     eprintln!(
-        "[FamVoice] Transcript ready: path=upload | API {:.0}ms | Total {:.0}ms | Result ({} chars): {:?}",
+        "[FamVoice] Transcript ready: path=upload | API {:.0}ms | Total {:.0}ms | {} chars",
         t_api.elapsed().as_secs_f64() * 1000.0,
         started_at.elapsed().as_secs_f64() * 1000.0,
         text.len(),
-        preview
     );
+    #[cfg(debug_assertions)]
+    {
+        let preview = if text.len() > 100 {
+            &text[..100]
+        } else {
+            &text
+        };
+        eprintln!("[FamVoice] Transcript preview: {:?}", preview);
+    }
 
     Ok(text)
 }
@@ -589,11 +658,7 @@ async fn deliver_transcript(
         }
     }
 
-    if should_restore_clipboard(
-        settings.auto_paste,
-        settings.preserve_clipboard,
-        paste_successful,
-    ) {
+    if settings.auto_paste && settings.preserve_clipboard {
         let saved_clipboard = clipboard::saved_clipboard_text(clipboard_state);
         let app_handle = app.clone();
         let handle = tokio::spawn(async move {
@@ -608,10 +673,8 @@ async fn deliver_transcript(
         tasks_state.spawn(handle);
     }
 
-    if should_store_history(settings.auto_paste, paste_successful) {
-        history_state.add(text.clone());
-        emit_history_updated(app, history_state);
-    }
+    history_state.add(text.clone());
+    emit_history_updated(app, history_state);
 
     if !paste_successful {
         let _ = app.emit("status", "error");
@@ -629,16 +692,9 @@ async fn deliver_transcript(
 
 #[tauri::command]
 async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
-    let audio_state: State<AudioState> = app.state();
-    if !audio_state
-        .is_recording
-        .load(std::sync::atomic::Ordering::SeqCst)
-    {
-        eprintln!("[FamVoice] stop_recording_cmd ignored because recording is already idle");
-        return Err("Not recording".into());
-    }
-
     let _ = app.emit("status", "transcribing");
+
+    let audio_state: State<AudioState> = app.state();
 
     let tasks_state: State<BackgroundTasksState> = app.state();
     let settings_state: State<SettingsState> = app.state();
@@ -915,7 +971,6 @@ mod tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
@@ -944,7 +999,10 @@ pub fn run() {
             let warmup_client = http_client.clone();
             let warmup_provider = {
                 let state: State<SettingsState> = app.state();
-                let settings = state.settings.lock().unwrap();
+                let settings = state
+                    .settings
+                    .lock()
+                    .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
                 settings.transcription_provider.clone()
             };
             tauri::async_runtime::spawn(async move {
@@ -1017,13 +1075,19 @@ pub fn run() {
 
             let hotkey = {
                 let state: State<SettingsState> = app.state();
-                let settings = state.settings.lock().unwrap();
+                let settings = state
+                    .settings
+                    .lock()
+                    .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
                 settings.hotkey.clone()
             };
 
             let widget_mode = {
                 let state: State<SettingsState> = app.state();
-                let settings = state.settings.lock().unwrap();
+                let settings = state
+                    .settings
+                    .lock()
+                    .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
                 settings.widget_mode
             };
 
