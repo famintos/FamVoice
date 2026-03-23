@@ -116,6 +116,7 @@ That means:
 
 - right-click should keep opening Settings
 - widget mode should not apply updates directly
+- widget mode should not show a dedicated update indicator or update-ready affordance
 - any update notice behavior remains tied to the normal main window flow
 
 This keeps the update path explicit and avoids surprising restarts from a compact background UI.
@@ -141,7 +142,8 @@ Because `MainView` and `SettingsView` are separate windows, the implementation n
 Recommended approach:
 
 - `MainView` still performs the startup check
-- `SettingsView` performs its own `check()` when it opens or when it needs update state
+- `SettingsView` performs its own `check()` on mount
+- if the Settings window is already open and is brought back to the front again without remounting, it should refresh update availability when the window regains focus
 
 This duplicates a lightweight network call, but it avoids adding new event plumbing or backend coordination just to share ephemeral updater state. The cost is low and the implementation stays simple.
 
@@ -166,6 +168,7 @@ If the updater plugin returns no update in Settings, that should be treated as "
   - clicking `Update` calls `downloadAndInstall()` and then `relaunch()`
   - apply failures surface inline and clear loading state
 - Add coverage that widget mode no longer treats pending updates as a direct restart action.
+- Add coverage that widget mode does not render a separate update indicator.
 
 ## Acceptance Criteria
 
