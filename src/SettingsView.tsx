@@ -20,7 +20,7 @@ import {
   PROMPT_OPTIMIZER_MODELS,
   TRANSCRIPTION_PROVIDERS,
 } from "./appConstants";
-import { buildHotkeyString, formatHotkey, isInteractiveDragTarget } from "./appHelpers";
+import { buildHotkeyString, formatHotkey } from "./appHelpers";
 import type { Replacement, SaveSettingsPayload, SettingsViewModel } from "./appTypes";
 
 interface ReplacementDraft extends Replacement {
@@ -238,16 +238,9 @@ export function SettingsView() {
   }
 
   return (
-    <main className="w-full h-full flex flex-col p-4 bg-[#0f0f13] text-white overflow-hidden border border-white/10 rounded-xl">
+    <main data-tauri-drag-region className="w-full h-full flex flex-col p-4 bg-[#0f0f13] text-white overflow-hidden border border-white/10 rounded-xl">
       <div
         className="-mx-4 -mt-4 mb-2 px-4 pt-4 pb-3 select-none"
-        onMouseDownCapture={(e) => {
-          if (e.button !== 0 || isInteractiveDragTarget(e.target)) return;
-          e.preventDefault();
-          void appWindow.startDragging().catch((error) => {
-            console.error("Failed to start settings drag:", error);
-          });
-        }}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 pointer-events-none">
@@ -260,7 +253,7 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col gap-5 overflow-y-auto overflow-x-hidden pr-2 custom-scrollbar pb-4">
+      <div className="flex-1 flex flex-col gap-5 overflow-y-auto overflow-x-hidden pr-2 custom-scrollbar pb-4 no-drag">
         <section className="space-y-3">
           <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Transcription</h3>
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">

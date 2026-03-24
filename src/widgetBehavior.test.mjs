@@ -61,12 +61,8 @@ test("widget drag start sets a grace period before requesting the window drag", 
   assert.match(widgetBranchBlock, /void appWindow\.setIgnoreCursorEvents\(false\)/);
 });
 
-test("settings header uses manual drag start instead of a native drag region", () => {
-  const settingsHeaderBlock = getSettingsHeaderBlock();
-
-  assert.equal(settingsHeaderBlock.includes("data-tauri-drag-region"), false);
-  assert.match(settingsHeaderBlock, /onMouseDownCapture=\{\(e\) => \{/);
-  assert.match(settingsHeaderBlock, /appWindow\.startDragging\(\)/);
+test("settings window uses a native drag region on the main element", () => {
+  assert.match(settingsViewSource, /<main data-tauri-drag-region/);
 });
 
 test("voice wave supports a large size variant for the main dictation view", () => {
