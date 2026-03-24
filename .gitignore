@@ -39,9 +39,6 @@ settings.json.corrupt
 settings.json
 *.bak
 
-# AI agent configs
-AGENTS.md
-CLAUDE.md
-GEMINI.md
+# AI agent configs (local only)
 .claude/
 docs/superpowers/
