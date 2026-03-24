@@ -1,6 +1,6 @@
 [package]
 name = "famvoice"
-version = "0.3.4"
+version = "0.3.5"
 description = "FamVoice Desktop App"
 authors = ["you"]
 edition = "2021"
@@ -31,6 +31,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 rdev = { version = "0.5", features = ["unstable_grab"] }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
 
 [profile.release]
 opt-level = 3
