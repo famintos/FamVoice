@@ -71,7 +71,10 @@ test("settings header uses manual drag start instead of a native drag region", (
 
 test("voice wave supports a large size variant for the main dictation view", () => {
   assert.match(voiceWaveSource, /size = "default"/);
-  assert.match(voiceWaveSource, /size\?: "default" \| "large"/);
+  assert.match(voiceWaveSource, /size\?: "default" \| "widget" \| "large"/);
+  assert.match(voiceWaveSource, /size === "widget"/);
+  assert.match(voiceWaveSource, /h-5 gap-\[2\.5px\]/);
+  assert.match(voiceWaveSource, /w-\[2\.5px\]/);
   assert.match(voiceWaveSource, /size === "large"/);
   assert.match(voiceWaveSource, /h-8 gap-\[3px\]/);
   assert.match(voiceWaveSource, /w-\[3px\]/);
@@ -88,4 +91,10 @@ test("widget does not expose an update-ready indicator or tooltip", () => {
   assert.doesNotMatch(widgetViewSource, /updateReady/);
   assert.doesNotMatch(widgetViewSource, /Update ready/);
   assert.doesNotMatch(widgetViewSource, /right-click to restart/);
+});
+
+test("widget keeps only the logo and slightly larger waves in a more compact layout", () => {
+  assert.doesNotMatch(widgetViewSource, />Fam</);
+  assert.match(widgetViewSource, /className="relative flex items-center gap-2\.5 px-3 py-1\.5/);
+  assert.match(widgetViewSource, /<VoiceWave isPlaying=\{status === "recording"\} size="widget" \/>/);
 });

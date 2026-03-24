@@ -15,10 +15,14 @@ export function VoiceWave({
   size = "default",
 }: {
   isPlaying?: boolean;
-  size?: "default" | "large";
+  size?: "default" | "widget" | "large";
 }) {
-  const containerClass = size === "large" ? "h-8 gap-[3px]" : "h-4 gap-[2px]";
-  const barClass = size === "large" ? "w-[3px]" : "w-[2px]";
+  const containerClass = size === "large"
+    ? "h-8 gap-[3px]"
+    : size === "widget"
+      ? "h-5 gap-[2.5px]"
+      : "h-4 gap-[2px]";
+  const barClass = size === "large" ? "w-[3px]" : size === "widget" ? "w-[2.5px]" : "w-[2px]";
 
   return (
     <div

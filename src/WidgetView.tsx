@@ -32,20 +32,19 @@ export function WidgetView({
   }, [highlightKey, containerRef]);
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-[10px]" style={{ pointerEvents: "none" }}>
+    <div className="w-full h-full flex items-center justify-center p-2" style={{ pointerEvents: "none" }}>
       <main
         ref={containerRef}
         id="widget-container"
-        className="relative flex items-center gap-3 px-4 py-2 bg-[#0f0f13] backdrop-blur-2xl rounded-2xl shadow-md border border-white/10 text-white"
+        className="relative flex items-center gap-2.5 px-3 py-1.5 bg-[#0f0f13] backdrop-blur-2xl rounded-2xl shadow-md border border-white/10 text-white"
         style={{ pointerEvents: "auto" }}
         onMouseDownCapture={onMouseDownCapture}
         onContextMenu={onContextMenu}
       >
-        <div className="flex items-center gap-2 pointer-events-none select-none">
+        <div className="pointer-events-none select-none">
           <div className="flex items-center justify-center shadow-[0_0_15px_rgba(255,81,47,0.4)] rounded-full">
             <FamVoiceLogo size={24} />
           </div>
-          <span className="text-[11px] font-bold tracking-wider uppercase opacity-90">Fam</span>
         </div>
 
         <div className="flex items-center gap-1.5 pointer-events-none select-none">
@@ -70,7 +69,7 @@ export function WidgetView({
               <span className="text-[10px] text-amber-400 font-medium whitespace-nowrap">No API key</span>
             </div>
           ) : (
-            <VoiceWave isPlaying={status === "recording"} />
+            <VoiceWave isPlaying={status === "recording"} size="widget" />
           )}
         </div>
       </main>
