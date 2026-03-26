@@ -45,9 +45,16 @@ function toReplacementDraft(replacement: Replacement): ReplacementDraft {
   };
 }
 
+function normalizePromptOptimizerModel(model: string): string {
+  return PROMPT_OPTIMIZER_MODELS.some((option) => option.value === model)
+    ? model
+    : PROMPT_OPTIMIZER_MODELS[0].value;
+}
+
 function toSettingsDraft(settings: SettingsViewModel): SettingsDraft {
   return {
     ...settings,
+    prompt_optimizer_model: normalizePromptOptimizerModel(settings.prompt_optimizer_model),
     replacements: settings.replacements.map(toReplacementDraft),
   };
 }
@@ -56,13 +63,11 @@ function toSavePayload(
   settings: SettingsDraft,
   apiKeyInput: string,
   groqApiKeyInput: string,
-  anthropicApiKeyInput: string,
 ): SaveSettingsPayload {
   return {
     ...settings,
     api_key: apiKeyInput.trim() ? apiKeyInput.trim() : null,
     groq_api_key: groqApiKeyInput.trim() ? groqApiKeyInput.trim() : null,
-    anthropic_api_key: anthropicApiKeyInput.trim() ? anthropicApiKeyInput.trim() : null,
     replacements: settings.replacements.map(({ id: _id, ...replacement }) => replacement),
   };
 }
@@ -71,7 +76,6 @@ export function SettingsView() {
   const [settings, setSettings] = useState<SettingsDraft | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [groqApiKeyInput, setGroqApiKeyInput] = useState("");
-  const [anthropicApiKeyInput, setAnthropicApiKeyInput] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [autostartAvailable, setAutostartAvailable] = useState(true);
   const [isListening, setIsListening] = useState(false);
@@ -102,7 +106,6 @@ export function SettingsView() {
         setSettings(toSettingsDraft(loadedSettings));
         setApiKeyInput("");
         setGroqApiKeyInput("");
-        setAnthropicApiKeyInput("");
       })
       .catch((error) => {
         console.error("Failed to load settings:", error);
@@ -148,12 +151,15 @@ export function SettingsView() {
   const saveSettings = async (newSettings: SettingsDraft) => {
     try {
       setErrorMessage(null);
-      const payload = toSavePayload(newSettings, apiKeyInput, groqApiKeyInput, anthropicApiKeyInput);
+      const payload = toSavePayload(
+        newSettings,
+        apiKeyInput,
+        groqApiKeyInput,
+      );
       const savedSettings = await invoke<SettingsViewModel>("save_settings", { newSettings: payload });
       setSettings(toSettingsDraft(savedSettings));
       setApiKeyInput("");
       setGroqApiKeyInput("");
-      setAnthropicApiKeyInput("");
       try {
         if (autostartAvailable && autostart) {
           await enable();
@@ -293,29 +299,27 @@ export function SettingsView() {
             </select>
           </label>
 
-          {settings.transcription_provider === "openai" && (
-            <label className="text-xs text-gray-400 flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <span>OpenAI API Key</span>
-                <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.api_key_present ? "text-green-400" : "text-amber-400"}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${settings.api_key_present ? "bg-green-400" : "bg-amber-400"}`} />
-                  {settings.api_key_present ? "Configured" : "Not set"}
-                </span>
-              </div>
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
-                placeholder={settings.api_key_masked ?? "sk-..."}
-              />
-              <span className="text-[10px] text-gray-500">
-                {settings.api_key_present
-                  ? `Saved in your OS credential store as ${settings.api_key_masked}. Leave blank to keep it.`
-                  : "Saved in your OS credential store after you enter one."}
+          <label className="text-xs text-gray-400 flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span>OpenAI API Key</span>
+              <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.api_key_present ? "text-green-400" : "text-amber-400"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${settings.api_key_present ? "bg-green-400" : "bg-amber-400"}`} />
+                {settings.api_key_present ? "Configured" : "Not set"}
               </span>
-            </label>
-          )}
+            </div>
+            <input
+              type="password"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
+              placeholder={settings.api_key_masked ?? "sk-..."}
+            />
+            <span className="text-[10px] text-gray-500">
+              {settings.api_key_present
+                ? `Saved in your OS credential store as ${settings.api_key_masked}. Leave blank to keep it.`
+                : "Used for OpenAI transcription and prompt optimization. Saved after you enter one."}
+            </span>
+          </label>
 
           {settings.transcription_provider === "groq" && (
             <label className="text-xs text-gray-400 flex flex-col gap-1.5">
@@ -359,7 +363,7 @@ export function SettingsView() {
           <div className="flex flex-col gap-1">
             <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Prompt Optimization</h3>
             <span className="text-[10px] text-gray-500">
-              Runs a second Anthropic pass after transcription to rewrite the finalized transcript into an English implementation prompt for coding agents.
+              Runs a second OpenAI pass after transcription to rewrite the finalized transcript into an English implementation prompt for coding agents.
             </span>
           </div>
 
@@ -372,7 +376,7 @@ export function SettingsView() {
             />
             <div className="flex flex-col">
               <span>Improve into prompt</span>
-              <span className="text-[10px] text-gray-500">Adds an extra Anthropic model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
+              <span className="text-[10px] text-gray-500">Adds an extra OpenAI model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
             </div>
           </label>
 
@@ -389,27 +393,9 @@ export function SettingsView() {
             </select>
           </label>
 
-          <label className="text-xs text-gray-400 flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span>Anthropic API Key</span>
-              <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.anthropic_api_key_present ? "text-green-400" : "text-amber-400"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${settings.anthropic_api_key_present ? "bg-green-400" : "bg-amber-400"}`} />
-                {settings.anthropic_api_key_present ? "Configured" : "Not set"}
-              </span>
-            </div>
-            <input
-              type="password"
-              value={anthropicApiKeyInput}
-              onChange={(e) => setAnthropicApiKeyInput(e.target.value)}
-              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
-              placeholder={settings.anthropic_api_key_masked ?? "sk-ant-..."}
-            />
-            <span className="text-[10px] text-gray-500">
-              {settings.anthropic_api_key_present
-                ? `Saved in your OS credential store as ${settings.anthropic_api_key_masked}. Leave blank to keep it.`
-                : "Saved in your OS credential store after you enter one."}
-            </span>
-          </label>
+          <p className="text-[10px] text-gray-500">
+            Uses the saved OpenAI API key above. Keep the static metaprompt first and the dictated request last to maximize prompt caching.
+          </p>
         </section>
 
         <section className="space-y-3">

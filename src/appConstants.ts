@@ -27,8 +27,8 @@ export const LANGUAGES = [
 ];
 
 export const PROMPT_OPTIMIZER_MODELS = [
-  { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+  { value: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
 ];
 
 export const WIDGET_DRAG_START_GRACE_MS = 180;

@@ -7,7 +7,6 @@ use std::sync::Mutex;
 const SETTINGS_SERVICE_NAME: &str = "com.famvoice.app";
 const OPENAI_API_KEY_ACCOUNT: &str = "openai_api_key";
 const GROQ_API_KEY_ACCOUNT: &str = "groq_api_key";
-const ANTHROPIC_API_KEY_ACCOUNT: &str = "anthropic_api_key";
 const MAX_API_KEY_LEN: usize = 200;
 pub const SUPPORTED_PROVIDERS: [&str; 2] = ["openai", "groq"];
 pub const OPENAI_MODELS: [&str; 3] =
@@ -17,7 +16,6 @@ pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 3] = ["auto", "pt", "en"];
 pub const MIN_MIC_SENSITIVITY: u8 = 0;
 pub const MAX_MIC_SENSITIVITY: u8 = 100;
 pub const DEFAULT_MIC_SENSITIVITY: u8 = 60;
-pub const MAX_ANTHROPIC_API_KEY_LEN: usize = 200;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Replacement {
@@ -118,7 +116,6 @@ pub struct AppSettings {
     pub mic_sensitivity: u8,
     pub prompt_optimization_enabled: bool,
     pub prompt_optimizer_model: String,
-    pub anthropic_api_key: String,
     pub replacements: Vec<Replacement>,
 }
 
@@ -137,7 +134,6 @@ impl Default for AppSettings {
             mic_sensitivity: default_mic_sensitivity(),
             prompt_optimization_enabled: default_prompt_optimization_enabled(),
             prompt_optimizer_model: default_prompt_optimizer_model(),
-            anthropic_api_key: String::new(),
             replacements: default_replacements(),
         }
     }
@@ -160,8 +156,6 @@ impl AppSettings {
             mic_sensitivity: self.mic_sensitivity,
             prompt_optimization_enabled: self.prompt_optimization_enabled,
             prompt_optimizer_model: self.prompt_optimizer_model.clone(),
-            anthropic_api_key_present: !self.anthropic_api_key.trim().is_empty(),
-            anthropic_api_key_masked: mask_secret(&self.anthropic_api_key),
             replacements: self.replacements.clone(),
         }
     }
@@ -190,8 +184,6 @@ pub struct FrontendSettings {
     pub mic_sensitivity: u8,
     pub prompt_optimization_enabled: bool,
     pub prompt_optimizer_model: String,
-    pub anthropic_api_key_present: bool,
-    pub anthropic_api_key_masked: Option<String>,
     pub replacements: Vec<Replacement>,
 }
 
@@ -211,8 +203,6 @@ pub struct SaveSettingsRequest {
     pub mic_sensitivity: u8,
     pub prompt_optimization_enabled: bool,
     pub prompt_optimizer_model: String,
-    #[serde(default)]
-    pub anthropic_api_key: Option<String>,
     pub replacements: Vec<Replacement>,
 }
 
@@ -239,7 +229,6 @@ impl SaveSettingsRequest {
             mic_sensitivity: self.mic_sensitivity,
             prompt_optimization_enabled: self.prompt_optimization_enabled,
             prompt_optimizer_model: self.prompt_optimizer_model,
-            anthropic_api_key: keep_existing_or_new(self.anthropic_api_key, &existing.anthropic_api_key),
             replacements: self.replacements,
         }
     }
@@ -274,9 +263,9 @@ struct DiskSettings {
     prompt_optimization_enabled: bool,
     #[serde(default = "default_prompt_optimizer_model")]
     prompt_optimizer_model: String,
-    #[serde(default)]
+    #[serde(default, alias = "anthropic_api_key")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    anthropic_api_key: Option<String>,
+    legacy_anthropic_api_key: Option<String>,
     #[serde(default = "default_replacements")]
     replacements: Vec<Replacement>,
 }
@@ -296,7 +285,7 @@ impl Default for DiskSettings {
             mic_sensitivity: default_mic_sensitivity(),
             prompt_optimization_enabled: default_prompt_optimization_enabled(),
             prompt_optimizer_model: default_prompt_optimizer_model(),
-            anthropic_api_key: None,
+            legacy_anthropic_api_key: None,
             replacements: default_replacements(),
         }
     }
@@ -317,7 +306,7 @@ impl From<&AppSettings> for DiskSettings {
             mic_sensitivity: settings.mic_sensitivity,
             prompt_optimization_enabled: settings.prompt_optimization_enabled,
             prompt_optimizer_model: settings.prompt_optimizer_model.clone(),
-            anthropic_api_key: None,
+            legacy_anthropic_api_key: None,
             replacements: settings.replacements.clone(),
         }
     }
@@ -398,12 +387,11 @@ impl SettingsState {
         let mut needs_resave = settings.language != disk_settings.language
             || disk_settings.api_key.is_some()
             || disk_settings.groq_api_key.is_some()
-            || disk_settings.anthropic_api_key.is_some();
+            || disk_settings.legacy_anthropic_api_key.is_some();
 
-        let secret_accounts: [(&str, &mut String, Option<String>); 3] = [
+        let secret_accounts: [(&str, &mut String, Option<String>); 2] = [
             (OPENAI_API_KEY_ACCOUNT, &mut settings.api_key, disk_settings.api_key.clone()),
             (GROQ_API_KEY_ACCOUNT, &mut settings.groq_api_key, disk_settings.groq_api_key.clone()),
-            (ANTHROPIC_API_KEY_ACCOUNT, &mut settings.anthropic_api_key, disk_settings.anthropic_api_key.clone()),
         ];
 
         for (account, field, disk_fallback) in secret_accounts {
@@ -460,11 +448,10 @@ impl SettingsState {
     pub fn save_request(&self, request: SaveSettingsRequest) -> Result<AppSettings, String> {
         #[cfg(debug_assertions)]
         eprintln!(
-            "[FamVoice] save_request: provider={}, openai={}, groq={}, anthropic={}",
+            "[FamVoice] save_request: provider={}, openai={}, groq={}",
             request.transcription_provider,
             request.api_key.as_deref().map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
             request.groq_api_key.as_deref().map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
-            request.anthropic_api_key.as_deref().map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
         );
         let mut settings = self
             .settings
@@ -475,8 +462,8 @@ impl SettingsState {
 
         #[cfg(debug_assertions)]
         eprintln!(
-            "[FamVoice] after merge: openai={} chars, groq={} chars, anthropic={} chars",
-            next.api_key.len(), next.groq_api_key.len(), next.anthropic_api_key.len()
+            "[FamVoice] after merge: openai={} chars, groq={} chars",
+            next.api_key.len(), next.groq_api_key.len()
         );
 
         if let Err(errors) = validate_settings(&next) {
@@ -511,9 +498,7 @@ impl SettingsState {
         self.secret_store
             .write_secret(OPENAI_API_KEY_ACCOUNT, &settings.api_key)?;
         self.secret_store
-            .write_secret(GROQ_API_KEY_ACCOUNT, &settings.groq_api_key)?;
-        self.secret_store
-            .write_secret(ANTHROPIC_API_KEY_ACCOUNT, &settings.anthropic_api_key)
+            .write_secret(GROQ_API_KEY_ACCOUNT, &settings.groq_api_key)
     }
 
     fn write_disk_settings(&self, settings: &AppSettings) -> Result<(), String> {
@@ -572,13 +557,6 @@ pub fn validate_settings(settings: &AppSettings) -> Result<(), Vec<String>> {
 
     if settings.groq_api_key.len() > MAX_API_KEY_LEN {
         errors.push("Groq API key is too long".to_string());
-    }
-
-    if settings.anthropic_api_key.len() > MAX_ANTHROPIC_API_KEY_LEN {
-        errors.push(format!(
-            "Anthropic API key is too long (max {} chars)",
-            MAX_ANTHROPIC_API_KEY_LEN
-        ));
     }
 
     let valid_models = models_for_provider(&settings.transcription_provider);
@@ -667,8 +645,7 @@ mod tests {
             widget_mode: false,
             mic_sensitivity: DEFAULT_MIC_SENSITIVITY,
             prompt_optimization_enabled: false,
-            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
-            anthropic_api_key: None,
+            prompt_optimizer_model: "gpt-5.4-mini".to_string(),
             replacements: vec![],
         }
     }
@@ -686,8 +663,7 @@ mod tests {
             widget_mode: false,
             mic_sensitivity: DEFAULT_MIC_SENSITIVITY,
             prompt_optimization_enabled: false,
-            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
-            anthropic_api_key: String::new(),
+            prompt_optimizer_model: "gpt-5.4-mini".to_string(),
             replacements: vec![],
         }
     }
@@ -705,7 +681,6 @@ mod tests {
         let settings = AppSettings {
             api_key: "sk-test-openai".to_string(),
             groq_api_key: "gsk-test-groq".to_string(),
-            anthropic_api_key: "sk-ant-test".to_string(),
             ..sample_settings()
         };
 
@@ -715,11 +690,6 @@ mod tests {
         assert_eq!(frontend.api_key_masked.as_deref(), Some("sk-...enai"));
         assert!(frontend.groq_api_key_present);
         assert_eq!(frontend.groq_api_key_masked.as_deref(), Some("gsk...groq"));
-        assert!(frontend.anthropic_api_key_present);
-        assert_eq!(
-            frontend.anthropic_api_key_masked.as_deref(),
-            Some("sk-...test")
-        );
     }
 
     #[test]
@@ -731,24 +701,21 @@ mod tests {
             let mut settings = state.settings.lock().expect("Failed to acquire settings lock");
             settings.api_key = "sk-existing".to_string();
             settings.groq_api_key = "gsk-existing".to_string();
-            settings.anthropic_api_key = "sk-ant-existing".to_string();
         }
 
         let saved = state
             .save_request(SaveSettingsRequest {
                 api_key: None,
                 groq_api_key: None,
-                anthropic_api_key: None,
                 widget_mode: true,
                 prompt_optimization_enabled: true,
-                prompt_optimizer_model: "claude-sonnet-4-6".to_string(),
+                prompt_optimizer_model: "gpt-5.4-mini".to_string(),
                 ..sample_save_request()
             })
             .unwrap();
 
         assert_eq!(saved.api_key, "sk-existing");
         assert_eq!(saved.groq_api_key, "gsk-existing");
-        assert_eq!(saved.anthropic_api_key, "sk-ant-existing");
         assert!(saved.widget_mode);
         assert!(saved.prompt_optimization_enabled);
     }
@@ -762,21 +729,18 @@ mod tests {
             let mut settings = state.settings.lock().expect("Failed to acquire settings lock");
             settings.api_key = "sk-existing".to_string();
             settings.groq_api_key = "gsk-existing".to_string();
-            settings.anthropic_api_key = "sk-ant-existing".to_string();
         }
 
         let saved = state
             .save_request(SaveSettingsRequest {
                 api_key: Some("   ".to_string()),
                 groq_api_key: Some("\t".to_string()),
-                anthropic_api_key: Some("\n".to_string()),
                 ..sample_save_request()
             })
             .unwrap();
 
         assert_eq!(saved.api_key, "sk-existing");
         assert_eq!(saved.groq_api_key, "gsk-existing");
-        assert_eq!(saved.anthropic_api_key, "sk-ant-existing");
     }
 
     #[test]
@@ -787,7 +751,6 @@ mod tests {
         state
             .save_request(SaveSettingsRequest {
                 groq_api_key: Some("gsk-secret".to_string()),
-                anthropic_api_key: Some("sk-ant-secret".to_string()),
                 replacements: vec![Replacement {
                     target: "hello".to_string(),
                     replacement: "world".to_string(),
@@ -800,8 +763,40 @@ mod tests {
 
         assert!(!settings_json.contains("sk-test"));
         assert!(!settings_json.contains("gsk-secret"));
-        assert!(!settings_json.contains("sk-ant-secret"));
         assert!(settings_json.contains("\"model\""));
+    }
+
+    #[test]
+    fn test_save_request_persists_preserve_clipboard_disabled_without_inversion() {
+        let dir = tempdir().unwrap();
+        let state = test_state(&dir);
+
+        let initial = state
+            .settings
+            .lock()
+            .expect("Failed to acquire settings lock")
+            .clone();
+        assert!(initial.preserve_clipboard);
+
+        let saved = state
+            .save_request(SaveSettingsRequest {
+                preserve_clipboard: false,
+                ..sample_save_request()
+            })
+            .unwrap();
+
+        assert!(!saved.preserve_clipboard);
+
+        let settings_json = fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(settings_json.contains("\"preserve_clipboard\": false"));
+
+        let reloaded = test_state(&dir);
+        let reloaded_settings = reloaded
+            .settings
+            .lock()
+            .expect("Failed to acquire settings lock")
+            .clone();
+        assert!(!reloaded_settings.preserve_clipboard);
     }
 
     #[test]
@@ -819,7 +814,7 @@ mod tests {
   "hotkey": "CommandOrControl+Shift+Space",
   "widget_mode": false,
   "prompt_optimization_enabled": true,
-  "prompt_optimizer_model": "claude-sonnet-4-6",
+  "prompt_optimizer_model": "gpt-5.4-mini",
   "anthropic_api_key": "sk-ant-old",
   "groq_api_key": "gsk-old",
   "replacements": []
@@ -833,7 +828,6 @@ mod tests {
 
         assert_eq!(settings.api_key, "sk-test");
         assert_eq!(settings.groq_api_key, "gsk-old");
-        assert_eq!(settings.anthropic_api_key, "sk-ant-old");
         assert_eq!(settings.language, "pt");
         assert!(!migrated_json.contains("sk-test"));
         assert!(!migrated_json.contains("gsk-old"));

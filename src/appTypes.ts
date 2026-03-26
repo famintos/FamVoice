@@ -20,8 +20,6 @@ export interface SettingsViewModel {
   mic_sensitivity: number;
   prompt_optimization_enabled: boolean;
   prompt_optimizer_model: string;
-  anthropic_api_key_present: boolean;
-  anthropic_api_key_masked: string | null;
   replacements: Replacement[];
 }
 
@@ -38,7 +36,6 @@ export interface SaveSettingsPayload {
   mic_sensitivity: number;
   prompt_optimization_enabled: boolean;
   prompt_optimizer_model: string;
-  anthropic_api_key: string | null;
   replacements: Replacement[];
 }
 

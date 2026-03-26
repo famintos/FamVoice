@@ -29,7 +29,6 @@ const PASTE_CLIPBOARD_SETTLE_DELAY_MS: u64 = 2;
 const CLIPBOARD_RESTORE_DELAY_MS: u64 = 25;
 const STATUS_RESET_DELAY_MS: u64 = 2_000;
 const PROMPT_OPTIMIZER_TIMEOUT_MS: u64 = 10_000;
-const PROMPT_OPTIMIZER_SLOW_MODEL_TIMEOUT_MS: u64 = 30_000;
 const MIN_RESIZE_DIMENSION: f64 = 50.0;
 const MAX_RESIZE_DIMENSION: f64 = 4000.0;
 const MAX_REPASTE_TEXT_BYTES: usize = 50 * 1024;
@@ -300,12 +299,8 @@ async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
 }
 
 fn prompt_optimizer_timeout(model: &str) -> std::time::Duration {
-    let timeout_ms = match model {
-        "claude-sonnet-4-6" => PROMPT_OPTIMIZER_SLOW_MODEL_TIMEOUT_MS,
-        _ => PROMPT_OPTIMIZER_TIMEOUT_MS,
-    };
-
-    std::time::Duration::from_millis(timeout_ms)
+    let _ = model;
+    std::time::Duration::from_millis(PROMPT_OPTIMIZER_TIMEOUT_MS)
 }
 
 fn prompt_optimizer_timeout_message(model: &str, timeout_duration: std::time::Duration) -> String {
@@ -357,7 +352,7 @@ where
         return finalized_transcript;
     }
 
-    let api_key = settings.anthropic_api_key.trim();
+    let api_key = settings.api_key.trim();
     if api_key.is_empty() {
         return finalized_transcript;
     }
@@ -611,7 +606,7 @@ async fn transcribe_recording(
         |request| {
             prompt_optimizer::optimize_prompt(
                 http_client,
-                settings.anthropic_api_key.trim(),
+                settings.api_key.trim(),
                 request,
             )
         },
@@ -814,8 +809,8 @@ mod tests {
     async fn test_resolve_final_output_uses_optimized_output_on_success() {
         let settings = AppSettings {
             prompt_optimization_enabled: true,
-            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
-            anthropic_api_key: "sk-anthropic-test".to_string(),
+            prompt_optimizer_model: "gpt-5.4-mini".to_string(),
+            api_key: "sk-openai-test".to_string(),
             ..AppSettings::default()
         };
 
@@ -824,7 +819,7 @@ mod tests {
             "final transcript".to_string(),
             std::time::Duration::from_millis(50),
             |request| async move {
-                assert_eq!(request.model, "claude-haiku-4-5");
+                assert_eq!(request.model, "gpt-5.4-mini");
                 assert_eq!(request.source_transcript, "final transcript");
 
                 Ok(prompt_optimizer::PromptOptimizerResponse {
@@ -841,8 +836,8 @@ mod tests {
     async fn test_resolve_final_output_falls_back_when_optimizer_fails() {
         let settings = AppSettings {
             prompt_optimization_enabled: true,
-            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
-            anthropic_api_key: "sk-anthropic-test".to_string(),
+            prompt_optimizer_model: "gpt-5.4-mini".to_string(),
+            api_key: "sk-openai-test".to_string(),
             ..AppSettings::default()
         };
 
@@ -862,11 +857,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolve_final_output_skips_optimizer_when_anthropic_key_is_blank() {
+    async fn test_resolve_final_output_skips_optimizer_when_openai_key_is_blank() {
         let settings = AppSettings {
             prompt_optimization_enabled: true,
-            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
-            anthropic_api_key: "   ".to_string(),
+            prompt_optimizer_model: "gpt-5.4-mini".to_string(),
+            api_key: "   ".to_string(),
             ..AppSettings::default()
         };
         let call_count = Arc::new(AtomicUsize::new(0));
@@ -895,8 +890,8 @@ mod tests {
     async fn test_resolve_final_output_falls_back_when_optimizer_times_out() {
         let settings = AppSettings {
             prompt_optimization_enabled: true,
-            prompt_optimizer_model: "claude-haiku-4-5".to_string(),
-            anthropic_api_key: "sk-anthropic-test".to_string(),
+            prompt_optimizer_model: "gpt-5.4-mini".to_string(),
+            api_key: "sk-openai-test".to_string(),
             ..AppSettings::default()
         };
 
@@ -917,58 +912,58 @@ mod tests {
     }
 
     #[test]
-    fn test_prompt_optimizer_timeout_keeps_haiku_fast() {
+    fn test_prompt_optimizer_timeout_keeps_gpt_5_4_mini_fast() {
         assert_eq!(
-            prompt_optimizer_timeout("claude-haiku-4-5").as_millis(),
+            prompt_optimizer_timeout("gpt-5.4-mini").as_millis(),
             10_000
         );
     }
 
     #[test]
-    fn test_prompt_optimizer_timeout_gives_sonnet_more_time() {
+    fn test_prompt_optimizer_timeout_keeps_other_models_on_default_budget() {
         assert_eq!(
-            prompt_optimizer_timeout("claude-sonnet-4-6").as_millis(),
-            30_000
+            prompt_optimizer_timeout("gpt-5.4-nano").as_millis(),
+            10_000
         );
     }
 
     #[test]
     fn test_prompt_optimizer_timeout_message_includes_model_name() {
         let message = prompt_optimizer_timeout_message(
-            "claude-sonnet-4-6",
-            std::time::Duration::from_millis(30_000),
+            "gpt-5.4-mini",
+            std::time::Duration::from_millis(10_000),
         );
 
-        assert!(message.contains("claude-sonnet-4-6"));
-        assert!(message.contains("30000ms"));
+        assert!(message.contains("gpt-5.4-mini"));
+        assert!(message.contains("10000ms"));
         assert!(message.contains("using finalized transcript"));
     }
 
     #[test]
     fn test_prompt_optimizer_start_message_includes_model_name() {
-        let message = prompt_optimizer_start_message("claude-haiku-4-5");
+        let message = prompt_optimizer_start_message("gpt-5.4-mini");
 
-        assert!(message.contains("claude-haiku-4-5"));
+        assert!(message.contains("gpt-5.4-mini"));
         assert!(message.contains("Starting prompt optimization"));
     }
 
     #[test]
     fn test_prompt_optimizer_success_message_includes_model_name_and_duration() {
         let message = prompt_optimizer_success_message(
-            "claude-sonnet-4-6",
+            "gpt-5.4-mini",
             std::time::Duration::from_millis(1842),
         );
 
-        assert!(message.contains("claude-sonnet-4-6"));
+        assert!(message.contains("gpt-5.4-mini"));
         assert!(message.contains("1842ms"));
         assert!(message.contains("succeeded"));
     }
 
     #[test]
     fn test_prompt_optimizer_failure_message_includes_model_name_and_error() {
-        let message = prompt_optimizer_failure_message("claude-haiku-4-5", "request failed");
+        let message = prompt_optimizer_failure_message("gpt-5.4-mini", "request failed");
 
-        assert!(message.contains("claude-haiku-4-5"));
+        assert!(message.contains("gpt-5.4-mini"));
         assert!(message.contains("request failed"));
         assert!(message.contains("using finalized transcript"));
     }

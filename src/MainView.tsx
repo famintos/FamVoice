@@ -270,7 +270,7 @@ export function MainView() {
     (settings.transcription_provider === "openai" && !settings.api_key_present)
   );
 
-  const missingAnthropicKey = settings && settings.prompt_optimization_enabled && !settings.anthropic_api_key_present;
+  const missingPromptOptimizerKey = settings && settings.prompt_optimization_enabled && !settings.api_key_present;
 
   if (settings?.widget_mode) {
     return (
@@ -417,7 +417,7 @@ export function MainView() {
               </div>
             )}
 
-            {status === "idle" && !transcript && (missingTranscriptionKey || missingAnthropicKey) && (
+            {status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey) && (
               <div className="mt-4 flex flex-col gap-2 w-full no-drag animate-in fade-in duration-300">
                 {missingTranscriptionKey && (
                   <button
@@ -427,18 +427,18 @@ export function MainView() {
                     {settings.transcription_provider === "groq" ? "Groq" : "OpenAI"} key missing
                   </button>
                 )}
-                {missingAnthropicKey && (
+                {missingPromptOptimizerKey && (
                   <button
                     onClick={handleOpenSettings}
                     className="px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[11px] text-amber-300 cursor-pointer hover:bg-amber-500/20 transition-all"
                   >
-                    Anthropic key missing
+                    Prompt optimization OpenAI key missing
                   </button>
                 )}
               </div>
             )}
 
-            {status === "idle" && !transcript && !missingTranscriptionKey && !missingAnthropicKey && (
+            {status === "idle" && !transcript && !missingTranscriptionKey && !missingPromptOptimizerKey && (
               <div className="mt-8 flex flex-col items-center gap-2 opacity-20 pointer-events-none">
                 <p className="text-[10px] uppercase tracking-widest font-bold">Ready</p>
               </div>

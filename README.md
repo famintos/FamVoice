@@ -18,8 +18,8 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 - **Global Hotkey** - Works in any application, configurable shortcut
 - **Instant Paste** - Transcribed text is injected directly into the focused input field
 - **Clipboard Preservation** - Optionally restores your clipboard after pasting
-- **Bring Your Own Keys** - FamVoice is a local desktop client; you provide your own OpenAI, Groq, and optional Anthropic API keys
-- **Prompt Optimization** - Optional AI pass (Anthropic) that rewrites your dictation into a polished implementation prompt for coding agents
+- **Bring Your Own Keys** - FamVoice is a local desktop client; you provide your own OpenAI and Groq API keys
+- **Prompt Optimization** - Optional AI pass (OpenAI GPT-5.4 Mini) that rewrites your dictation into a polished implementation prompt for coding agents
 - **Glossary Replacements** - Auto-correct specific words or phrases (e.g. "omg" -> "Oh my gosh")
 - **Widget Mode** - Minimal floating overlay showing only the recording waveform
 - **History** - Browse, copy, or re-paste past transcriptions
@@ -34,13 +34,18 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 - `whisper-1`
 - `whisper-large-v3-turbo` (Groq)
 
+## Supported Prompt Optimization Models
+
+- `gpt-5.4-mini` (default)
+- `gpt-5.4-nano`
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v20.19+ or v22.12+)
 - [Rust](https://www.rust-lang.org/tools/install) (stable)
 - [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform
 - An OpenAI API key or Groq API key (for transcription)
-- *(Optional)* An Anthropic API key (for prompt optimization)
+- *(Optional)* An OpenAI API key (for prompt optimization)
 
 ## Privacy And Keys
 
@@ -48,7 +53,7 @@ FamVoice does not ship with a shared backend API key. It runs as a local desktop
 
 - OpenAI key: required when transcription provider is `OpenAI`
 - Groq key: required when transcription provider is `Groq`
-- Anthropic key: optional, only used when prompt optimization is enabled
+- Prompt optimization key: optional OpenAI API key, only used when prompt optimization is enabled
 
 API keys are stored in your OS credential store / keyring, not committed to the repo and not intended to live in plaintext project files.
 
@@ -89,7 +94,7 @@ src-tauri/src/
   history.rs      Transcript history log
   prompt_optimizer/
     mod.rs         Prompt optimization orchestration
-    anthropic.rs   Anthropic API client
+    openai.rs      OpenAI API client
     metaprompt.rs  System instruction for prompt rewriting
 ```
 
@@ -104,7 +109,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for more details.
 | Frontend | React 19, TypeScript, Tailwind CSS 4 |
 | Audio | cpal |
 | Transcription | OpenAI API (Whisper / GPT-4o) |
-| Prompt Optimization | Anthropic API (Claude) |
+| Prompt Optimization | OpenAI API (GPT-5.4 Mini / Nano) |
 | Clipboard | arboard |
 | Key Injection | enigo |
 | Icons | Lucide React |

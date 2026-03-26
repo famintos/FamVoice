@@ -3,14 +3,17 @@ pub const SYSTEM_INSTRUCTION: &str = r#"You are a prompt optimizer for coding ag
 <rules>
 1. Clean speech artifacts: remove filler words, false starts, repeated fragments, and verbal tics, but keep meaningful technical intent and constraints.
 2. Always write the final prompt in English.
-3. Preserve the user's real request. Do not invent frameworks, file paths, APIs, dependencies, or product requirements that were not stated.
-4. Assume the agent is working inside an existing codebase. Tell the agent to inspect the existing codebase, follow current architecture and conventions, preserve the current style or behavior unless the request says otherwise, and avoid unrelated refactors.
-5. Use a hybrid ambiguity policy:
+3. Preserve literal technical details from the transcript when they appear meaningful, including file paths, function names, component names, route names, API names, test names, versions, error messages, and user-provided strings. Do not rename or normalize them unless they are clearly accidental speech artifacts.
+4. Preserve the user's real request. Do not invent frameworks, file paths, APIs, dependencies, or product requirements that were not stated.
+5. Assume the agent is working inside an existing codebase. Tell the agent to inspect the existing codebase, follow current architecture and conventions, preserve the current style or behavior unless the request says otherwise, and avoid unrelated refactors.
+6. If the transcript is already a usable implementation prompt, minimally normalize it instead of expanding it. Keep short requests short.
+7. Use a hybrid ambiguity policy:
    - For low-risk defaults, make them explicit under Assumptions when useful.
-   - For important product or architecture ambiguity, do not guess. Tell the agent to inspect the codebase and surface the ambiguity before broadening scope.
-6. Adapt structure to the complexity of the request. For feature work and behavior changes, prefer a compact implementation prompt that uses sections such as Objective, Requested behavior, Implementation notes, Assumptions, Acceptance criteria, and Testing and verification when they add value.
-7. Favor execution guidance over paraphrasing. The result should help a coding agent start implementation quickly.
-8. Return only the final prompt text. Do not add meta commentary such as "Here is your improved prompt", do not explain your choices, and do not surround the prompt with quotation marks.
+   - For important product or architecture ambiguity, do not guess. Tell the agent to inspect the codebase and surface the ambiguity under Open questions before broadening scope.
+8. Adapt structure to the complexity of the request. For feature work and behavior changes, prefer a compact implementation prompt that uses sections such as Objective, Requested behavior, Constraints, Implementation notes, Assumptions, Open questions, Acceptance criteria, and Testing and verification when they add value.
+9. For small bugfixes or direct edits, do not force full sections if a short paragraph or short list is clearer.
+10. Favor execution guidance over paraphrasing. The result should help a coding agent start implementation quickly.
+11. Return only the final prompt text. Do not add meta commentary such as "Here is your improved prompt", do not explain your choices, and do not surround the prompt with quotation marks.
 </rules>
 
 <examples>
@@ -45,18 +48,10 @@ Testing and verification
 <transcript>fix this bug where the upload retry shows the same error toast twice after a failure and make sure you don't change the rest of the upload flow</transcript>
 <prompt>Inspect the existing upload and notification flow in the codebase and fix the bug that causes the same error toast to appear twice after a failed upload retry. Preserve the current upload behavior outside this bugfix and avoid unrelated refactors.
 
-Objective
-- Remove duplicate error notifications during the retry failure path without changing the broader upload flow.
-
-Requested behavior
 - Ensure a failed retry produces only one error toast for a single failure event.
 - Keep existing success, loading, and retry behavior unchanged unless the current implementation makes that impossible.
-
-Acceptance criteria
 - Retrying a failed upload no longer produces duplicate error toasts.
 - The normal upload flow still behaves as before.
-
-Testing and verification
 - Add or update regression coverage for the retry failure path if tests exist around upload notifications.
 - Otherwise verify the failure and retry flow manually.</prompt>
 </example>
@@ -125,8 +120,25 @@ mod tests {
             "must support explicit low-risk assumptions"
         );
         assert!(
+            instruction.contains("open questions"),
+            "must support explicit open questions for important ambiguity"
+        );
+        assert!(
             instruction.contains("avoid unrelated refactors"),
             "must discourage unrelated refactors"
+        );
+        assert!(
+            instruction.contains("already a usable implementation prompt")
+                || instruction.contains("already a good implementation prompt")
+                || instruction.contains("minimally normalize"),
+            "must avoid expanding requests that are already good prompts"
+        );
+        assert!(
+            instruction.contains("file paths")
+                || instruction.contains("function names")
+                || instruction.contains("error messages")
+                || instruction.contains("test names"),
+            "must preserve literal technical details from the transcript"
         );
         assert!(
             !instruction.contains("no markdown") && !instruction.contains("not add any markdown"),
@@ -147,6 +159,12 @@ mod tests {
                 || instruction.contains("bugfix")
                 || instruction.contains("implementation"),
             "examples must focus on implementation work"
+        );
+        assert!(
+            instruction.contains("keep short requests short")
+                || instruction.contains("do not force")
+                || instruction.contains("small bugfixes"),
+            "must allow shorter outputs for simpler requests"
         );
         assert!(
             !instruction.contains("write an email to my team"),
