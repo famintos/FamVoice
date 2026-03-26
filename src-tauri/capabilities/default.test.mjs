@@ -5,6 +5,9 @@ import { readFileSync } from "node:fs";
 const capability = JSON.parse(
   readFileSync(new URL("./default.json", import.meta.url), "utf8"),
 );
+const settingsCapability = JSON.parse(
+  readFileSync(new URL("./settings.json", import.meta.url), "utf8"),
+);
 
 test("default capability allows manual window dragging", () => {
   assert.ok(
@@ -20,6 +23,17 @@ test("default capability allows updater checks and relaunch", () => {
   );
   assert.ok(
     capability.permissions.includes("process:default"),
+    "expected process:default permission",
+  );
+});
+
+test("settings capability allows updater checks and relaunch", () => {
+  assert.ok(
+    settingsCapability.permissions.includes("updater:default"),
+    "expected updater:default permission",
+  );
+  assert.ok(
+    settingsCapability.permissions.includes("process:default"),
     "expected process:default permission",
   );
 });
