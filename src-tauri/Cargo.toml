@@ -1,6 +1,6 @@
 [package]
 name = "famvoice"
-version = "0.3.6"
+version = "0.3.7"
 description = "FamVoice Desktop App"
 authors = ["you"]
 edition = "2021"
