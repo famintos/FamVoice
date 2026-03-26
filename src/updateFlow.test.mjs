@@ -23,7 +23,7 @@ function getSettingsUpdateSection() {
   const sectionIndex = settingsViewSource.indexOf('tracking-wider">Update</h3>');
   assert.notEqual(sectionIndex, -1, "expected update section in SettingsView.tsx");
 
-  return settingsViewSource.slice(sectionIndex - 400, sectionIndex + 2200);
+  return settingsViewSource.slice(sectionIndex - 400, sectionIndex + 2800);
 }
 
 test("startup update check stores availability without auto-installing", () => {
@@ -54,14 +54,37 @@ test("settings view owns the manual update action and refresh logic", () => {
   assert.match(settingsViewSource, /const \[availableUpdate, setAvailableUpdate\] = useState<Update \| null>\(null\);/);
   assert.match(settingsViewSource, /const \[isApplyingUpdate, setIsApplyingUpdate\] = useState\(false\);/);
   assert.match(settingsViewSource, /const \[appVersion, setAppVersion\] = useState\(""\);/);
+  assert.match(settingsViewSource, /const \[updateCheckError, setUpdateCheckError\] = useState<string \| null>\(null\);/);
+  assert.match(settingsViewSource, /const \[updateInstallError, setUpdateInstallError\] = useState<string \| null>\(null\);/);
   assert.match(settingsViewSource, /await availableUpdate\.downloadAndInstall\(\);/);
   assert.match(settingsViewSource, /await relaunch\(\);/);
   assert.match(settingsViewSource, /appWindow\.onFocusChanged\(\(\{ payload: focused \}\) => \{/);
   assert.match(settingsViewSource, /if \(focused\) \{\s*void refreshUpdate\(\);\s*\}/);
   assert.match(settingsViewSource, /console\.error\("Update check failed:", error\);/);
   assert.match(settingsViewSource, /setAvailableUpdate\(null\);/);
+  assert.match(settingsViewSource, /setUpdateCheckError\(String\(error\)\);/);
+  assert.match(settingsViewSource, /setUpdateInstallError\(String\(error\)\);/);
   assert.match(settingsUpdateSection, /Current version/);
   assert.match(settingsUpdateSection, /Update available/);
   assert.match(settingsUpdateSection, />\s*Update\s*</);
   assert.match(settingsUpdateSection, /Updating\.\.\./);
+});
+
+test("settings view surfaces update check failures instead of falling back to no-update copy", () => {
+  const settingsUpdateSection = getSettingsUpdateSection();
+
+  assert.match(settingsUpdateSection, /updateCheckError \? \(/);
+  assert.match(settingsUpdateSection, /Unable to check for updates right now\./);
+  assert.match(
+    settingsUpdateSection,
+    /isCheckingForUpdates \? \([\s\S]*\) : updateCheckError \? \([\s\S]*\) : availableUpdate \? \([\s\S]*\) : \([\s\S]*No update available\./,
+  );
+});
+
+test("settings view preserves the available update card when installation fails", () => {
+  const settingsUpdateSection = getSettingsUpdateSection();
+
+  assert.match(settingsUpdateSection, /availableUpdate \? \(/);
+  assert.match(settingsUpdateSection, /updateInstallError && \(/);
+  assert.match(settingsUpdateSection, /\{updateInstallError\}/);
 });

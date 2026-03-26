@@ -84,17 +84,21 @@ export function SettingsView() {
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
   const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
   const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
-  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
+  const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
   const appWindow = getCurrentWindow();
 
   const refreshUpdate = async () => {
     setIsCheckingForUpdates(true);
+    setUpdateCheckError(null);
     try {
       const update = await check();
       setAvailableUpdate(update);
+      setUpdateCheckError(null);
     } catch (error) {
       console.error("Update check failed:", error);
       setAvailableUpdate(null);
+      setUpdateCheckError(String(error));
     } finally {
       setIsCheckingForUpdates(false);
     }
@@ -180,13 +184,13 @@ export function SettingsView() {
     if (!availableUpdate || isApplyingUpdate) return;
 
     try {
-      setUpdateError(null);
+      setUpdateInstallError(null);
       setIsApplyingUpdate(true);
       await availableUpdate.downloadAndInstall();
       await relaunch();
     } catch (error) {
       console.error("Failed to apply update:", error);
-      setUpdateError(String(error));
+      setUpdateInstallError(String(error));
       setIsApplyingUpdate(false);
     }
   };
@@ -543,6 +547,13 @@ export function SettingsView() {
 
             {isCheckingForUpdates ? (
               <p className="text-[11px] text-gray-400">Checking for updates...</p>
+            ) : updateCheckError ? (
+              <div className="space-y-2">
+                <p className="text-[11px] text-red-200">Unable to check for updates right now.</p>
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+                  {updateCheckError}
+                </div>
+              </div>
             ) : availableUpdate ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-gray-300">
@@ -562,9 +573,9 @@ export function SettingsView() {
               <p className="text-[11px] text-gray-400">No update available.</p>
             )}
 
-            {updateError && (
+            {updateInstallError && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
-                {updateError}
+                {updateInstallError}
               </div>
             )}
           </div>

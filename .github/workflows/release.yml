@@ -63,6 +63,7 @@ jobs:
         shell: pwsh
         run: |
           $config = Get-Content 'src-tauri/tauri.conf.json' | ConvertFrom-Json
+          $version = (Get-Content 'package.json' | ConvertFrom-Json).version
           $endpoint = $config.plugins.updater.endpoints[0]
 
           if (-not $endpoint) {
@@ -77,4 +78,17 @@ jobs:
 
           if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
             throw "Updater endpoint '$endpoint' returned HTTP $($response.StatusCode). End users need anonymous access to latest.json for Tauri auto-update to work."
+          }
+
+          $latestJson = $response.Content | ConvertFrom-Json
+
+          if ($latestJson.version -ne $version) {
+            throw "Updater endpoint '$endpoint' published version '$($latestJson.version)', expected '$version'."
+          }
+
+          $requiredTargets = @('windows-x86_64', 'windows-x86_64-msi', 'windows-x86_64-nsis')
+          foreach ($target in $requiredTargets) {
+            if (-not $latestJson.platforms.PSObject.Properties.Name.Contains($target)) {
+              throw "Updater endpoint '$endpoint' is missing required target '$target'."
+            }
           }
