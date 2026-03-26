@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LogicalSize } from "@tauri-apps/api/dpi";
 
 import {
+  LogicalSize,
   getWidgetWindowSize,
   getWidgetInteractiveBounds,
   isPointInsideBounds,

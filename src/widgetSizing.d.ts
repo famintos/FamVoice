@@ -1,5 +1,3 @@
-import type { LogicalSize } from "@tauri-apps/api/dpi";
-
 export interface WidgetBounds {
   width: number;
   height: number;
@@ -20,6 +18,17 @@ export interface ScreenBounds {
   top: number;
   right: number;
   bottom: number;
+}
+
+export declare class LogicalSize {
+  readonly width: number;
+  readonly height: number;
+  readonly type: "Logical";
+  constructor(width: number, height: number);
+  toJSON(): {
+    width: number;
+    height: number;
+  };
 }
 
 export const WIDGET_CHROME_PADDING: number;
