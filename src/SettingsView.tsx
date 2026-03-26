@@ -73,6 +73,7 @@ export function SettingsView() {
   const [groqApiKeyInput, setGroqApiKeyInput] = useState("");
   const [anthropicApiKeyInput, setAnthropicApiKeyInput] = useState("");
   const [autostart, setAutostart] = useState(false);
+  const [autostartAvailable, setAutostartAvailable] = useState(true);
   const [isListening, setIsListening] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState("");
@@ -114,6 +115,17 @@ export function SettingsView() {
         console.error("Autostart status error:", error);
       });
 
+    invoke<boolean>("can_manage_autostart")
+      .then((available) => {
+        setAutostartAvailable(available);
+        if (!available) {
+          setAutostart(false);
+        }
+      })
+      .catch((error) => {
+        console.error("Autostart availability error:", error);
+      });
+
     getVersion()
       .then(setAppVersion)
       .catch((error) => {
@@ -143,7 +155,11 @@ export function SettingsView() {
       setGroqApiKeyInput("");
       setAnthropicApiKeyInput("");
       try {
-        if (autostart) await enable(); else await disable();
+        if (autostartAvailable && autostart) {
+          await enable();
+        } else {
+          await disable();
+        }
       } catch (error) {
         console.error("Autostart error:", error);
       }
@@ -507,10 +523,16 @@ export function SettingsView() {
                 type="checkbox"
                 checked={autostart}
                 onChange={(e) => setAutostart(e.target.checked)}
+                disabled={!autostartAvailable}
                 className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
               />
               <span>Launch on Startup</span>
             </label>
+            {!autostartAvailable && (
+              <p className="text-[10px] text-gray-500 pl-7">
+                Launch on Startup is only available from the installed app.
+              </p>
+            )}
           </div>
         </section>
 

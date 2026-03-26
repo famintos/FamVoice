@@ -7,6 +7,7 @@ mod input_hook;
 mod mic_analysis;
 mod prompt_optimizer;
 mod settings;
+mod startup;
 mod transcription;
 mod window;
 
@@ -265,6 +266,11 @@ async fn close_settings_window(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn open_settings_window(app: AppHandle) -> Result<(), String> {
     window::open_settings_window(&app)
+}
+
+#[tauri::command]
+fn can_manage_autostart() -> bool {
+    startup::current_executable_supports_autostart()
 }
 
 fn transcription_language_override(language_preference: &str) -> Option<&str> {
@@ -980,6 +986,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            startup::disable_unsafe_autostart_entry(app.handle());
+
             let app_dir = app
                 .path()
                 .app_data_dir()
@@ -1109,7 +1117,8 @@ pub fn run() {
             stop_recording_cmd,
             resize_main_window,
             open_settings_window,
-            close_settings_window
+            close_settings_window,
+            can_manage_autostart
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

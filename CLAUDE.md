@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Agent Delegation
+
+Subagents may be used whenever they materially improve parallelism, review quality, or execution speed. Explicit per-turn permission is not required.
+
+## Subagent Reasoning Effort
+
+Use `Sonnet 4.6` by default for subagents.
+Only use a different subagent model or reasoning effort when the task has a clear, concrete reason to justify that override.
+
 ## Build & Development Commands
 
 ```bash
