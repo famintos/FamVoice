@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
   push:
+    tags-ignore:
+      - 'v*'
 
 permissions:
   contents: read
@@ -43,4 +45,4 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Run frontend tests
-        run: node --test src/*.test.mjs
+        run: npm run test
