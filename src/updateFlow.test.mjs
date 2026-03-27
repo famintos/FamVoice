@@ -11,7 +11,7 @@ function getStartupUpdateEffectBlock() {
   const effectIndex = mainViewSource.indexOf("useEffect(() => {\n    check()");
   assert.notEqual(effectIndex, -1, "expected startup update effect in MainView.tsx");
 
-  return mainViewSource.slice(effectIndex, effectIndex + 900);
+  return mainViewSource.slice(effectIndex, effectIndex + 1500);
 }
 
 function getUpdateNoticeBlock() {
@@ -35,6 +35,16 @@ function getSettingsLoadingBlock() {
   return settingsViewSource.slice(loadingIndex, loadingIndex + 1200);
 }
 
+function getRefreshUpdateBlock() {
+  const refreshIndex = settingsViewSource.indexOf("const refreshUpdate = async () => {");
+  assert.notEqual(refreshIndex, -1, "expected refreshUpdate helper in SettingsView.tsx");
+
+  const effectIndex = settingsViewSource.indexOf("useEffect(() => {", refreshIndex);
+  assert.notEqual(effectIndex, -1, "expected refreshUpdate helper boundary in SettingsView.tsx");
+
+  return settingsViewSource.slice(refreshIndex, effectIndex);
+}
+
 function getTernaryBranchBlock(startMarker, endMarker, branchName) {
   const startIndex = settingsViewSource.indexOf(startMarker);
   assert.notEqual(startIndex, -1, `expected ${branchName} branch in SettingsView.tsx`);
@@ -50,39 +60,56 @@ test("startup update check stores availability without auto-installing", () => {
 
   assert.doesNotMatch(updateEffectBlock, /downloadAndInstall\(\)/);
   assert.match(updateEffectBlock, /setPendingUpdate\(update\)/);
-  assert.match(updateEffectBlock, /if \(!hasDismissedUpdateNotice\) \{\s*setIsUpdateNoticeOpen\(true\);\s*\}/);
+  assert.match(updateEffectBlock, /if \(!hasDismissedUpdateNoticeRef\.current\) \{\s*setIsUpdateNoticeOpen\(true\);\s*\}/);
   assert.match(updateEffectBlock, /setIsUpdateNoticeOpen\(true\)/);
   assert.doesNotMatch(updateEffectBlock, /setPendingUpdate\(update\);\s*setIsUpdateNoticeOpen\(true\);/);
+});
+
+test("main view keeps the startup update check from reopening after dismissal", () => {
+  const updateEffectBlock = getStartupUpdateEffectBlock();
+  const noticeBlock = getUpdateNoticeBlock();
+
+  assert.match(mainViewSource, /const hasDismissedUpdateNoticeRef = useRef\(false\);/);
+  assert.match(mainViewSource, /const dismissUpdateNotice = \(\) => \{\s*hasDismissedUpdateNoticeRef\.current = true;\s*setIsUpdateNoticeOpen\(false\);\s*\};/);
+  assert.match(updateEffectBlock, /if \(!hasDismissedUpdateNoticeRef\.current\) \{\s*setIsUpdateNoticeOpen\(true\);\s*\}/);
+  assert.match(noticeBlock, /onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*\}\}[\s\S]*?aria-label="Dismiss update notice"/);
+  assert.match(noticeBlock, /onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);\s*\}\}[\s\S]*?>\s*Open Settings\s*<\/button>/);
 });
 
 test("main view keeps a one-shot dismissible update notice with version text", () => {
   const noticeBlock = getUpdateNoticeBlock();
   const updatePanelWithActionPattern =
-    /className="status-panel status-panel--update"[\s\S]*?<button[\s\S]*?onClick=\{\(\) => \{\s*void handleOpenSettings\(\);\s*setIsUpdateNoticeOpen\(false\);[\s\S]*?\}\}[\s\S]*?>\s*Open Settings\s*<\/button>/;
+    /className="status-panel status-panel--update"[\s\S]*?<button[\s\S]*?onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);[\s\S]*?\}\}[\s\S]*?>\s*Open Settings\s*<\/button>/;
 
   assert.match(mainViewSource, /const \[isUpdateNoticeOpen, setIsUpdateNoticeOpen\] = useState\(false\);/);
-  assert.match(mainViewSource, /const \[hasDismissedUpdateNotice, setHasDismissedUpdateNotice\] = useState\(false\);/);
+  assert.match(mainViewSource, /const hasDismissedUpdateNoticeRef = useRef\(false\);/);
   assert.match(noticeBlock, /className="status-panel status-panel--update"/);
   assert.match(noticeBlock, updatePanelWithActionPattern);
   assert.match(noticeBlock, /A new update is available/);
   assert.match(noticeBlock, /v\{pendingUpdate\.version\}/);
-  assert.match(noticeBlock, /onClick=\{\(\) => \{\s*void handleOpenSettings\(\);\s*setIsUpdateNoticeOpen\(false\);/);
-  assert.match(noticeBlock, /onClick=\{\(\) => \{\s*setHasDismissedUpdateNotice\(true\);\s*setIsUpdateNoticeOpen\(false\);/);
+  assert.match(noticeBlock, /onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);/);
+  assert.match(noticeBlock, /onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*\}\}[\s\S]*?aria-label="Dismiss update notice"/);
   assert.doesNotMatch(noticeBlock, /rounded-2xl border border-sky-400\/25 bg-\[#111827\]\/95/);
   assert.doesNotMatch(noticeBlock, /bg-sky-500\/10/);
 });
 
 test("settings view owns the manual update action and refresh logic", () => {
   const settingsUpdateSection = getSettingsUpdateSection();
+  const refreshUpdateBlock = getRefreshUpdateBlock();
 
   assert.match(settingsViewSource, /import \{ getVersion \} from "@tauri-apps\/api\/app";/);
   assert.match(settingsViewSource, /import \{ check, type Update \} from "@tauri-apps\/plugin-updater";/);
   assert.match(settingsViewSource, /import \{ relaunch \} from "@tauri-apps\/plugin-process";/);
+  assert.match(settingsViewSource, /import \{ useEffect, useRef, useState \} from "react";/);
   assert.match(settingsViewSource, /const \[availableUpdate, setAvailableUpdate\] = useState<Update \| null>\(null\);/);
   assert.match(settingsViewSource, /const \[isApplyingUpdate, setIsApplyingUpdate\] = useState\(false\);/);
   assert.match(settingsViewSource, /const \[appVersion, setAppVersion\] = useState\(""\);/);
   assert.match(settingsViewSource, /const \[updateCheckError, setUpdateCheckError\] = useState<string \| null>\(null\);/);
   assert.match(settingsViewSource, /const \[updateInstallError, setUpdateInstallError\] = useState<string \| null>\(null\);/);
+  assert.match(settingsViewSource, /const updateCheckRequestIdRef = useRef\(0\);/);
+  assert.match(refreshUpdateBlock, /const requestId = \+\+updateCheckRequestIdRef\.current;/);
+  assert.match(refreshUpdateBlock, /if \(requestId !== updateCheckRequestIdRef\.current\) \{\s*return;\s*\}/);
+  assert.match(refreshUpdateBlock, /if \(requestId === updateCheckRequestIdRef\.current\) \{\s*setIsCheckingForUpdates\(false\);\s*\}/);
   assert.match(settingsViewSource, /const currentVersionRow = \(/);
   assert.match(settingsViewSource, /await availableUpdate\.downloadAndInstall\(\);/);
   assert.match(settingsViewSource, /await relaunch\(\);/);

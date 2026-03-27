@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
@@ -161,20 +161,30 @@ export function SettingsView() {
   const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
   const appWindow = getCurrentWindow();
+  const updateCheckRequestIdRef = useRef(0);
 
   const refreshUpdate = async () => {
+    const requestId = ++updateCheckRequestIdRef.current;
     setIsCheckingForUpdates(true);
     setUpdateCheckError(null);
     try {
       const update = await check();
+      if (requestId !== updateCheckRequestIdRef.current) {
+        return;
+      }
       setAvailableUpdate(update);
       setUpdateCheckError(null);
     } catch (error) {
+      if (requestId !== updateCheckRequestIdRef.current) {
+        return;
+      }
       console.error("Update check failed:", error);
       setAvailableUpdate(null);
       setUpdateCheckError(String(error));
     } finally {
-      setIsCheckingForUpdates(false);
+      if (requestId === updateCheckRequestIdRef.current) {
+        setIsCheckingForUpdates(false);
+      }
     }
   };
 

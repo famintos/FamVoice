@@ -39,7 +39,6 @@ export function MainView() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const [isUpdateNoticeOpen, setIsUpdateNoticeOpen] = useState(false);
-  const [hasDismissedUpdateNotice, setHasDismissedUpdateNotice] = useState(false);
   const [highlightKey, setHighlightKey] = useState(0);
   const widgetContainerRef = useRef<HTMLElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
@@ -47,6 +46,7 @@ export function MainView() {
   const widgetDragGraceUntilRef = useRef(0);
   const widgetWindowMetricsRef = useRef<WidgetWindowMetrics | null>(null);
   const lastCursorPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const hasDismissedUpdateNoticeRef = useRef(false);
 
   useEffect(() => {
     invoke<SettingsViewModel>("get_settings").then(setSettings);
@@ -229,7 +229,7 @@ export function MainView() {
         if (!update) return;
         console.log(`Update available: ${update.version}`);
         setPendingUpdate(update);
-        if (!hasDismissedUpdateNotice) {
+        if (!hasDismissedUpdateNoticeRef.current) {
           setIsUpdateNoticeOpen(true);
         }
       })
@@ -241,6 +241,11 @@ export function MainView() {
   const loadHistory = async () => {
     const items = await invoke<HistoryItem[]>("get_history");
     setHistory(items);
+  };
+
+  const dismissUpdateNotice = () => {
+    hasDismissedUpdateNoticeRef.current = true;
+    setIsUpdateNoticeOpen(false);
   };
 
   const handleOpenSettings = async () => {
@@ -363,8 +368,7 @@ export function MainView() {
               </div>
               <button
                 onClick={() => {
-                  setHasDismissedUpdateNotice(true);
-                  setIsUpdateNoticeOpen(false);
+                  dismissUpdateNotice();
                 }}
                 className="rounded-full p-1.5 text-slate-500 transition-colors hover:bg-white/10 hover:text-white"
                 aria-label="Dismiss update notice"
@@ -375,8 +379,8 @@ export function MainView() {
             <div className="flex justify-end px-4 pb-4">
               <button
                 onClick={() => {
+                  dismissUpdateNotice();
                   void handleOpenSettings();
-                  setIsUpdateNoticeOpen(false);
                 }}
                 className="rounded-full border border-primary/25 bg-white/5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-amber-100 transition-colors hover:bg-white/10"
               >
