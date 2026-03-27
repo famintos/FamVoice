@@ -1,9 +1,14 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #3b82f6;
-  --color-surface: #1e1e2e;
-  --color-surface-hover: #313244;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-primary: #d17a28;
+  --color-surface: #161b26;
+  --color-surface-strong: #1d2432;
+  --color-surface-hover: #252d3d;
+  --color-success: #4b9a6e;
+  --color-danger: #b35d4f;
 }
 
 * {
@@ -19,15 +24,65 @@ html, body {
 }
 
 body {
-  color: #cdd6f4;
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  color: #e8edf7;
+  font-family: var(--font-sans);
   overflow: hidden;
+  color-scheme: dark;
 }
 
 #root {
   width: 100%;
   height: 100%;
   display: flex;
+}
+
+.signal-shell {
+  /* base window shell */
+  background: linear-gradient(180deg, rgba(22, 27, 38, 0.96), rgba(14, 17, 25, 0.96));
+  color: #e8edf7;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 72px rgba(3, 6, 12, 0.45);
+}
+
+.signal-stage {
+  /* dominant record-state field */
+  background: linear-gradient(180deg, rgba(29, 36, 50, 0.96), rgba(22, 27, 38, 0.92));
+  border: 1px solid rgba(209, 122, 40, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 20px 44px rgba(0, 0, 0, 0.26);
+}
+
+.signal-readout {
+  /* transcript/error output panel */
+  background: rgba(12, 15, 22, 0.88);
+  color: #eef2fb;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  font-family: var(--font-mono);
+}
+
+.status-panel {
+  /* neutral/warning/error status surface */
+  background: rgba(22, 27, 38, 0.88);
+  color: #cfd7e7;
+  border: 1px solid rgba(209, 122, 40, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.utility-log-row {
+  /* denser history rows */
+  background: rgba(255, 255, 255, 0.03);
+  color: #e8edf7;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.widget-shell {
+  /* compact widget container */
+  background: linear-gradient(180deg, rgba(22, 27, 38, 0.98), rgba(15, 18, 26, 0.98));
+  color: #f5f7fb;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 44px rgba(2, 5, 10, 0.42);
 }
 
 [data-tauri-drag-region] {
@@ -70,33 +125,86 @@ button, input, select, .no-drag {
 }
 
 .wave-glow {
-  filter: drop-shadow(0 0 5px rgba(59, 130, 246, 0.65));
+  filter: drop-shadow(0 0 8px rgba(209, 122, 40, 0.58));
 }
 
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(209, 122, 40, 0.72) rgba(22, 27, 38, 0.3);
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(22, 27, 38, 0.3);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #313244;
-  border-radius: 4px;
+  background: rgba(209, 122, 40, 0.72);
+  border: 1px solid rgba(22, 27, 38, 0.45);
+  border-radius: 999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #45475a;
+  background: rgba(209, 122, 40, 0.9);
 }
 
 @keyframes widget-highlight-pulse {
-  0%   { outline: 3px solid rgba(99, 179, 237, 1);    outline-offset: 1px; box-shadow: 0 0 16px 4px rgba(99, 179, 237, 0.5); }
-  65%  { outline: 3px solid rgba(99, 179, 237, 0.3);  outline-offset: 6px; box-shadow: 0 0 24px 8px rgba(99, 179, 237, 0.15); }
-  100% { outline: 3px solid rgba(99, 179, 237, 0);    outline-offset: 8px; box-shadow: 0 0 0 0 rgba(99, 179, 237, 0); }
+  0% {
+    outline: 3px solid rgba(209, 122, 40, 0.95);
+    outline-offset: 1px;
+    box-shadow:
+      0 0 0 0 rgba(209, 122, 40, 0.32),
+      0 0 16px 4px rgba(209, 122, 40, 0.45);
+  }
+
+  65% {
+    outline: 3px solid rgba(209, 122, 40, 0.28);
+    outline-offset: 6px;
+    box-shadow:
+      0 0 0 0 rgba(209, 122, 40, 0.12),
+      0 0 24px 8px rgba(209, 122, 40, 0.16);
+  }
+
+  100% {
+    outline: 3px solid rgba(209, 122, 40, 0);
+    outline-offset: 8px;
+    box-shadow: 0 0 0 0 rgba(209, 122, 40, 0);
+  }
 }
 
 .widget-highlight {
   animation: widget-highlight-pulse 1s ease-out 3;
   animation-fill-mode: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .wave-bar,
+  .wave-idle,
+  .widget-highlight,
+  .animate-in,
+  .fade-in,
+  .slide-in-from-bottom-2 {
+    animation: none !important;
+  }
+
+  .animate-in,
+  .fade-in,
+  .slide-in-from-bottom-2 {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
