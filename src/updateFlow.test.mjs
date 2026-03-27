@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const mainViewSource = readFileSync(new URL("./MainView.tsx", import.meta.url), "utf8");
-const settingsViewSource = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8");
+const mainViewSource = readFileSync(new URL("./MainView.tsx", import.meta.url), "utf8")
+  .replace(/\r\n/g, "\n");
+const settingsViewSource = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8")
+  .replace(/\r\n/g, "\n");
 
 function getStartupUpdateEffectBlock() {
   const effectIndex = mainViewSource.indexOf("useEffect(() => {\n    check()");

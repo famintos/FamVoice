@@ -2,10 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const mainViewSource = readFileSync(new URL("./MainView.tsx", import.meta.url), "utf8");
-const widgetViewSource = readFileSync(new URL("./WidgetView.tsx", import.meta.url), "utf8");
-const settingsViewSource = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8");
-const voiceWaveSource = readFileSync(new URL("./components/VoiceWave.tsx", import.meta.url), "utf8");
+const mainViewSource = readFileSync(new URL("./MainView.tsx", import.meta.url), "utf8")
+  .replace(/\r\n/g, "\n");
+const widgetViewSource = readFileSync(new URL("./WidgetView.tsx", import.meta.url), "utf8")
+  .replace(/\r\n/g, "\n");
+const settingsViewSource = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8")
+  .replace(/\r\n/g, "\n");
+const voiceWaveSource = readFileSync(new URL("./components/VoiceWave.tsx", import.meta.url), "utf8")
+  .replace(/\r\n/g, "\n");
 
 function getWidgetBranchBlock() {
   const widgetBranchIndex = mainViewSource.indexOf("if (settings?.widget_mode) {");
