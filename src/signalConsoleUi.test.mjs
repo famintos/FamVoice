@@ -6,6 +6,8 @@ const mainSource = readFileSync(new URL("./main.tsx", import.meta.url), "utf8");
 const cssSource = readFileSync(new URL("./App.css", import.meta.url), "utf8");
 const mainViewSource = readFileSync(new URL("./MainView.tsx", import.meta.url), "utf8")
   .replace(/\r\n/g, "\n");
+const settingsViewSource = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8")
+  .replace(/\r\n/g, "\n");
 
 function getRecordTabBlock() {
   const recordTabIndex = mainViewSource.indexOf('{activeTab === "record" ? (');
@@ -64,4 +66,16 @@ test("MainView adapts the fixed shell with a scrollable record stack and dense h
   assert.match(recordTabBlock, /custom-scrollbar/);
   assert.match(recordTabBlock, /overflow-y-auto/);
   assert.match(historyTabBlock, /line-clamp-2/);
+});
+
+test("SettingsView uses the signal-console settings shell and shared control surfaces", () => {
+  assert.match(settingsViewSource, /className="signal-shell signal-shell--settings/);
+  assert.match(settingsViewSource, /className="control-section/);
+  assert.match(settingsViewSource, /className="section-eyebrow/);
+  assert.match(settingsViewSource, /className="status-panel status-panel--neutral/);
+  assert.match(settingsViewSource, /className="status-panel status-panel--error/);
+  assert.doesNotMatch(
+    settingsViewSource,
+    /bg-\[#0f0f13\] text-white overflow-hidden border border-white\/10 rounded-xl/,
+  );
 });

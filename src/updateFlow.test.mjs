@@ -22,10 +22,17 @@ function getUpdateNoticeBlock() {
 }
 
 function getSettingsUpdateSection() {
-  const sectionIndex = settingsViewSource.indexOf('tracking-wider">Update</h3>');
+  const sectionIndex = settingsViewSource.indexOf('eyebrow="Update"');
   assert.notEqual(sectionIndex, -1, "expected update section in SettingsView.tsx");
 
-  return settingsViewSource.slice(sectionIndex - 400, sectionIndex + 2800);
+  return settingsViewSource.slice(sectionIndex - 200, sectionIndex + 4200);
+}
+
+function getSettingsLoadingBlock() {
+  const loadingIndex = settingsViewSource.indexOf("if (!settings) {");
+  assert.notEqual(loadingIndex, -1, "expected settings loading branch in SettingsView.tsx");
+
+  return settingsViewSource.slice(loadingIndex, loadingIndex + 1200);
 }
 
 test("startup update check stores availability without auto-installing", () => {
@@ -66,6 +73,7 @@ test("settings view owns the manual update action and refresh logic", () => {
   assert.match(settingsViewSource, /const \[appVersion, setAppVersion\] = useState\(""\);/);
   assert.match(settingsViewSource, /const \[updateCheckError, setUpdateCheckError\] = useState<string \| null>\(null\);/);
   assert.match(settingsViewSource, /const \[updateInstallError, setUpdateInstallError\] = useState<string \| null>\(null\);/);
+  assert.match(settingsViewSource, /const currentVersionRow = \(/);
   assert.match(settingsViewSource, /await availableUpdate\.downloadAndInstall\(\);/);
   assert.match(settingsViewSource, /await relaunch\(\);/);
   assert.match(settingsViewSource, /appWindow\.onFocusChanged\(\(\{ payload: focused \}\) => \{/);
@@ -74,27 +82,37 @@ test("settings view owns the manual update action and refresh logic", () => {
   assert.match(settingsViewSource, /setAvailableUpdate\(null\);/);
   assert.match(settingsViewSource, /setUpdateCheckError\(String\(error\)\);/);
   assert.match(settingsViewSource, /setUpdateInstallError\(String\(error\)\);/);
-  assert.match(settingsUpdateSection, /Current version/);
-  assert.match(settingsUpdateSection, /Update available/);
-  assert.match(settingsUpdateSection, />\s*Update\s*</);
-  assert.match(settingsUpdateSection, /Updating\.\.\./);
+  assert.ok(settingsUpdateSection.includes("currentVersionRow"));
+  assert.ok(settingsUpdateSection.includes("Update available"));
+  assert.ok(settingsUpdateSection.includes('isApplyingUpdate ? "Updating..." : "Update"'));
+  assert.ok(settingsUpdateSection.includes("Updating..."));
+});
+
+test("settings view renders the initial loading state as a neutral status panel", () => {
+  const settingsLoadingBlock = getSettingsLoadingBlock();
+
+  assert.ok(settingsLoadingBlock.includes('className="status-panel status-panel--neutral'));
+  assert.ok(settingsLoadingBlock.includes("Loading settings..."));
+  assert.ok(!settingsLoadingBlock.includes("bg-[#0f0f13] text-white overflow-hidden border border-white/10 rounded-xl"));
 });
 
 test("settings view surfaces update check failures instead of falling back to no-update copy", () => {
   const settingsUpdateSection = getSettingsUpdateSection();
 
-  assert.match(settingsUpdateSection, /updateCheckError \? \(/);
-  assert.match(settingsUpdateSection, /Unable to check for updates right now\./);
-  assert.match(
-    settingsUpdateSection,
-    /isCheckingForUpdates \? \([\s\S]*\) : updateCheckError \? \([\s\S]*\) : availableUpdate \? \([\s\S]*\) : \([\s\S]*No update available\./,
-  );
+  assert.ok(settingsUpdateSection.includes("isCheckingForUpdates ? ("));
+  assert.ok(settingsUpdateSection.includes("updateCheckError ? ("));
+  assert.ok(settingsUpdateSection.includes("Unable to check for updates right now."));
+  assert.ok(settingsUpdateSection.includes('className="status-panel status-panel--neutral'));
+  assert.ok(settingsUpdateSection.includes('className="status-panel status-panel--error'));
 });
 
-test("settings view preserves the available update card when installation fails", () => {
+test("settings view uses neutral status panels for available updates and error panels for install failures", () => {
   const settingsUpdateSection = getSettingsUpdateSection();
 
-  assert.match(settingsUpdateSection, /availableUpdate \? \(/);
-  assert.match(settingsUpdateSection, /updateInstallError && \(/);
-  assert.match(settingsUpdateSection, /\{updateInstallError\}/);
+  assert.ok(settingsUpdateSection.includes("availableUpdate ? ("));
+  assert.ok(settingsUpdateSection.includes("updateInstallError && ("));
+  assert.ok(settingsUpdateSection.includes('className="status-panel status-panel--neutral'));
+  assert.ok(settingsUpdateSection.includes('className="status-panel status-panel--error'));
+  assert.ok(settingsUpdateSection.includes("Update installation failed."));
+  assert.ok(settingsUpdateSection.includes("{updateInstallError}"));
 });

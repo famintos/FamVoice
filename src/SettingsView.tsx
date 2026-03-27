@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -70,6 +70,80 @@ function toSavePayload(
     groq_api_key: groqApiKeyInput.trim() ? groqApiKeyInput.trim() : null,
     replacements: settings.replacements.map(({ id: _id, ...replacement }) => replacement),
   };
+}
+
+function SettingsShell({
+  children,
+  onClose,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <main
+      data-tauri-drag-region
+      className="signal-shell signal-shell--settings relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[28px]"
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(209,122,40,0.1),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_16%)]"
+      />
+      <div className="relative z-10 flex items-center justify-between border-b border-white/6 px-4 py-2.5">
+        <div className="flex items-center gap-2 pointer-events-none select-none text-slate-300">
+          <SettingsIcon size={14} className="text-primary" />
+          <div className="flex flex-col">
+            <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">
+              Signal Console
+            </span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-200">
+              Settings
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded-full p-1.5 text-slate-500 transition-colors hover:bg-white/10 hover:text-white"
+          aria-label="Close settings"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
+        {children}
+      </div>
+    </main>
+  );
+}
+
+function ControlSection({
+  eyebrow,
+  description,
+  action,
+  children,
+}: {
+  eyebrow: string;
+  description?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="control-section rounded-[20px] border border-white/8 bg-black/18 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="section-eyebrow font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">
+            {eyebrow}
+          </p>
+          {description ? (
+            <p className="max-w-[42rem] text-[10px] leading-4 text-slate-500">
+              {description}
+            </p>
+          ) : null}
+        </div>
+        {action ? <div className="flex-shrink-0">{action}</div> : null}
+      </div>
+      <div className="mt-3 space-y-3">{children}</div>
+    </section>
+  );
 }
 
 export function SettingsView() {
@@ -253,35 +327,50 @@ export function SettingsView() {
     }
   };
 
+  const closeSettingsWindow = () => invoke("close_settings_window");
+  const currentVersionRow = (
+    <div className="flex items-center justify-between text-xs text-slate-300">
+      <span>Current version</span>
+      <span className="text-slate-400">{appVersion ? `v${appVersion}` : "Loading..."}</span>
+    </div>
+  );
+
   if (!settings) {
     return (
-      <main className="w-full h-full flex items-center justify-center bg-[#0f0f13] px-4 text-center text-xs">
-        <div className={errorMessage ? "text-red-300" : "text-gray-400"}>
-          {errorMessage ?? "Loading settings..."}
+      <SettingsShell onClose={closeSettingsWindow}>
+        <div className="flex h-full items-center justify-center px-4 py-4 text-center text-xs no-drag">
+          {errorMessage ? (
+            <div
+              className="status-panel status-panel--error rounded-[18px] border border-red-500/25 bg-red-500/10 px-3 py-3 text-red-100"
+              style={{ borderRadius: 18, overflow: "hidden" }}
+            >
+              <p className="section-eyebrow font-mono text-[10px] uppercase tracking-[0.24em] text-red-200/80">
+                Settings load error
+              </p>
+              <p className="mt-2 text-sm leading-5 text-red-50">{errorMessage}</p>
+            </div>
+          ) : (
+            <div
+              className="status-panel status-panel--neutral rounded-[18px] border border-white/10 bg-black/25 px-3 py-3 text-slate-200"
+              style={{ borderRadius: 18, overflow: "hidden" }}
+            >
+              <p className="section-eyebrow font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                Loading
+              </p>
+              <p className="mt-2 text-sm leading-5 text-slate-100">Loading settings...</p>
+            </div>
+          )}
         </div>
-      </main>
+      </SettingsShell>
     );
   }
 
   return (
-    <main data-tauri-drag-region className="w-full h-full flex flex-col p-4 bg-[#0f0f13] text-white overflow-hidden border border-white/10 rounded-xl">
-      <div
-        className="-mx-4 -mt-4 mb-2 px-4 pt-4 pb-3 select-none"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 pointer-events-none">
-            <SettingsIcon size={14} className="text-primary" />
-            <h2 className="text-sm font-bold tracking-wide">Settings</h2>
-          </div>
-          <button onClick={() => invoke("close_settings_window")} className="p-1 hover:bg-white/10 rounded cursor-pointer transition-colors">
-            <X size={16} className="text-gray-400 hover:text-white" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-col gap-5 overflow-y-auto overflow-x-hidden pr-2 custom-scrollbar pb-4 no-drag">
-        <section className="space-y-3">
-          <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Transcription</h3>
+    <SettingsShell onClose={closeSettingsWindow}>
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 pr-2 custom-scrollbar no-drag">
+          <div className="space-y-4 pb-4">
+            <ControlSection eyebrow="Transcription">
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
             Provider
             <select
@@ -361,15 +450,12 @@ export function SettingsView() {
               ))}
             </select>
           </label>
-        </section>
+          </ControlSection>
 
-        <section className="space-y-3">
-          <div className="flex flex-col gap-1">
-            <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Prompt Optimization</h3>
-            <span className="text-[10px] text-gray-500">
-              Runs a second OpenAI pass after transcription to rewrite the finalized transcript into an English implementation prompt for coding agents.
-            </span>
-          </div>
+          <ControlSection
+            eyebrow="Prompt Optimization"
+            description="Runs a second OpenAI pass after transcription to rewrite the finalized transcript into an English implementation prompt for coding agents."
+          >
 
           <label className="flex items-center gap-3 text-xs text-gray-300 cursor-pointer hover:text-white transition-colors">
             <input
@@ -400,10 +486,9 @@ export function SettingsView() {
           <p className="text-[10px] text-gray-500">
             Uses the saved OpenAI API key above. Keep the static metaprompt first and the dictated request last to maximize prompt caching.
           </p>
-        </section>
+          </ControlSection>
 
-        <section className="space-y-3">
-          <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Behavior</h3>
+          <ControlSection eyebrow="Behavior">
           <div className="flex flex-col gap-3">
             <div className="text-xs text-gray-400 flex flex-col gap-1.5">
               Hotkey
@@ -524,118 +609,152 @@ export function SettingsView() {
               </p>
             )}
           </div>
-        </section>
+          </ControlSection>
 
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Update</h3>
-            <button
-              onClick={() => void refreshUpdate()}
-              className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
-              type="button"
-            >
-              <RefreshCw size={10} />
-              Refresh
-            </button>
-          </div>
+          <ControlSection
+            eyebrow="Update"
+            action={
+              <button
+                onClick={() => void refreshUpdate()}
+                className="flex items-center gap-1 text-[10px] text-slate-400 transition-colors cursor-pointer hover:text-primary"
+                type="button"
+              >
+                <RefreshCw size={10} />
+                Refresh
+              </button>
+            }
+          >
+            <div className="space-y-3">
+              {isCheckingForUpdates ? (
+                <div
+                  className="status-panel status-panel--neutral rounded-[18px] border border-white/10 bg-black/25 px-3 py-3 text-slate-200"
+                  style={{ borderRadius: 18, overflow: "hidden" }}
+                >
+                  {currentVersionRow}
+                  <p className="mt-3 text-[11px] leading-5 text-slate-400">
+                    Checking for updates...
+                  </p>
+                </div>
+              ) : updateCheckError ? (
+                <div
+                  className="status-panel status-panel--error rounded-[18px] border border-red-500/25 bg-red-500/10 px-3 py-3 text-red-100"
+                  style={{ borderRadius: 18, overflow: "hidden" }}
+                >
+                  {currentVersionRow}
+                  <p className="mt-3 text-[11px] font-medium text-red-100">
+                    Unable to check for updates right now.
+                  </p>
+                  <p className="mt-1 text-[11px] leading-5 text-red-100/90">
+                    {updateCheckError}
+                  </p>
+                </div>
+              ) : availableUpdate ? (
+                <div
+                  className="status-panel status-panel--neutral rounded-[18px] border border-white/10 bg-black/25 px-3 py-3 text-slate-200"
+                  style={{ borderRadius: 18, overflow: "hidden" }}
+                >
+                  {currentVersionRow}
+                  <div className="mt-3 flex items-center justify-between text-xs text-slate-300">
+                    <span>Update available</span>
+                    <span className="font-mono text-amber-200">v{availableUpdate.version}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleApplyUpdate}
+                    disabled={isApplyingUpdate}
+                    className="mt-3 w-full rounded-lg border border-primary/30 bg-primary/10 py-2 text-xs font-semibold text-amber-50 transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isApplyingUpdate ? "Updating..." : "Update"}
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className="status-panel status-panel--neutral rounded-[18px] border border-white/10 bg-black/25 px-3 py-3 text-slate-200"
+                  style={{ borderRadius: 18, overflow: "hidden" }}
+                >
+                  {currentVersionRow}
+                  <p className="mt-3 text-[11px] leading-5 text-slate-400">
+                    No update available.
+                  </p>
+                </div>
+              )}
 
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-3">
-            <div className="flex items-center justify-between text-xs text-gray-300">
-              <span>Current version</span>
-              <span className="text-gray-400">{appVersion ? `v${appVersion}` : "Loading..."}</span>
+              {updateInstallError && (
+                <div
+                  className="status-panel status-panel--error rounded-[18px] border border-red-500/25 bg-red-500/10 px-3 py-3 text-red-100"
+                  style={{ borderRadius: 18, overflow: "hidden" }}
+                >
+                  <p className="text-[11px] font-medium text-red-100">
+                    Update installation failed.
+                  </p>
+                  <p className="mt-1 text-[11px] leading-5 text-red-100/90">
+                    {updateInstallError}
+                  </p>
+                </div>
+              )}
             </div>
+          </ControlSection>
 
-            {isCheckingForUpdates ? (
-              <p className="text-[11px] text-gray-400">Checking for updates...</p>
-            ) : updateCheckError ? (
-              <div className="space-y-2">
-                <p className="text-[11px] text-red-200">Unable to check for updates right now.</p>
-                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
-                  {updateCheckError}
+          <ControlSection
+            eyebrow="Glossary"
+            action={
+              <button
+                onClick={addReplacement}
+                className="flex items-center gap-1 text-[10px] text-primary transition-colors cursor-pointer hover:text-amber-200"
+              >
+                <Plus size={10} /> Add
+              </button>
+            }
+          >
+            <div className="space-y-2">
+              {settings.replacements.map((replacement) => (
+                <div key={replacement.id} className="flex items-center gap-2">
+                  <input
+                    value={replacement.target}
+                    onChange={(e) => updateReplacement(replacement.id, "target", e.target.value)}
+                    placeholder="spoken term"
+                    className="flex-1 min-w-0 rounded border border-white/10 bg-black/40 p-1.5 text-[10px] text-white transition-colors focus:border-primary focus:outline-none"
+                  />
+                  <span className="text-[10px] text-gray-500">-&gt;</span>
+                  <input
+                    value={replacement.replacement}
+                    onChange={(e) => updateReplacement(replacement.id, "replacement", e.target.value)}
+                    placeholder="preferred text"
+                    className="flex-1 min-w-0 rounded border border-white/10 bg-black/40 p-1.5 text-[10px] text-white transition-colors focus:border-primary focus:outline-none"
+                  />
+                  <button
+                    onClick={() => removeReplacement(replacement.id)}
+                    className="cursor-pointer p-1 text-gray-600 transition-colors hover:text-red-400"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
-              </div>
-            ) : availableUpdate ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-gray-300">
-                  <span>Update available</span>
-                  <span className="text-sky-300">v{availableUpdate.version}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleApplyUpdate}
-                  disabled={isApplyingUpdate}
-                  className="w-full rounded-lg border border-sky-400/30 bg-sky-500/10 py-2 text-xs font-bold text-sky-200 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isApplyingUpdate ? "Updating..." : "Update"}
-                </button>
-              </div>
-            ) : (
-              <p className="text-[11px] text-gray-400">No update available.</p>
-            )}
-
-            {updateInstallError && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
-                {updateInstallError}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="space-y-3">
-          <div className="flex justify-between items-center">
-            <h3 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Glossary</h3>
-            <button
-              onClick={addReplacement}
-              className="text-[10px] text-primary hover:text-blue-400 flex items-center gap-1 cursor-pointer"
-            >
-              <Plus size={10} /> Add
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {settings.replacements.map((replacement) => (
-              <div key={replacement.id} className="flex gap-2 items-center">
-                <input
-                  value={replacement.target}
-                  onChange={(e) => updateReplacement(replacement.id, "target", e.target.value)}
-                  placeholder="spoken term"
-                  className="flex-1 min-w-0 p-1.5 bg-black/40 rounded border border-white/10 text-[10px] text-white focus:outline-none focus:border-primary transition-colors"
-                />
-                <span className="text-gray-500 text-[10px]">-&gt;</span>
-                <input
-                  value={replacement.replacement}
-                  onChange={(e) => updateReplacement(replacement.id, "replacement", e.target.value)}
-                  placeholder="preferred text"
-                  className="flex-1 min-w-0 p-1.5 bg-black/40 rounded border border-white/10 text-[10px] text-white focus:outline-none focus:border-primary transition-colors"
-                />
-                <button
-                  onClick={() => removeReplacement(replacement.id)}
-                  className="text-gray-600 hover:text-red-400 p-1 cursor-pointer"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))}
-            {settings.replacements.length === 0 && (
-              <p className="text-[10px] text-gray-600 italic">No glossary entries configured.</p>
-            )}
-          </div>
-        </section>
+              ))}
+              {settings.replacements.length === 0 && (
+                <p className="text-[10px] text-gray-600 italic">No glossary entries configured.</p>
+              )}
+            </div>
+          </ControlSection>
+        </div>
       </div>
 
-      <div className="pt-4 border-t border-white/5 mt-auto">
+      <div className="border-t border-white/6 px-4 py-3 no-drag">
         {errorMessage && (
-          <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
-            {errorMessage}
+          <div
+            className="status-panel status-panel--error mb-3 rounded-[18px] border border-red-500/25 bg-red-500/10 px-3 py-3 text-red-100"
+            style={{ borderRadius: 18, overflow: "hidden" }}
+          >
+            <p className="text-[11px] leading-5 text-red-100/90">{errorMessage}</p>
           </div>
         )}
         <button
           onClick={() => saveSettings(settings)}
-          className="w-full bg-primary hover:bg-blue-600 py-2.5 rounded text-xs font-bold cursor-pointer transition-all shadow-lg active:scale-[0.98]"
+          className="w-full rounded-lg bg-primary py-2.5 text-xs font-bold text-slate-950 shadow-[0_14px_24px_rgba(209,122,40,0.18)] transition-all hover:bg-[#b86a1f] active:scale-[0.98]"
         >
           Save Changes
         </button>
       </div>
-    </main>
+    </div>
+    </SettingsShell>
   );
 }
