@@ -115,3 +115,10 @@ test("widget keeps only the logo and slightly larger waves in a more compact lay
   assert.doesNotMatch(widgetViewSource, /shadow-\[0_0_15px_rgba\(255,81,47,0\.4\)\]/);
   assert.doesNotMatch(widgetViewSource, /status === "transcribing" && \(/);
 });
+
+test("widget exposes full backend errors through the widget shell title", () => {
+  assert.match(
+    widgetViewSource,
+    /<main[\s\S]*title=\{status === "error" \? errorMessage \|\| "Error" : undefined\}/,
+  );
+});

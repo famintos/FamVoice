@@ -49,6 +49,7 @@ export function WidgetView({
         ref={containerRef}
         id="widget-container"
         className="widget-shell relative flex items-center gap-2.5 rounded-[18px] px-3 py-2 overflow-hidden"
+        title={status === "error" ? errorMessage || "Error" : undefined}
         style={{ pointerEvents: "auto" }}
         onMouseDownCapture={onMouseDownCapture}
         onContextMenu={onContextMenu}
