@@ -86,8 +86,13 @@ test("voice wave supports explicit modes and size variants", () => {
 test("record tab keeps waves visible outside the transcribing and result states", () => {
   const recordTabBlock = getRecordTabBlock();
 
-  assert.match(mainViewSource, /const showStatusDot = status === "transcribing" \|\| status === "success" \|\| status === "error";/);
-  assert.match(recordTabBlock, /<VoiceWave mode=\{/);
+  assert.match(mainViewSource, /const showStatusDot = status === "success" \|\| status === "error";/);
+  assert.match(mainViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
+  assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
+  assert.doesNotMatch(
+    recordTabBlock,
+    /showStatusDot \?\s*\(\s*<div className=\{`[\s\S]*status === "transcribing" \? "bg-yellow-500 animate-pulse shadow-\[/,
+  );
 });
 
 test("widget does not expose an update-ready indicator or tooltip", () => {
@@ -99,5 +104,7 @@ test("widget does not expose an update-ready indicator or tooltip", () => {
 test("widget keeps only the logo and slightly larger waves in a more compact layout", () => {
   assert.doesNotMatch(widgetViewSource, />Fam</);
   assert.match(widgetViewSource, /className="relative flex items-center gap-2\.5 px-3 py-1\.5/);
-  assert.match(widgetViewSource, /<VoiceWave mode=\{/);
+  assert.match(widgetViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
+  assert.match(widgetViewSource, /<VoiceWave mode=\{waveMode\} size="widget" \/>/);
+  assert.doesNotMatch(widgetViewSource, /status === "transcribing" && \(/);
 });

@@ -263,7 +263,7 @@ export function MainView() {
     await invoke("clear_history");
   };
 
-  const showStatusDot = status === "transcribing" || status === "success" || status === "error";
+  const showStatusDot = status === "success" || status === "error";
   const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
 
   const missingTranscriptionKey = settings && (
@@ -388,9 +388,8 @@ export function MainView() {
           <div data-tauri-drag-region className="h-full flex flex-col items-center justify-center p-6 relative">
             <div className="flex items-center justify-center h-12 mb-2 pointer-events-none">
               {showStatusDot ? (
-                <div className={`w-3 h-3 rounded-full transition-all duration-500 ${status === "transcribing" ? "bg-yellow-500 animate-pulse shadow-[0_0_15px_rgba(234,179,8,0.4)]" :
-                  status === "success" ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]" :
-                    "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                <div className={`w-3 h-3 rounded-full transition-all duration-500 ${status === "success" ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]" :
+                  "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
                   }`} />
               ) : (
                 <VoiceWave mode={waveMode} size="large" />

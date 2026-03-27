@@ -50,10 +50,6 @@ export function WidgetView({
         </div>
 
         <div className="flex items-center gap-1.5 pointer-events-none select-none">
-          {status === "transcribing" && (
-            <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" />
-          )}
-
           {status === "error" ? (
             <div className="flex items-center gap-1">
               <div className="w-1.5 h-1.5 bg-red-500 rounded-full shrink-0" />
