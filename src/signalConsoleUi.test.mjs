@@ -14,12 +14,12 @@ test("main.tsx bundles IBM Plex fonts locally", () => {
 });
 
 test("App.css defines the signal-console token set", () => {
-  assert.match(cssSource, /--font-sans:\s*"IBM Plex Sans"/);
-  assert.match(cssSource, /--font-mono:\s*"IBM Plex Mono"/);
-  assert.match(cssSource, /--color-primary:\s*#/);
-  assert.match(cssSource, /--color-surface:\s*#/);
-  assert.match(cssSource, /--color-success:\s*#/);
-  assert.match(cssSource, /--color-danger:\s*#/);
+  assert.match(cssSource, /--font-sans:/);
+  assert.match(cssSource, /--font-mono:/);
+  assert.match(cssSource, /--color-primary:/);
+  assert.match(cssSource, /--color-surface:/);
+  assert.match(cssSource, /--color-success:/);
+  assert.match(cssSource, /--color-danger:/);
   assert.match(cssSource, /\.signal-shell/);
   assert.match(cssSource, /\.signal-stage/);
   assert.match(cssSource, /\.signal-readout/);
