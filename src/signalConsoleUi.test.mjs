@@ -76,6 +76,18 @@ test("SettingsView uses the signal-console settings shell and shared control sur
   assert.match(settingsViewSource, /className="status-panel status-panel--error/);
   assert.doesNotMatch(
     settingsViewSource,
+    /settings\.api_key_present \? "text-green-400" : "text-amber-400"/,
+  );
+  assert.doesNotMatch(
+    settingsViewSource,
+    /settings\.groq_api_key_present \? "text-green-400" : "text-amber-400"/,
+  );
+  assert.doesNotMatch(
+    settingsViewSource,
+    /font-mono text-amber-200">v\{availableUpdate\.version\}/,
+  );
+  assert.doesNotMatch(
+    settingsViewSource,
     /bg-\[#0f0f13\] text-white overflow-hidden border border-white\/10 rounded-xl/,
   );
 });

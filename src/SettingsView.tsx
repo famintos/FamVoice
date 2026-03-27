@@ -395,8 +395,8 @@ export function SettingsView() {
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span>OpenAI API Key</span>
-              <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.api_key_present ? "text-green-400" : "text-amber-400"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${settings.api_key_present ? "bg-green-400" : "bg-amber-400"}`} />
+              <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.api_key_present ? "text-green-400" : "text-slate-500"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${settings.api_key_present ? "bg-green-400" : "bg-slate-500"}`} />
                 {settings.api_key_present ? "Configured" : "Not set"}
               </span>
             </div>
@@ -418,8 +418,8 @@ export function SettingsView() {
             <label className="text-xs text-gray-400 flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
                 <span>Groq API Key</span>
-                <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.groq_api_key_present ? "text-green-400" : "text-amber-400"}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${settings.groq_api_key_present ? "bg-green-400" : "bg-amber-400"}`} />
+                <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.groq_api_key_present ? "text-green-400" : "text-slate-500"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${settings.groq_api_key_present ? "bg-green-400" : "bg-slate-500"}`} />
                   {settings.groq_api_key_present ? "Configured" : "Not set"}
                 </span>
               </div>
@@ -656,7 +656,7 @@ export function SettingsView() {
                   {currentVersionRow}
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-300">
                     <span>Update available</span>
-                    <span className="font-mono text-amber-200">v{availableUpdate.version}</span>
+                    <span className="font-mono text-slate-400">v{availableUpdate.version}</span>
                   </div>
                   <button
                     type="button"

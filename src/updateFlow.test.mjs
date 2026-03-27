@@ -35,6 +35,16 @@ function getSettingsLoadingBlock() {
   return settingsViewSource.slice(loadingIndex, loadingIndex + 1200);
 }
 
+function getTernaryBranchBlock(startMarker, endMarker, branchName) {
+  const startIndex = settingsViewSource.indexOf(startMarker);
+  assert.notEqual(startIndex, -1, `expected ${branchName} branch in SettingsView.tsx`);
+
+  const endIndex = settingsViewSource.indexOf(endMarker, startIndex + startMarker.length);
+  assert.notEqual(endIndex, -1, `expected ${branchName} branch terminator in SettingsView.tsx`);
+
+  return settingsViewSource.slice(startIndex, endIndex);
+}
+
 test("startup update check stores availability without auto-installing", () => {
   const updateEffectBlock = getStartupUpdateEffectBlock();
 
@@ -97,22 +107,36 @@ test("settings view renders the initial loading state as a neutral status panel"
 });
 
 test("settings view surfaces update check failures instead of falling back to no-update copy", () => {
-  const settingsUpdateSection = getSettingsUpdateSection();
+  const loadingBranch = getTernaryBranchBlock(
+    "isCheckingForUpdates ? (",
+    ") : updateCheckError ? (",
+    "update check loading",
+  );
+  const errorBranch = getTernaryBranchBlock(
+    "updateCheckError ? (",
+    ") : availableUpdate ? (",
+    "update check error",
+  );
 
-  assert.ok(settingsUpdateSection.includes("isCheckingForUpdates ? ("));
-  assert.ok(settingsUpdateSection.includes("updateCheckError ? ("));
-  assert.ok(settingsUpdateSection.includes("Unable to check for updates right now."));
-  assert.ok(settingsUpdateSection.includes('className="status-panel status-panel--neutral'));
-  assert.ok(settingsUpdateSection.includes('className="status-panel status-panel--error'));
+  assert.ok(loadingBranch.includes('className="status-panel status-panel--neutral'));
+  assert.ok(errorBranch.includes('className="status-panel status-panel--error'));
+  assert.ok(errorBranch.includes("Unable to check for updates right now."));
 });
 
 test("settings view uses neutral status panels for available updates and error panels for install failures", () => {
-  const settingsUpdateSection = getSettingsUpdateSection();
+  const availableBranch = getTernaryBranchBlock(
+    "availableUpdate ? (",
+    ") : (",
+    "available update",
+  );
+  const installErrorIndex = settingsViewSource.indexOf("updateInstallError && (");
+  assert.notEqual(installErrorIndex, -1, "expected update install error branch in SettingsView.tsx");
+  const installErrorBranch = settingsViewSource.slice(installErrorIndex, installErrorIndex + 600);
 
-  assert.ok(settingsUpdateSection.includes("availableUpdate ? ("));
-  assert.ok(settingsUpdateSection.includes("updateInstallError && ("));
-  assert.ok(settingsUpdateSection.includes('className="status-panel status-panel--neutral'));
-  assert.ok(settingsUpdateSection.includes('className="status-panel status-panel--error'));
-  assert.ok(settingsUpdateSection.includes("Update installation failed."));
-  assert.ok(settingsUpdateSection.includes("{updateInstallError}"));
+  assert.ok(availableBranch.includes('className="status-panel status-panel--neutral'));
+  assert.ok(availableBranch.includes("Update available"));
+  assert.ok(availableBranch.includes("currentVersionRow"));
+  assert.ok(installErrorBranch.includes('className="status-panel status-panel--error'));
+  assert.ok(installErrorBranch.includes("Update installation failed."));
+  assert.ok(installErrorBranch.includes("{updateInstallError}"));
 });
