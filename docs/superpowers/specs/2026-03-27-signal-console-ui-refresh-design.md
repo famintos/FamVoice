@@ -240,7 +240,7 @@ Action treatment:
 - primary actions such as `Save Changes` and `Update` can carry the warm identity accent
 - secondary actions should remain visually quieter
 
-### 7. Widget
+### 8. Widget
 
 The widget should be the most distilled version of the design system.
 
@@ -254,7 +254,7 @@ Widget rules:
 
 The widget must still feel lightweight and easy to ignore when idle.
 
-### 8. Motion And Feedback
+### 9. Motion And Feedback
 
 Motion should clarify state transitions, not decorate them.
 
@@ -270,7 +270,7 @@ Accessibility constraint:
 
 - respect reduced-motion preferences for nonessential animation
 
-### 9. Small-Footprint And Accessibility Constraints
+### 10. Small-Footprint And Accessibility Constraints
 
 The redesign must remain readable and usable in a compact desktop window.
 
