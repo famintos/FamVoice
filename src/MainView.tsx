@@ -272,6 +272,46 @@ export function MainView() {
   );
 
   const missingPromptOptimizerKey = settings && settings.prompt_optimization_enabled && !settings.api_key_present;
+  const statusLabel = status === "recording"
+    ? "Listening"
+    : status === "transcribing"
+      ? "Transcribing"
+      : status === "success"
+        ? "Transcript captured"
+        : status === "error"
+          ? "Attention required"
+          : "Console ready";
+  const statusFlag = showStatusDot
+    ? status === "success"
+      ? "OK"
+      : "ERR"
+    : status === "recording"
+      ? "REC"
+      : status === "transcribing"
+        ? "SYNC"
+        : "IDLE";
+  const stageHint = status === "recording"
+    ? "Release the hotkey to send this capture for transcription."
+    : status === "transcribing"
+      ? "Audio uploaded. Waiting for the transcription service."
+      : status === "success"
+        ? "The latest transcript is ready for paste-back."
+        : status === "error"
+          ? "Review the readout for failure details."
+          : "Standing by for the global dictation hotkey.";
+  const readoutText = transcript
+    ? transcript
+    : status === "recording"
+      ? "Microphone input is live. Keep holding the hotkey until you finish speaking."
+      : status === "transcribing"
+        ? "Processing the most recent capture."
+        : status === "success"
+          ? "Transcript delivered."
+          : status === "error"
+            ? "The last request failed before a transcript was returned."
+            : missingTranscriptionKey || missingPromptOptimizerKey
+              ? "Configuration required. Open Settings to finish key setup."
+              : "System idle. Hold the global hotkey to start dictation.";
 
   if (settings?.widget_mode) {
     return (
@@ -300,34 +340,45 @@ export function MainView() {
   }
 
   return (
-    <main data-tauri-drag-region className="w-full h-full flex flex-col bg-[#0f0f13]/85 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/10 relative overflow-hidden text-white">
+    <main
+      data-tauri-drag-region
+      className="signal-shell signal-shell--main relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[28px]"
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(209,122,40,0.18),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_16%)]"
+      />
+
       {pendingUpdate && isUpdateNoticeOpen && (
-        <div className="absolute inset-x-3 top-3 z-20 no-drag">
-          <div className="rounded-2xl border border-sky-400/25 bg-[#111827]/95 px-4 py-3 shadow-2xl backdrop-blur-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-[11px] font-semibold text-sky-200">A new update is available</p>
-                <p className="text-[10px] text-slate-300">v{pendingUpdate.version}</p>
-                <p className="text-[10px] text-slate-400">Open Settings to download and install it manually.</p>
+        <div className="absolute inset-x-4 top-4 z-20 no-drag">
+          <div className="status-panel status-panel--update" style={{ borderRadius: 22, overflow: "hidden" }}>
+            <div className="flex items-start justify-between gap-3 px-4 py-3">
+              <div className="min-w-0 space-y-1">
+                <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-sky-200/80">Updater</p>
+                <p className="text-[12px] font-semibold text-slate-100">A new update is available</p>
+                <p className="font-mono text-[10px] text-sky-200">v{pendingUpdate.version}</p>
+                <p className="text-[11px] leading-5 text-slate-400">
+                  Open Settings to download and install it manually.
+                </p>
               </div>
               <button
                 onClick={() => {
                   setHasDismissedUpdateNotice(true);
                   setIsUpdateNoticeOpen(false);
                 }}
-                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+                className="rounded-full p-1.5 text-slate-500 transition-colors hover:bg-white/10 hover:text-white"
                 aria-label="Dismiss update notice"
               >
                 <X size={14} />
               </button>
             </div>
-            <div className="mt-3 flex justify-end">
+            <div className="flex justify-end px-4 pb-4">
               <button
                 onClick={() => {
                   void handleOpenSettings();
                   setIsUpdateNoticeOpen(false);
                 }}
-                className="rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-200 transition-colors hover:bg-sky-500/20"
+                className="rounded-full border border-sky-300/20 bg-white/5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-sky-100 transition-colors hover:bg-white/10"
               >
                 Open Settings
               </button>
@@ -336,165 +387,205 @@ export function MainView() {
         </div>
       )}
 
-      <div data-tauri-drag-region className="flex justify-between items-center px-4 pt-3 pb-1">
-        <div className="flex items-center gap-2 pointer-events-none select-none text-gray-300">
-          <FamVoiceLogo size={16} />
-          <span className="text-[11px] font-bold tracking-[0.1em] uppercase">FamVoice</span>
+      <div data-tauri-drag-region className="relative z-10 flex items-center justify-between border-b border-white/6 px-4 py-2.5">
+        <div className="flex items-center gap-2 pointer-events-none select-none text-slate-300">
+          <FamVoiceLogo size={14} />
+          <div className="flex flex-col">
+            <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">Signal Console</span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-200">FamVoice</span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 no-drag">
           <button
             onClick={handleOpenSettings}
-            className="text-gray-400 hover:text-white cursor-pointer no-drag p-1.5 rounded hover:bg-white/10 transition-all"
+            className="rounded-full p-1.5 text-slate-500 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label="Open settings"
           >
             <SettingsIcon size={14} />
           </button>
           <button
             onClick={() => appWindow.minimize()}
-            className="text-gray-400 hover:text-white cursor-pointer no-drag p-1.5 rounded hover:bg-white/10 transition-all"
+            className="rounded-full p-1.5 text-slate-500 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label="Minimize window"
           >
             <Minus size={14} />
           </button>
           <button
             onClick={() => appWindow.close()}
-            className="text-gray-400 hover:text-red-400 cursor-pointer no-drag p-1.5 rounded hover:bg-white/10 transition-all"
+            className="rounded-full p-1.5 text-slate-500 transition-colors hover:bg-white/10 hover:text-red-300"
+            aria-label="Close window"
           >
             <X size={14} />
           </button>
         </div>
       </div>
 
-      <div className="flex px-4 gap-4 border-b border-white/5 no-drag select-none">
-        <button
-          onClick={() => setActiveTab("record")}
-          className={`pb-2 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer relative ${activeTab === "record" ? "text-primary" : "text-gray-500 hover:text-gray-300"
-            }`}
-        >
-          Dictate
-          {activeTab === "record" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />}
-        </button>
-        <button
-          onClick={() => setActiveTab("history")}
-          className={`pb-2 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer relative ${activeTab === "history" ? "text-primary" : "text-gray-500 hover:text-gray-300"
-            }`}
-        >
-          History
-          {activeTab === "history" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />}
-        </button>
+      <div className="relative z-10 border-b border-white/6 px-4 py-2 no-drag">
+        <div className="inline-flex rounded-full border border-white/8 bg-black/10 p-1 select-none">
+          <button
+            onClick={() => setActiveTab("record")}
+            className={`rounded-full px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] transition-colors cursor-pointer ${activeTab === "record" ? "bg-white/10 text-primary" : "text-slate-500 hover:text-slate-200"
+              }`}
+          >
+            Dictate
+          </button>
+          <button
+            onClick={() => setActiveTab("history")}
+            className={`rounded-full px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] transition-colors cursor-pointer ${activeTab === "history" ? "bg-white/10 text-primary" : "text-slate-500 hover:text-slate-200"
+              }`}
+          >
+            History
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      <div className="relative z-10 flex-1 overflow-hidden">
         {activeTab === "record" ? (
-          <div data-tauri-drag-region className="h-full flex flex-col items-center justify-center p-6 relative">
-            <div className="flex items-center justify-center h-12 mb-2 pointer-events-none">
-              {showStatusDot ? (
-                <div className={`w-3 h-3 rounded-full transition-all duration-500 ${status === "success" ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]" :
-                  "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-                  }`} />
-              ) : (
-                <VoiceWave mode={waveMode} size="large" />
-              )}
-            </div>
-
-            <p className="text-xs text-gray-400 select-none text-center pointer-events-none font-medium tracking-wide">
-              {status === "idle" ? "" :
-                status === "recording" ? "Listening..." :
-                  status === "transcribing" ? "Transcribing..." :
-                    status === "success" ? "Success!" :
-                      "Error occurred"}
-            </p>
-
-            {transcript && (
-              <div className="mt-4 px-3 py-2 bg-black/40 backdrop-blur-sm rounded-lg border border-white/5 text-[11px] text-gray-300 w-full shadow-inner text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
-                {status === "error" ? (
-                  <div className="flex items-center justify-center gap-1.5 text-red-400">
-                    <AlertCircle size={12} />
-                    <span>{transcript}</span>
-                  </div>
-                ) : (
-                  transcript
-                )}
+          <div data-tauri-drag-region className="flex h-full min-h-0 flex-col gap-4 px-4 py-4">
+            <section className="signal-stage flex flex-1 flex-col justify-between rounded-[28px] px-5 py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="pointer-events-none">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">Active stage</p>
+                  <h2 className="mt-1 text-lg font-semibold tracking-[0.02em] text-slate-100">{statusLabel}</h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-black/15 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.24em] text-slate-400">
+                  {statusFlag}
+                </div>
               </div>
-            )}
+
+              <div className="flex flex-1 items-center justify-center py-4">
+                <div className="rounded-[24px] border border-white/6 bg-black/15 px-8 py-6 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
+                  <VoiceWave mode={waveMode} size="large" />
+                </div>
+              </div>
+
+              <p className="pointer-events-none text-center text-[12px] leading-5 text-slate-400">
+                {stageHint}
+              </p>
+            </section>
+
+            <section className="signal-readout rounded-[22px]">
+              <div className="flex items-start gap-3 px-4 py-3">
+                <span className="pt-0.5 font-mono text-[10px] uppercase tracking-[0.22em] text-slate-500">
+                  Readout
+                </span>
+                <div className="min-w-0 flex-1 text-[11px] leading-5">
+                  {status === "error" && transcript ? (
+                    <div className="flex items-start gap-2 text-rose-300">
+                      <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                      <span>{transcript}</span>
+                    </div>
+                  ) : (
+                    <p className={transcript ? "text-slate-100" : "text-slate-400"}>{readoutText}</p>
+                  )}
+                </div>
+              </div>
+            </section>
 
             {status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey) && (
-              <div className="mt-4 flex flex-col gap-2 w-full no-drag animate-in fade-in duration-300">
+              <div className="flex flex-col gap-3 no-drag">
                 {missingTranscriptionKey && (
-                  <button
-                    onClick={handleOpenSettings}
-                    className="px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[11px] text-amber-300 cursor-pointer hover:bg-amber-500/20 transition-all"
-                  >
-                    {settings.transcription_provider === "groq" ? "Groq" : "OpenAI"} key missing
-                  </button>
+                  <div className="status-panel status-panel--warning" style={{ borderRadius: 20, overflow: "hidden" }}>
+                    <button
+                      onClick={handleOpenSettings}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer"
+                    >
+                      <span>
+                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-amber-200/70">
+                          Warning
+                        </span>
+                        <span className="mt-1 block text-[12px] font-semibold text-amber-100">
+                          {settings.transcription_provider === "groq" ? "Groq" : "OpenAI"} key missing
+                        </span>
+                      </span>
+                      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-200/80">
+                        Settings
+                      </span>
+                    </button>
+                  </div>
                 )}
                 {missingPromptOptimizerKey && (
-                  <button
-                    onClick={handleOpenSettings}
-                    className="px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[11px] text-amber-300 cursor-pointer hover:bg-amber-500/20 transition-all"
-                  >
-                    Prompt optimization OpenAI key missing
-                  </button>
+                  <div className="status-panel status-panel--warning" style={{ borderRadius: 20, overflow: "hidden" }}>
+                    <button
+                      onClick={handleOpenSettings}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer"
+                    >
+                      <span>
+                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-amber-200/70">
+                          Warning
+                        </span>
+                        <span className="mt-1 block text-[12px] font-semibold text-amber-100">
+                          Prompt optimization OpenAI key missing
+                        </span>
+                      </span>
+                      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-200/80">
+                        Settings
+                      </span>
+                    </button>
+                  </div>
                 )}
-              </div>
-            )}
-
-            {status === "idle" && !transcript && !missingTranscriptionKey && !missingPromptOptimizerKey && (
-              <div className="mt-8 flex flex-col items-center gap-2 opacity-20 pointer-events-none">
-                <p className="text-[10px] uppercase tracking-widest font-bold">Ready</p>
               </div>
             )}
           </div>
         ) : (
-          <div className="h-full flex flex-col no-drag">
-            <div className="flex justify-between items-center p-3 px-4 border-b border-white/5">
-              <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">{history.length} items</span>
+          <div className="flex h-full min-h-0 flex-col no-drag">
+            <div className="flex items-center justify-between border-b border-white/6 px-4 py-3">
+              <div className="pointer-events-none">
+                <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-slate-500">Utility log</p>
+                <p className="text-[12px] text-slate-300">{history.length} locally cached entries</p>
+              </div>
               {history.length > 0 && (
                 <button
                   onClick={clearHistory}
-                  className="text-[10px] text-gray-500 hover:text-red-400 flex items-center gap-1 transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-400 transition-colors cursor-pointer hover:text-red-300"
                 >
-                  <Trash2 size={10} /> Clear
+                  <Trash2 size={12} /> Clear
                 </button>
               )}
             </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 px-3 space-y-2 pb-4">
+            <div className="custom-scrollbar flex-1 overflow-y-auto px-3 py-3">
               {history.map((item) => (
-                <div key={item.id} className="group p-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/5 transition-all animate-in fade-in duration-200">
-                  <p className="text-[11px] text-gray-200 line-clamp-2 mb-2 leading-relaxed">{item.text}</p>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[9px] text-gray-600 font-medium">
+                <article key={item.id} className="utility-log-row rounded-[20px] px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 flex-1 text-[11px] leading-5 text-slate-100">{item.text}</p>
+                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">
                       {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
-                    <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => copyToClipboard(item.text)}
-                        className="p-1.5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-primary transition-all cursor-pointer"
-                        title="Copy"
-                      >
-                        <Copy size={12} />
-                      </button>
-                      <button
-                        onClick={() => repasteHistory(item.text)}
-                        className="p-1.5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-green-400 transition-all cursor-pointer"
-                        title="Re-paste"
-                      >
-                        <RefreshCw size={12} />
-                      </button>
-                      <button
-                        onClick={() => deleteHistory(item.id)}
-                        className="p-1.5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-red-400 transition-all cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
                   </div>
-                </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => copyToClipboard(item.text)}
+                      className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/5 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-300 transition-colors cursor-pointer hover:text-primary"
+                      title="Copy"
+                    >
+                      <Copy size={12} />
+                      Copy
+                    </button>
+                    <button
+                      onClick={() => repasteHistory(item.text)}
+                      className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/5 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-300 transition-colors cursor-pointer hover:text-green-300"
+                      title="Re-paste"
+                    >
+                      <RefreshCw size={12} />
+                      Re-paste
+                    </button>
+                    <button
+                      onClick={() => deleteHistory(item.id)}
+                      className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/5 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-300 transition-colors cursor-pointer hover:text-red-300"
+                      title="Delete"
+                    >
+                      <Trash2 size={12} />
+                      Delete
+                    </button>
+                  </div>
+                </article>
               ))}
               {history.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center py-12 opacity-30 pointer-events-none">
-                  <HistoryIcon size={32} className="mb-2" />
-                  <p className="text-[10px] uppercase tracking-widest font-bold">No history yet</p>
+                <div className="flex h-full flex-col items-center justify-center py-12 text-slate-500 pointer-events-none">
+                  <HistoryIcon size={30} className="mb-3" />
+                  <p className="font-mono text-[10px] uppercase tracking-[0.22em]">No history yet</p>
+                  <p className="mt-2 text-[11px] text-slate-600">Transcripts will appear here after a successful paste-back.</p>
                 </div>
               )}
             </div>

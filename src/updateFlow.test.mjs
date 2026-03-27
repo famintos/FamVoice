@@ -41,10 +41,13 @@ test("main view keeps a one-shot dismissible update notice with version text", (
 
   assert.match(mainViewSource, /const \[isUpdateNoticeOpen, setIsUpdateNoticeOpen\] = useState\(false\);/);
   assert.match(mainViewSource, /const \[hasDismissedUpdateNotice, setHasDismissedUpdateNotice\] = useState\(false\);/);
+  assert.match(noticeBlock, /className="status-panel status-panel--update"/);
   assert.match(noticeBlock, /A new update is available/);
   assert.match(noticeBlock, /v\{pendingUpdate\.version\}/);
   assert.match(noticeBlock, /onClick=\{\(\) => \{\s*void handleOpenSettings\(\);\s*setIsUpdateNoticeOpen\(false\);/);
   assert.match(noticeBlock, /onClick=\{\(\) => \{\s*setHasDismissedUpdateNotice\(true\);\s*setIsUpdateNoticeOpen\(false\);/);
+  assert.doesNotMatch(noticeBlock, /rounded-2xl border border-sky-400\/25 bg-\[#111827\]\/95/);
+  assert.doesNotMatch(noticeBlock, /bg-sky-500\/10/);
 });
 
 test("settings view owns the manual update action and refresh logic", () => {
