@@ -26,5 +26,6 @@ test("App.css defines the signal-console token set", () => {
   assert.match(cssSource, /\.status-panel/);
   assert.match(cssSource, /\.utility-log-row/);
   assert.match(cssSource, /\.widget-shell/);
+  assert.match(cssSource, /\.wave-processing/);
   assert.match(cssSource, /@media \(prefers-reduced-motion: reduce\)/);
 });

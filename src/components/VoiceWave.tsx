@@ -11,10 +11,10 @@ const BARS: { peak: number; dur: number; delay: number }[] = [
 ];
 
 export function VoiceWave({
-  isPlaying = false,
+  mode = "idle",
   size = "default",
 }: {
-  isPlaying?: boolean;
+  mode?: "idle" | "recording" | "transcribing";
   size?: "default" | "widget" | "large";
 }) {
   const containerClass = size === "large"
@@ -23,19 +23,21 @@ export function VoiceWave({
       ? "h-5 gap-[2.5px]"
       : "h-4 gap-[2px]";
   const barClass = size === "large" ? "w-[3px]" : size === "widget" ? "w-[2.5px]" : "w-[2px]";
+  const isRecording = mode === "recording";
+  const isTranscribing = mode === "transcribing";
 
   return (
     <div
-      className={`flex items-center justify-center ${containerClass} pointer-events-none${isPlaying ? " wave-glow" : ""}`}
+      className={`flex items-center justify-center ${containerClass} pointer-events-none${isRecording ? " wave-glow" : ""}`}
     >
       {BARS.map((bar, i) => (
         <div
           key={i}
-          className={`${barClass} bg-primary rounded-full ${isPlaying ? "wave-bar" : "wave-idle"}`}
+          className={`${barClass} bg-primary rounded-full ${isRecording ? "wave-bar" : isTranscribing ? "wave-processing" : "wave-idle"}`}
           style={{
             height: `${bar.peak * 100}%`,
-            animationDuration: isPlaying ? `${bar.dur}s` : "2s",
-            animationDelay: isPlaying ? `${bar.delay}s` : `${i * 0.15}s`,
+            animationDuration: isRecording ? `${bar.dur}s` : isTranscribing ? `${1.6 + bar.peak * 0.2}s` : "2s",
+            animationDelay: isRecording ? `${bar.delay}s` : isTranscribing ? `${i * 0.12}s` : `${i * 0.15}s`,
             "--wave-peak": bar.peak,
           } as React.CSSProperties}
         />

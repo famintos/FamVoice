@@ -23,6 +23,8 @@ export function WidgetView({
   onMouseDownCapture,
   onContextMenu,
 }: WidgetViewProps) {
+  const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
+
   useEffect(() => {
     if (!highlightKey || !containerRef.current) return;
     const el = containerRef.current as HTMLElement;
@@ -69,7 +71,7 @@ export function WidgetView({
               <span className="text-[10px] text-amber-400 font-medium whitespace-nowrap">No API key</span>
             </div>
           ) : (
-            <VoiceWave isPlaying={status === "recording"} size="widget" />
+            <VoiceWave mode={waveMode} size="widget" />
           )}
         </div>
       </main>

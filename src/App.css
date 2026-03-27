@@ -124,6 +124,28 @@ button, input, select, .no-drag {
   animation-play-state: paused;
 }
 
+.wave-processing {
+  animation: wave-processing 1.6s infinite ease-in-out;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+@keyframes wave-processing {
+  0%, 100% {
+    transform: scaleY(0.2);
+    opacity: 0.74;
+  }
+
+  50% {
+    transform: scaleY(calc(var(--wave-peak, 1) * 0.75));
+    opacity: 1;
+  }
+}
+
+.wave-processing.wave-paused {
+  animation-play-state: paused;
+}
+
 .wave-glow {
   filter: drop-shadow(0 0 8px rgba(209, 122, 40, 0.58));
 }
@@ -194,6 +216,7 @@ button, input, select, .no-drag {
 
   .wave-bar,
   .wave-idle,
+  .wave-processing,
   .widget-highlight,
   .animate-in,
   .fade-in,

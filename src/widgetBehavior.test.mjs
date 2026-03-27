@@ -69,7 +69,10 @@ test("settings window uses a native drag region on the main element", () => {
   assert.match(settingsViewSource, /<main data-tauri-drag-region/);
 });
 
-test("voice wave supports a large size variant for the main dictation view", () => {
+test("voice wave supports explicit modes and size variants", () => {
+  assert.match(voiceWaveSource, /mode\?: "idle" \| "recording" \| "transcribing"/);
+  assert.doesNotMatch(voiceWaveSource, /isPlaying\?: boolean/);
+  assert.match(voiceWaveSource, /mode === "transcribing"/);
   assert.match(voiceWaveSource, /size = "default"/);
   assert.match(voiceWaveSource, /size\?: "default" \| "widget" \| "large"/);
   assert.match(voiceWaveSource, /size === "widget"/);
@@ -84,7 +87,7 @@ test("record tab keeps waves visible outside the transcribing and result states"
   const recordTabBlock = getRecordTabBlock();
 
   assert.match(mainViewSource, /const showStatusDot = status === "transcribing" \|\| status === "success" \|\| status === "error";/);
-  assert.match(recordTabBlock, /<VoiceWave isPlaying=\{status === "recording"\} size="large" \/>/);
+  assert.match(recordTabBlock, /<VoiceWave mode=\{/);
 });
 
 test("widget does not expose an update-ready indicator or tooltip", () => {
@@ -96,5 +99,5 @@ test("widget does not expose an update-ready indicator or tooltip", () => {
 test("widget keeps only the logo and slightly larger waves in a more compact layout", () => {
   assert.doesNotMatch(widgetViewSource, />Fam</);
   assert.match(widgetViewSource, /className="relative flex items-center gap-2\.5 px-3 py-1\.5/);
-  assert.match(widgetViewSource, /<VoiceWave isPlaying=\{status === "recording"\} size="widget" \/>/);
+  assert.match(widgetViewSource, /<VoiceWave mode=\{/);
 });

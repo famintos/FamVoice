@@ -264,6 +264,7 @@ export function MainView() {
   };
 
   const showStatusDot = status === "transcribing" || status === "success" || status === "error";
+  const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
 
   const missingTranscriptionKey = settings && (
     (settings.transcription_provider === "groq" && !settings.groq_api_key_present) ||
@@ -392,7 +393,7 @@ export function MainView() {
                     "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]"
                   }`} />
               ) : (
-                <VoiceWave isPlaying={status === "recording"} size="large" />
+                <VoiceWave mode={waveMode} size="large" />
               )}
             </div>
 
