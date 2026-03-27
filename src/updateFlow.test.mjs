@@ -38,10 +38,13 @@ test("startup update check stores availability without auto-installing", () => {
 
 test("main view keeps a one-shot dismissible update notice with version text", () => {
   const noticeBlock = getUpdateNoticeBlock();
+  const updatePanelWithActionPattern =
+    /className="status-panel status-panel--update"[\s\S]*?<button[\s\S]*?onClick=\{\(\) => \{\s*void handleOpenSettings\(\);\s*setIsUpdateNoticeOpen\(false\);[\s\S]*?\}\}[\s\S]*?>\s*Open Settings\s*<\/button>/;
 
   assert.match(mainViewSource, /const \[isUpdateNoticeOpen, setIsUpdateNoticeOpen\] = useState\(false\);/);
   assert.match(mainViewSource, /const \[hasDismissedUpdateNotice, setHasDismissedUpdateNotice\] = useState\(false\);/);
   assert.match(noticeBlock, /className="status-panel status-panel--update"/);
+  assert.match(noticeBlock, updatePanelWithActionPattern);
   assert.match(noticeBlock, /A new update is available/);
   assert.match(noticeBlock, /v\{pendingUpdate\.version\}/);
   assert.match(noticeBlock, /onClick=\{\(\) => \{\s*void handleOpenSettings\(\);\s*setIsUpdateNoticeOpen\(false\);/);
