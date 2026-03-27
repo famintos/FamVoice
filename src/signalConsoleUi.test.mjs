@@ -11,6 +11,13 @@ const widgetViewSource = readFileSync(new URL("./WidgetView.tsx", import.meta.ur
 const settingsViewSource = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8")
   .replace(/\r\n/g, "\n");
 
+function getWidgetShellCssBlock() {
+  const widgetShellMatch = cssSource.match(/\.widget-shell\s*\{[\s\S]*?\n\}/);
+  assert.ok(widgetShellMatch, "expected widget-shell block in App.css");
+
+  return widgetShellMatch[0];
+}
+
 function getRecordTabBlock() {
   const recordTabIndex = mainViewSource.indexOf('{activeTab === "record" ? (');
   assert.notEqual(recordTabIndex, -1, "expected record tab branch in MainView.tsx");
@@ -54,6 +61,12 @@ test("WidgetView uses the compact widget shell and status surface", () => {
   assert.match(widgetViewSource, /className="widget-shell/);
   assert.match(widgetViewSource, /className="widget-status/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{/);
+});
+
+test("widget shell keeps the compact surface without an exterior shadow", () => {
+  const widgetShellBlock = getWidgetShellCssBlock();
+
+  assert.doesNotMatch(widgetShellBlock, /box-shadow:/);
 });
 
 test("MainView uses the signal-console shell and utility log structure", () => {
