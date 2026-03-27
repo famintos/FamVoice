@@ -7,7 +7,7 @@ pub const RESPONSES_ENDPOINT: &str = "https://api.openai.com/v1/responses";
 pub const MAX_TOKENS: u32 = 1024;
 pub const PROMPT_CACHE_KEY: &str = "famvoice-prompt-optimizer-v1";
 pub const PROMPT_CACHE_RETENTION: &str = "in_memory";
-pub const SUPPORTED_MODELS: [&str; 2] = ["gpt-5.4-mini", "gpt-5.4-nano"];
+pub const SUPPORTED_MODELS: [&str; 1] = ["gpt-5.4-mini"];
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct ResponsesRequest {
@@ -123,6 +123,15 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("unsupported model"));
+    }
+
+    #[test]
+    fn validate_model_rejects_gpt_5_4_nano() {
+        let result = validate_model("gpt-5.4-nano");
+        assert!(matches!(
+            result,
+            Err(PromptOptimizerError::UnsupportedModel { .. })
+        ));
     }
 
     #[test]

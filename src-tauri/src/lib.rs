@@ -920,9 +920,9 @@ mod tests {
     }
 
     #[test]
-    fn test_prompt_optimizer_timeout_keeps_other_models_on_default_budget() {
+    fn test_prompt_optimizer_timeout_keeps_default_budget_for_unknown_models() {
         assert_eq!(
-            prompt_optimizer_timeout("gpt-5.4-nano").as_millis(),
+            prompt_optimizer_timeout("unsupported-model").as_millis(),
             10_000
         );
     }

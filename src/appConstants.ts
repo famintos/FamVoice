@@ -28,7 +28,6 @@ export const LANGUAGES = [
 
 export const PROMPT_OPTIMIZER_MODELS = [
   { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
-  { value: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
 ];
 
 export const WIDGET_DRAG_START_GRACE_MS = 180;

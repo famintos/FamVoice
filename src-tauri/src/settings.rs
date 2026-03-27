@@ -70,6 +70,14 @@ fn default_prompt_optimizer_model() -> String {
     crate::prompt_optimizer::SUPPORTED_MODELS[0].to_string()
 }
 
+fn normalize_prompt_optimizer_model(model: &str) -> String {
+    if crate::prompt_optimizer::SUPPORTED_MODELS.contains(&model) {
+        model.to_string()
+    } else {
+        default_prompt_optimizer_model()
+    }
+}
+
 fn normalize_language_preference(language: &str) -> String {
     match language {
         "auto" => "auto".to_string(),
@@ -379,12 +387,15 @@ impl SettingsState {
             widget_mode: disk_settings.widget_mode,
             mic_sensitivity: disk_settings.mic_sensitivity,
             prompt_optimization_enabled: disk_settings.prompt_optimization_enabled,
-            prompt_optimizer_model: disk_settings.prompt_optimizer_model.clone(),
+            prompt_optimizer_model: normalize_prompt_optimizer_model(
+                &disk_settings.prompt_optimizer_model,
+            ),
             replacements: disk_settings.replacements.clone(),
             ..AppSettings::default()
         };
 
         let mut needs_resave = settings.language != disk_settings.language
+            || settings.prompt_optimizer_model != disk_settings.prompt_optimizer_model
             || disk_settings.api_key.is_some()
             || disk_settings.groq_api_key.is_some()
             || disk_settings.legacy_anthropic_api_key.is_some();
@@ -833,6 +844,36 @@ mod tests {
         assert!(!migrated_json.contains("gsk-old"));
         assert!(!migrated_json.contains("sk-ant-old"));
         assert!(!migrated_json.contains("pt-first"));
+    }
+
+    #[test]
+    fn test_load_normalizes_legacy_prompt_optimizer_model_to_supported_default() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{
+  "model": "gpt-4o-mini-transcribe",
+  "language": "auto",
+  "auto_paste": true,
+  "preserve_clipboard": false,
+  "hotkey": "CommandOrControl+Shift+Space",
+  "widget_mode": false,
+  "prompt_optimization_enabled": true,
+  "prompt_optimizer_model": "gpt-5.4-nano",
+  "replacements": []
+}"#,
+        )
+        .unwrap();
+
+        let state = test_state(&dir);
+        let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
+
+        assert_eq!(settings.prompt_optimizer_model, "gpt-5.4-mini");
+
+        let migrated_json = fs::read_to_string(path).unwrap();
+        assert!(migrated_json.contains(r#""prompt_optimizer_model": "gpt-5.4-mini""#));
+        assert!(!migrated_json.contains("gpt-5.4-nano"));
     }
 
     #[test]
