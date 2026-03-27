@@ -42,6 +42,7 @@ test("widget container uses manual dragging instead of native drag-region", () =
   const widgetBranchBlock = getWidgetBranchBlock();
 
   assert.equal(widgetViewSource.includes("data-tauri-drag-region"), false);
+  assert.match(widgetViewSource, /className="widget-shell/);
   assert.match(widgetViewSource, /id="widget-container"/);
   assert.match(widgetViewSource, /onMouseDownCapture=\{onMouseDownCapture\}/);
   assert.match(widgetBranchBlock, /onMouseDownCapture=\{\(e\) => \{/);
@@ -66,7 +67,7 @@ test("widget drag start sets a grace period before requesting the window drag", 
 });
 
 test("settings window uses a native drag region on the main element", () => {
-  assert.match(settingsViewSource, /<main data-tauri-drag-region/);
+  assert.match(settingsViewSource, /<main[\s\S]*data-tauri-drag-region/);
 });
 
 test("voice wave supports explicit modes and size variants", () => {
@@ -103,8 +104,14 @@ test("widget does not expose an update-ready indicator or tooltip", () => {
 
 test("widget keeps only the logo and slightly larger waves in a more compact layout", () => {
   assert.doesNotMatch(widgetViewSource, />Fam</);
-  assert.match(widgetViewSource, /className="relative flex items-center gap-2\.5 px-3 py-1\.5/);
+  assert.match(widgetViewSource, /className="widget-status/);
+  assert.match(
+    widgetViewSource,
+    /className="widget-shell relative flex items-center gap-2\.5 rounded-\[18px\] px-3 py-2 overflow-hidden"/,
+  );
   assert.match(widgetViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
+  assert.match(widgetViewSource, /<VoiceWave mode=\{/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{waveMode\} size="widget" \/>/);
+  assert.doesNotMatch(widgetViewSource, /shadow-\[0_0_15px_rgba\(255,81,47,0\.4\)\]/);
   assert.doesNotMatch(widgetViewSource, /status === "transcribing" && \(/);
 });

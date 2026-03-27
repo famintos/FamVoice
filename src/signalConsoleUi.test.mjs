@@ -6,6 +6,8 @@ const mainSource = readFileSync(new URL("./main.tsx", import.meta.url), "utf8");
 const cssSource = readFileSync(new URL("./App.css", import.meta.url), "utf8");
 const mainViewSource = readFileSync(new URL("./MainView.tsx", import.meta.url), "utf8")
   .replace(/\r\n/g, "\n");
+const widgetViewSource = readFileSync(new URL("./WidgetView.tsx", import.meta.url), "utf8")
+  .replace(/\r\n/g, "\n");
 const settingsViewSource = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8")
   .replace(/\r\n/g, "\n");
 
@@ -46,6 +48,12 @@ test("App.css defines the signal-console token set", () => {
   assert.match(cssSource, /\.widget-shell/);
   assert.match(cssSource, /\.wave-processing/);
   assert.match(cssSource, /@media \(prefers-reduced-motion: reduce\)/);
+});
+
+test("WidgetView uses the compact widget shell and status surface", () => {
+  assert.match(widgetViewSource, /className="widget-shell/);
+  assert.match(widgetViewSource, /className="widget-status/);
+  assert.match(widgetViewSource, /<VoiceWave mode=\{/);
 });
 
 test("MainView uses the signal-console shell and utility log structure", () => {
