@@ -33,7 +33,9 @@ test("startup update check stores availability without auto-installing", () => {
 
   assert.doesNotMatch(updateEffectBlock, /downloadAndInstall\(\)/);
   assert.match(updateEffectBlock, /setPendingUpdate\(update\)/);
+  assert.match(updateEffectBlock, /if \(!hasDismissedUpdateNotice\) \{\s*setIsUpdateNoticeOpen\(true\);\s*\}/);
   assert.match(updateEffectBlock, /setIsUpdateNoticeOpen\(true\)/);
+  assert.doesNotMatch(updateEffectBlock, /setPendingUpdate\(update\);\s*setIsUpdateNoticeOpen\(true\);/);
 });
 
 test("main view keeps a one-shot dismissible update notice with version text", () => {

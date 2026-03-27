@@ -7,6 +7,20 @@ const cssSource = readFileSync(new URL("./App.css", import.meta.url), "utf8");
 const mainViewSource = readFileSync(new URL("./MainView.tsx", import.meta.url), "utf8")
   .replace(/\r\n/g, "\n");
 
+function getRecordTabBlock() {
+  const recordTabIndex = mainViewSource.indexOf('{activeTab === "record" ? (');
+  assert.notEqual(recordTabIndex, -1, "expected record tab branch in MainView.tsx");
+
+  return mainViewSource.slice(recordTabIndex, recordTabIndex + 2600);
+}
+
+function getHistoryTabBlock() {
+  const historyTabIndex = mainViewSource.indexOf("Utility log");
+  assert.notEqual(historyTabIndex, -1, "expected history tab content in MainView.tsx");
+
+  return mainViewSource.slice(historyTabIndex - 900, historyTabIndex + 2600);
+}
+
 test("main.tsx bundles IBM Plex fonts locally", () => {
   assert.match(mainSource, /@fontsource\/ibm-plex-sans\/400\.css/);
   assert.match(mainSource, /@fontsource\/ibm-plex-sans\/500\.css/);
@@ -41,4 +55,13 @@ test("MainView uses the signal-console shell and utility log structure", () => {
   assert.match(mainViewSource, /className="status-panel status-panel--warning"/);
   assert.doesNotMatch(mainViewSource, /bg-\[#0f0f13\]\/85 backdrop-blur-2xl/);
   assert.doesNotMatch(mainViewSource, /group-hover:opacity-100/);
+});
+
+test("MainView adapts the fixed shell with a scrollable record stack and dense history previews", () => {
+  const recordTabBlock = getRecordTabBlock();
+  const historyTabBlock = getHistoryTabBlock();
+
+  assert.match(recordTabBlock, /custom-scrollbar/);
+  assert.match(recordTabBlock, /overflow-y-auto/);
+  assert.match(historyTabBlock, /line-clamp-2/);
 });

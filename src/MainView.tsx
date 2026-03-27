@@ -354,9 +354,9 @@ export function MainView() {
           <div className="status-panel status-panel--update" style={{ borderRadius: 22, overflow: "hidden" }}>
             <div className="flex items-start justify-between gap-3 px-4 py-3">
               <div className="min-w-0 space-y-1">
-                <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-sky-200/80">Updater</p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary/80">Updater</p>
                 <p className="text-[12px] font-semibold text-slate-100">A new update is available</p>
-                <p className="font-mono text-[10px] text-sky-200">v{pendingUpdate.version}</p>
+                <p className="font-mono text-[10px] text-primary">v{pendingUpdate.version}</p>
                 <p className="text-[11px] leading-5 text-slate-400">
                   Open Settings to download and install it manually.
                 </p>
@@ -378,7 +378,7 @@ export function MainView() {
                   void handleOpenSettings();
                   setIsUpdateNoticeOpen(false);
                 }}
-                className="rounded-full border border-sky-300/20 bg-white/5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-sky-100 transition-colors hover:bg-white/10"
+                className="rounded-full border border-primary/25 bg-white/5 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-amber-100 transition-colors hover:bg-white/10"
               >
                 Open Settings
               </button>
@@ -442,91 +442,93 @@ export function MainView() {
 
       <div className="relative z-10 flex-1 overflow-hidden">
         {activeTab === "record" ? (
-          <div data-tauri-drag-region className="flex h-full min-h-0 flex-col gap-4 px-4 py-4">
-            <section className="signal-stage flex flex-1 flex-col justify-between rounded-[28px] px-5 py-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="pointer-events-none">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">Active stage</p>
-                  <h2 className="mt-1 text-lg font-semibold tracking-[0.02em] text-slate-100">{statusLabel}</h2>
+          <div className="flex h-full min-h-0 flex-col px-3 py-3">
+            <div className="custom-scrollbar no-drag flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
+              <section className="signal-stage flex flex-col gap-3 rounded-[24px] px-4 py-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Active stage</p>
+                    <h2 className="mt-1 text-base font-semibold tracking-[0.02em] text-slate-100">{statusLabel}</h2>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-black/15 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                    {statusFlag}
+                  </div>
                 </div>
-                <div className="rounded-full border border-white/10 bg-black/15 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.24em] text-slate-400">
-                  {statusFlag}
+
+                <div className="flex items-center justify-center py-1">
+                  <div className="rounded-[20px] border border-white/6 bg-black/15 px-6 py-4 shadow-[0_14px_28px_rgba(0,0,0,0.24)]">
+                    <VoiceWave mode={waveMode} size="large" />
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex flex-1 items-center justify-center py-4">
-                <div className="rounded-[24px] border border-white/6 bg-black/15 px-8 py-6 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
-                  <VoiceWave mode={waveMode} size="large" />
+                <p className="pointer-events-none text-center text-[11px] leading-4 text-slate-400">
+                  {stageHint}
+                </p>
+              </section>
+
+              <section className="signal-readout shrink-0 rounded-[18px]">
+                <div className="flex items-start gap-2.5 px-3.5 py-2.5">
+                  <span className="pt-0.5 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                    Readout
+                  </span>
+                  <div className="min-w-0 flex-1 text-[11px] leading-4">
+                    {status === "error" && transcript ? (
+                      <div className="flex items-start gap-2 text-rose-300">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        <span>{transcript}</span>
+                      </div>
+                    ) : (
+                      <p className={transcript ? "text-slate-100" : "text-slate-400"}>{readoutText}</p>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </section>
 
-              <p className="pointer-events-none text-center text-[12px] leading-5 text-slate-400">
-                {stageHint}
-              </p>
-            </section>
-
-            <section className="signal-readout rounded-[22px]">
-              <div className="flex items-start gap-3 px-4 py-3">
-                <span className="pt-0.5 font-mono text-[10px] uppercase tracking-[0.22em] text-slate-500">
-                  Readout
-                </span>
-                <div className="min-w-0 flex-1 text-[11px] leading-5">
-                  {status === "error" && transcript ? (
-                    <div className="flex items-start gap-2 text-rose-300">
-                      <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                      <span>{transcript}</span>
+              {status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey) && (
+                <div className="flex shrink-0 flex-col gap-2">
+                  {missingTranscriptionKey && (
+                    <div className="status-panel status-panel--warning" style={{ borderRadius: 18, overflow: "hidden" }}>
+                      <button
+                        onClick={handleOpenSettings}
+                        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left cursor-pointer"
+                      >
+                        <span>
+                          <span className="block font-mono text-[10px] uppercase tracking-[0.2em] text-amber-200/70">
+                            Warning
+                          </span>
+                          <span className="mt-1 block text-[11px] font-semibold text-amber-100">
+                            {settings.transcription_provider === "groq" ? "Groq" : "OpenAI"} key missing
+                          </span>
+                        </span>
+                        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-200/80">
+                          Settings
+                        </span>
+                      </button>
                     </div>
-                  ) : (
-                    <p className={transcript ? "text-slate-100" : "text-slate-400"}>{readoutText}</p>
+                  )}
+                  {missingPromptOptimizerKey && (
+                    <div className="status-panel status-panel--warning" style={{ borderRadius: 18, overflow: "hidden" }}>
+                      <button
+                        onClick={handleOpenSettings}
+                        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left cursor-pointer"
+                      >
+                        <span>
+                          <span className="block font-mono text-[10px] uppercase tracking-[0.2em] text-amber-200/70">
+                            Warning
+                          </span>
+                          <span className="mt-1 block text-[11px] font-semibold text-amber-100">
+                            Prompt optimization OpenAI key missing
+                          </span>
+                        </span>
+                        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-200/80">
+                          Settings
+                        </span>
+                      </button>
+                    </div>
                   )}
                 </div>
-              </div>
-            </section>
-
-            {status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey) && (
-              <div className="flex flex-col gap-3 no-drag">
-                {missingTranscriptionKey && (
-                  <div className="status-panel status-panel--warning" style={{ borderRadius: 20, overflow: "hidden" }}>
-                    <button
-                      onClick={handleOpenSettings}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer"
-                    >
-                      <span>
-                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-amber-200/70">
-                          Warning
-                        </span>
-                        <span className="mt-1 block text-[12px] font-semibold text-amber-100">
-                          {settings.transcription_provider === "groq" ? "Groq" : "OpenAI"} key missing
-                        </span>
-                      </span>
-                      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-200/80">
-                        Settings
-                      </span>
-                    </button>
-                  </div>
-                )}
-                {missingPromptOptimizerKey && (
-                  <div className="status-panel status-panel--warning" style={{ borderRadius: 20, overflow: "hidden" }}>
-                    <button
-                      onClick={handleOpenSettings}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer"
-                    >
-                      <span>
-                        <span className="block font-mono text-[10px] uppercase tracking-[0.22em] text-amber-200/70">
-                          Warning
-                        </span>
-                        <span className="mt-1 block text-[12px] font-semibold text-amber-100">
-                          Prompt optimization OpenAI key missing
-                        </span>
-                      </span>
-                      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-200/80">
-                        Settings
-                      </span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col no-drag">
@@ -546,36 +548,36 @@ export function MainView() {
             </div>
             <div className="custom-scrollbar flex-1 overflow-y-auto px-3 py-3">
               {history.map((item) => (
-                <article key={item.id} className="utility-log-row rounded-[20px] px-3 py-3">
+                <article key={item.id} className="utility-log-row rounded-[16px] px-2.5 py-2.5">
                   <div className="flex items-start justify-between gap-3">
-                    <p className="min-w-0 flex-1 text-[11px] leading-5 text-slate-100">{item.text}</p>
+                    <p className="min-w-0 flex-1 line-clamp-2 text-[11px] leading-4 text-slate-100">{item.text}</p>
                     <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">
                       {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     <button
                       onClick={() => copyToClipboard(item.text)}
-                      className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/5 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-300 transition-colors cursor-pointer hover:text-primary"
+                      className="flex items-center gap-1 rounded-full border border-white/8 bg-white/5 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-slate-300 transition-colors cursor-pointer hover:text-primary"
                       title="Copy"
                     >
-                      <Copy size={12} />
+                      <Copy size={11} />
                       Copy
                     </button>
                     <button
                       onClick={() => repasteHistory(item.text)}
-                      className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/5 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-300 transition-colors cursor-pointer hover:text-green-300"
+                      className="flex items-center gap-1 rounded-full border border-white/8 bg-white/5 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-slate-300 transition-colors cursor-pointer hover:text-green-300"
                       title="Re-paste"
                     >
-                      <RefreshCw size={12} />
+                      <RefreshCw size={11} />
                       Re-paste
                     </button>
                     <button
                       onClick={() => deleteHistory(item.id)}
-                      className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/5 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-300 transition-colors cursor-pointer hover:text-red-300"
+                      className="flex items-center gap-1 rounded-full border border-white/8 bg-white/5 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-slate-300 transition-colors cursor-pointer hover:text-red-300"
                       title="Delete"
                     >
-                      <Trash2 size={12} />
+                      <Trash2 size={11} />
                       Delete
                     </button>
                   </div>
