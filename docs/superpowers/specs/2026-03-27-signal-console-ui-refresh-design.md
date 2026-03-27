@@ -192,7 +192,32 @@ Empty-state behavior:
 - keep the empty state minimal and secondary
 - avoid large decorative iconography competing with the main app purpose
 
-### 6. Settings Window
+### 6. Secondary Status Surfaces
+
+The redesign must cover smaller status surfaces so they do not remain in the previous blue-glass style.
+
+Main-window secondary surfaces:
+
+- the update notice should use the same instrument surface language as the rest of the app, with restrained linework and warm accent use only on the primary action
+- missing-key callouts should read as setup warnings, not alarms; use subdued amber emphasis rather than bright promotional styling
+- transcript-adjacent status panels should stay visually integrated with the center-stage system rather than appearing as unrelated floating boxes
+
+Settings secondary surfaces:
+
+- the initial loading state should be neutral, quiet, and consistent with the denser control-rack layout
+- update availability, update-check failure, update-install failure, and similar inline messages should use the same role-based status palette as the rest of the app
+- warning and error panels should rely on restrained fills, linework, and icon/text hierarchy instead of saturated full-panel color blocks
+
+Color guidance:
+
+- informational and loading surfaces stay mostly neutral
+- setup warnings and missing-key states use subdued amber
+- success remains rare and controlled
+- errors use the rusted-red role already defined in the shared state system
+
+These surfaces are secondary in hierarchy, but they must still look intentionally designed within the same family.
+
+### 7. Settings Window
 
 Settings should feel like the same product family in a quieter, denser form.
 
