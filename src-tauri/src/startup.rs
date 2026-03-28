@@ -87,26 +87,44 @@ pub(crate) fn disable_unsafe_autostart_entry(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+    use std::path::PathBuf;
+
+    fn sample_path(components: &[&str]) -> PathBuf {
+        components.iter().collect()
+    }
 
     #[test]
     fn test_dev_executable_does_not_support_autostart() {
-        assert!(!executable_supports_autostart(Path::new(
-            r"C:\Users\henri\Desktop\app_test\FamVoice\src-tauri\target\debug\famvoice.exe"
-        )));
+        assert!(!executable_supports_autostart(&sample_path(&[
+            "workspace",
+            "src-tauri",
+            "target",
+            "debug",
+            "famvoice.exe",
+        ])));
     }
 
     #[test]
     fn test_release_target_executable_does_not_support_autostart() {
-        assert!(!executable_supports_autostart(Path::new(
-            r"C:\Users\henri\Desktop\app_test\FamVoice\src-tauri\target\release\famvoice.exe"
-        )));
+        assert!(!executable_supports_autostart(&sample_path(&[
+            "workspace",
+            "src-tauri",
+            "target",
+            "release",
+            "famvoice.exe",
+        ])));
     }
 
     #[test]
     fn test_installed_executable_supports_autostart() {
-        assert!(executable_supports_autostart(Path::new(
-            r"C:\Users\henri\AppData\Local\Programs\FamVoice\FamVoice.exe"
-        )));
+        assert!(executable_supports_autostart(&sample_path(&[
+            "Users",
+            "Example",
+            "AppData",
+            "Local",
+            "Programs",
+            "FamVoice",
+            "FamVoice.exe",
+        ])));
     }
 }
