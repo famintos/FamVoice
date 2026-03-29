@@ -11,7 +11,6 @@ Keep tightly coupled or immediately blocking work in the main agent, but use par
 
 Use `gpt-5.4-mini` by default for subagents.
 Use `xhigh` by default for subagent reasoning effort.
-Only use a different subagent model or reasoning effort when the task has a clear, concrete reason to justify that override.
 
 ## Project Overview
 

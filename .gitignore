@@ -41,4 +41,9 @@ settings.json
 
 # AI agent configs (local only)
 .claude/
+.agent/
+.codex/
+.codex-tmp/
+.gemini/
+tmp-icon-test/
 docs/superpowers/
