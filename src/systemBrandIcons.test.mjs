@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
 const rootUrl = new URL("..", import.meta.url);
+const libRs = readText("src-tauri/src/lib.rs");
 
 function readText(relativePath) {
   const fileUrl = new URL(relativePath, rootUrl);
@@ -20,10 +21,20 @@ function assertAllExist(relativePaths, message) {
   assert.deepEqual(missing, [], message);
 }
 
+function getTrayBuilderBlock() {
+  const trayBuilderIndex = libRs.indexOf("TrayIconBuilder::new()");
+  assert.notEqual(trayBuilderIndex, -1, "expected tray builder construction in src-tauri/src/lib.rs");
+
+  const buildIndex = libRs.indexOf(".build(app)?;", trayBuilderIndex);
+  assert.notEqual(buildIndex, -1, "expected tray builder build call in src-tauri/src/lib.rs");
+
+  return libRs.slice(trayBuilderIndex, buildIndex + ".build(app)?;".length);
+}
+
 test("index.html points at the branded favicon instead of vite.svg", () => {
   const indexHtml = readText("index.html");
 
-  assert.match(indexHtml, /href="\/favicon\.svg"/);
+  assert.match(indexHtml, /href=["']\/favicon\.svg["']/);
   assert.doesNotMatch(indexHtml, /vite\.svg/);
 });
 
@@ -66,8 +77,9 @@ test("tray icon assets are vendored", () => {
 });
 
 test("tray wiring in lib.rs uses the monochrome icon instead of the default window icon", () => {
-  const libRs = readText("src-tauri/src/lib.rs");
+  const trayBuilderBlock = getTrayBuilderBlock();
 
-  assert.match(libRs, /include_image!\(\s*["']\.\/icons\/tray-icon-(?:dark|light)\.png["']\s*\)/);
-  assert.doesNotMatch(libRs, /app\.default_window_icon\(\)\.unwrap\(\)\.clone\(\)/);
+  assert.match(trayBuilderBlock, /\.icon\(/);
+  assert.match(trayBuilderBlock, /tray-icon-(?:dark|light)\.png/);
+  assert.doesNotMatch(trayBuilderBlock, /app\.default_window_icon\(\)\.unwrap\(\)\.clone\(\)/);
 });
