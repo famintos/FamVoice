@@ -84,15 +84,14 @@ button, input, select, .no-drag {
 }
 
 @keyframes wave-bounce {
-  0%, 100% { transform: scaleY(0.18); }
-  40% { transform: scaleY(var(--wave-peak, 1)); }
-  70% { transform: scaleY(calc(var(--wave-peak, 1) * 0.65)); }
+  0%, 100% { transform: scaleY(0.15); opacity: 0.7; }
+  50% { transform: scaleY(var(--wave-peak, 1)); opacity: 1; }
 }
 
 .wave-bar {
-  animation: wave-bounce 1s infinite cubic-bezier(0.42, 0, 0.58, 1);
+  animation: wave-bounce 1s infinite cubic-bezier(0.5, 0, 0.5, 1);
   transform-origin: center;
-  will-change: transform;
+  will-change: transform, opacity;
 }
 
 .wave-bar.wave-paused {
@@ -100,14 +99,14 @@ button, input, select, .no-drag {
 }
 
 @keyframes wave-idle {
-  0%, 100% { transform: scaleY(0.15); }
-  50% { transform: scaleY(0.35); }
+  0%, 100% { transform: scaleY(0.15); opacity: 0.5; }
+  50% { transform: scaleY(0.35); opacity: 0.8; }
 }
 
 .wave-idle {
-  animation: wave-idle 2s infinite ease-in-out;
+  animation: wave-idle 2.5s infinite ease-in-out;
   transform-origin: center;
-  will-change: transform;
+  will-change: transform, opacity;
 }
 
 .wave-idle.wave-paused {
@@ -115,20 +114,23 @@ button, input, select, .no-drag {
 }
 
 .wave-processing {
-  animation: wave-processing 1.6s infinite ease-in-out;
+  animation: wave-processing 1.2s infinite cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: center;
   will-change: transform, opacity;
 }
 
 @keyframes wave-processing {
-  0%, 100% {
+  0% {
     transform: scaleY(0.2);
-    opacity: 0.74;
+    opacity: 0.3;
   }
-
-  50% {
-    transform: scaleY(calc(var(--wave-peak, 1) * 0.75));
+  30% {
+    transform: scaleY(calc(var(--wave-peak, 1) * 0.8));
     opacity: 1;
+  }
+  100% {
+    transform: scaleY(0.2);
+    opacity: 0.3;
   }
 }
 
@@ -138,16 +140,17 @@ button, input, select, .no-drag {
 
 @keyframes pacman-dot {
   0%, 20% { opacity: 0; transform: scale(0.3); }
-  35%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
+  80%, 100% { opacity: 1; transform: scale(1); }
 }
 
 .pacman-dot {
-  animation: pacman-dot 1.5s infinite linear;
+  animation: pacman-dot 2.5s infinite ease-out;
   transform-origin: center;
 }
 
 .wave-glow {
-  filter: drop-shadow(0 0 8px rgba(209, 122, 40, 0.58));
+  filter: drop-shadow(0 0 10px rgba(209, 122, 40, 0.4)) drop-shadow(0 0 4px rgba(209, 122, 40, 0.2));
 }
 
 .custom-scrollbar::-webkit-scrollbar {

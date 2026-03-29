@@ -28,8 +28,8 @@ export function WidgetView({
   const statusLabel = status === "error"
     ? errorMessage === "No voice detected"
       ? "No voice"
-      : errorMessage || "Error"
-    : "No API key";
+      : "Error"
+    : "No key";
   const statusDotClassName = status === "error"
     ? "bg-danger shadow-[0_0_10px_rgba(179,93,79,0.32)]"
     : "bg-primary animate-pulse shadow-[0_0_10px_rgba(209,122,40,0.28)]";
@@ -48,7 +48,7 @@ export function WidgetView({
       <main
         ref={containerRef}
         id="widget-container"
-        className="widget-shell relative flex items-center gap-2.5 rounded-[18px] px-3 py-2 overflow-hidden"
+        className="widget-shell relative rounded-[18px] px-2 py-2 overflow-hidden"
         title={status === "error" ? errorMessage || "Error" : undefined}
         style={{ pointerEvents: "auto" }}
         onMouseDownCapture={onMouseDownCapture}
@@ -62,28 +62,31 @@ export function WidgetView({
             </div>
           </div>
         ) : (
-          <>
-            <div className="pointer-events-none select-none">
-              <div className="flex h-9 w-9 items-center justify-center">
-                <FamVoiceLogo size={28} />
+          <div className="flex items-center gap-2.5 pointer-events-none select-none px-2.5 py-1">
+            <FamVoiceLogo size={26} />
+
+            <div className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none">
+              <div
+                aria-hidden="true"
+                className="flex items-baseline font-medium text-[16px] text-white tracking-tight opacity-0"
+              >
+                FamVoice<span className="text-primary">.</span>
+              </div>
+
+              <div className="absolute inset-0 flex items-center justify-center">
+                {showStatusText ? (
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
+                    <span className={`truncate text-[10px] font-medium whitespace-nowrap ${statusTextClassName}`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                ) : (
+                  <VoiceWave mode={waveMode} size="widget" />
+                )}
               </div>
             </div>
-
-            <div className="widget-status flex min-w-0 items-center gap-1.5 pointer-events-none select-none">
-              {showStatusText ? (
-                <div className="flex min-w-0 items-center gap-1.5 pr-1">
-                  <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
-                  <span className={`max-w-[11rem] truncate text-[10px] font-medium whitespace-nowrap ${statusTextClassName}`}>
-                    {statusLabel}
-                  </span>
-                </div>
-              ) : (
-                <div className="pr-1">
-                  <VoiceWave mode={waveMode} size="widget" />
-                </div>
-              )}
-            </div>
-          </>
+          </div>
         )}
       </main>
     </div>

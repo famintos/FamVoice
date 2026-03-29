@@ -77,7 +77,7 @@ pub(crate) fn open_settings_window(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    tauri::WebviewWindowBuilder::new(
+    let mut builder = tauri::WebviewWindowBuilder::new(
         app,
         "settings",
         tauri::WebviewUrl::App("index.html?view=settings".into()),
@@ -88,10 +88,45 @@ pub(crate) fn open_settings_window(app: &AppHandle) -> Result<(), String> {
     .decorations(false)
     .transparent(true)
     .shadow(false)
-    .always_on_top(true)
-    .center()
-    .build()
-    .map_err(|e| e.to_string())?;
+    .always_on_top(true);
+
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(pos), Ok(size), Ok(factor)) =
+            (main.outer_position(), main.outer_size(), main.scale_factor())
+        {
+            let settings_width = 340.0 * factor;
+            let settings_height = 520.0 * factor;
+            let gap = 12.0 * factor;
+            let mut x = pos.x as f64 + size.width as f64 + gap;
+            let mut y = pos.y as f64 + (size.height as f64 / 2.0) - (settings_height / 2.0);
+
+            if let Ok(Some(monitor)) = main.current_monitor() {
+                let m_pos = monitor.position();
+                let m_size = monitor.size();
+                let m_right = (m_pos.x + m_size.width as i32) as f64;
+                let m_top = m_pos.y as f64;
+                let m_bottom = (m_pos.y + m_size.height as i32) as f64;
+
+                if x + settings_width > m_right {
+                    x = pos.x as f64 - settings_width - gap;
+                }
+
+                if y < m_top {
+                    y = m_top;
+                } else if y + settings_height > m_bottom {
+                    y = m_bottom - settings_height;
+                }
+            }
+
+            builder = builder.position(x, y);
+        } else {
+            builder = builder.center();
+        }
+    } else {
+        builder = builder.center();
+    }
+
+    builder.build().map_err(|e| e.to_string())?;
 
     Ok(())
 }

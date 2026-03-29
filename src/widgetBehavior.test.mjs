@@ -76,9 +76,12 @@ test("voice wave supports explicit modes and size variants", () => {
   assert.match(voiceWaveSource, /mode === "transcribing"/);
   assert.match(voiceWaveSource, /size = "default"/);
   assert.match(voiceWaveSource, /size\?: "default" \| "widget" \| "large"/);
+  assert.match(voiceWaveSource, /const isActiveWidget = size === "widget" && mode !== "idle";/);
   assert.match(voiceWaveSource, /size === "widget"/);
   assert.match(voiceWaveSource, /h-5 gap-\[2\.5px\]/);
   assert.match(voiceWaveSource, /w-\[2\.5px\]/);
+  assert.match(voiceWaveSource, /h-6 w-\[56px\] justify-between/);
+  assert.match(voiceWaveSource, /w-\[3px\]/);
   assert.match(voiceWaveSource, /size === "large"/);
   assert.match(voiceWaveSource, /h-8 gap-\[3px\]/);
   assert.match(voiceWaveSource, /w-\[3px\]/);
@@ -105,9 +108,15 @@ test("widget keeps only the logo and slightly larger waves in a more compact lay
   assert.match(widgetViewSource, /className="widget-status/);
   assert.match(
     widgetViewSource,
-    /className="widget-shell relative flex items-center gap-2\.5 rounded-\[18px\] px-3 py-2 overflow-hidden"/,
+    /className="widget-shell relative rounded-\[18px\] px-2 py-2 overflow-hidden"/,
   );
+  assert.match(widgetViewSource, /className="flex items-center gap-2\.5 pointer-events-none select-none px-2\.5 py-1"/);
+  assert.match(widgetViewSource, /<FamVoiceLogo size=\{26\} \/>/);
+  assert.match(widgetViewSource, /className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none"/);
+  assert.match(widgetViewSource, /className="flex items-baseline font-medium text-\[16px\] text-white tracking-tight opacity-0"/);
+  assert.match(widgetViewSource, /className="absolute inset-0 flex items-center justify-center"/);
   assert.match(widgetViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
+  assert.match(widgetViewSource, /const statusLabel = status === "error"[\s\S]*"No voice"[\s\S]*"Error"[\s\S]*"No key";/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{waveMode\} size="widget" \/>/);
   assert.doesNotMatch(widgetViewSource, /shadow-\[0_0_15px_rgba\(255,81,47,0\.4\)\]/);
