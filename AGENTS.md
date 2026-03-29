@@ -3,6 +3,9 @@
 ## Agent Delegation
 
 Subagents may be used whenever they materially improve parallelism, review quality, or execution speed. Explicit per-turn permission is not required.
+When a task can be decomposed into 2 or more independent workstreams, prefer spawning multiple subagents in parallel instead of handling them one at a time.
+Assign each subagent a clearly bounded scope with explicit file or responsibility ownership to avoid overlap and merge conflicts.
+Keep tightly coupled or immediately blocking work in the main agent, but use parallel subagents by default for sidecar research, review, verification, or disjoint implementation tasks.
 
 ## Subagent Reasoning Effort
 
