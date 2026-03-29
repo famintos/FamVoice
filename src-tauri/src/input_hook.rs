@@ -1,5 +1,9 @@
 use crate::audio::AudioState;
-use rdev::{grab, Button, Event, EventType};
+#[cfg(not(target_os = "windows"))]
+use rdev::grab;
+#[cfg(target_os = "windows")]
+use rdev::listen;
+use rdev::{Button, Event, EventType};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -109,15 +113,23 @@ pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
             let app_handle = app.clone();
             let hotkey = hotkey_shared.clone();
 
-            match grab(move |event| handle_event(&app_handle, &hotkey, event)) {
+            #[cfg(target_os = "windows")]
+            let listener_result = listen(move |event| {
+                handle_event_windows(&app_handle, &hotkey, event);
+            });
+
+            #[cfg(not(target_os = "windows"))]
+            let listener_result = grab(move |event| handle_event(&app_handle, &hotkey, event));
+
+            match listener_result {
                 Ok(()) => {
-                    eprintln!("[FamVoice] Mouse grabber stopped unexpectedly, restarting");
+                    eprintln!("[FamVoice] Mouse listener stopped unexpectedly, restarting");
                     retry_delay = Duration::from_millis(MOUSE_GRAB_RETRY_INITIAL_DELAY_MS);
                     thread::sleep(retry_delay);
                 }
                 Err(error) => {
                     eprintln!(
-                        "[FamVoice] Mouse grabber error: {:?}. Retrying in {}ms",
+                        "[FamVoice] Mouse listener error: {:?}. Retrying in {}ms",
                         error,
                         retry_delay.as_millis()
                     );
@@ -132,11 +144,11 @@ pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
     });
 }
 
-fn handle_event(
+fn process_event(
     app: &AppHandle,
     hotkey_shared: &Arc<Mutex<String>>,
-    event: Event,
-) -> Option<Event> {
+    event: &Event,
+) -> MouseHotkeyAction {
     let current_hotkey = {
         let lock = hotkey_shared.lock().unwrap_or_else(|e| {
             eprintln!("[FamVoice] Hotkey config lock poisoned, recovering");
@@ -147,12 +159,12 @@ fn handle_event(
 
     if !is_mouse_hotkey(&current_hotkey) {
         reset_mouse_hotkey_state();
-        return Some(event);
+        return MouseHotkeyAction::PassThrough;
     }
 
     let target_button = match parse_mouse_button(&current_hotkey) {
         Some(b) => b,
-        None => return Some(event),
+        None => return MouseHotkeyAction::PassThrough,
     };
 
     let hotkey_event = match event.event_type {
@@ -184,7 +196,6 @@ fn handle_event(
                     let _ = crate::start_recording_cmd(app_clone.clone()).await;
                 }
             });
-            None
         }
         MouseHotkeyAction::StopRecording => {
             let app_clone = app.clone();
@@ -196,9 +207,32 @@ fn handle_event(
                 }
                 let _ = crate::stop_recording_cmd(app_clone.clone()).await;
             });
-            None
         }
-        MouseHotkeyAction::Swallow => None,
+        MouseHotkeyAction::Swallow | MouseHotkeyAction::PassThrough => {}
+    }
+
+    action
+}
+
+#[cfg(target_os = "windows")]
+fn handle_event_windows(
+    app: &AppHandle,
+    hotkey_shared: &Arc<Mutex<String>>,
+    event: Event,
+) {
+    let _ = process_event(app, hotkey_shared, &event);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn handle_event(
+    app: &AppHandle,
+    hotkey_shared: &Arc<Mutex<String>>,
+    event: Event,
+) -> Option<Event> {
+    match process_event(app, hotkey_shared, &event) {
+        MouseHotkeyAction::StartRecording
+        | MouseHotkeyAction::StopRecording
+        | MouseHotkeyAction::Swallow => None,
         MouseHotkeyAction::PassThrough => Some(event),
     }
 }
