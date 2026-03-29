@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Space Grotesk", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --color-primary: #d17a28;
-  --color-surface: #161b26;
-  --color-surface-strong: #1d2432;
-  --color-surface-hover: #252d3d;
-  --color-success: #4b9a6e;
-  --color-danger: #b35d4f;
+  --color-primary: #D17A28;
+  --color-surface: #161B26;
+  --color-surface-strong: #1E293B;
+  --color-surface-hover: #252D3D;
+  --color-success: #10B981;
+  --color-danger: #F43F5E;
 }
 
 * {
@@ -24,7 +24,7 @@ html, body {
 }
 
 body {
-  color: #e8edf7;
+  color: #FFFFFF;
   font-family: var(--font-sans);
   overflow: hidden;
   color-scheme: dark;
@@ -37,51 +37,42 @@ body {
 }
 
 .signal-shell {
-  /* base window shell */
-  background: linear-gradient(180deg, rgba(22, 27, 38, 0.96), rgba(14, 17, 25, 0.96));
-  color: #e8edf7;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 24px 72px rgba(3, 6, 12, 0.45);
+  /* base window shell - flat dark */
+  background: #161B26;
+  color: #FFFFFF;
+  border: 1px solid #1E293B;
 }
 
 .signal-stage {
-  /* dominant record-state field */
-  background: linear-gradient(180deg, rgba(29, 36, 50, 0.96), rgba(22, 27, 38, 0.92));
-  border: 1px solid rgba(209, 122, 40, 0.16);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 20px 44px rgba(0, 0, 0, 0.26);
+  /* flat surface */
+  background: #161B26;
+  border: 1px solid #1E293B;
 }
 
 .signal-readout {
   /* transcript/error output panel */
-  background: rgba(12, 15, 22, 0.88);
-  color: #eef2fb;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  font-family: var(--font-mono);
+  background: #161B26;
+  color: #FFFFFF;
+  border: 1px solid #1E293B;
+  font-family: var(--font-sans);
 }
 
 .status-panel {
-  /* neutral/warning/error status surface */
-  background: rgba(22, 27, 38, 0.88);
-  color: #cfd7e7;
-  border: 1px solid rgba(209, 122, 40, 0.14);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  background: #161B26;
+  color: #FFFFFF;
+  border: 1px solid #1E293B;
 }
 
 .utility-log-row {
-  /* denser history rows */
-  background: rgba(255, 255, 255, 0.03);
-  color: #e8edf7;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #161B26;
+  color: #FFFFFF;
+  border: 1px solid #1E293B;
 }
 
 .widget-shell {
-  /* compact widget container */
-  background: linear-gradient(180deg, rgba(22, 27, 38, 0.98), rgba(15, 18, 26, 0.98));
-  color: #f5f7fb;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #161B26;
+  color: #FFFFFF;
+  border: 1px solid #1E293B;
 }
 
 [data-tauri-drag-region] {
@@ -145,6 +136,16 @@ button, input, select, .no-drag {
   animation-play-state: paused;
 }
 
+@keyframes pacman-dot {
+  0%, 20% { opacity: 0; transform: scale(0.3); }
+  35%, 100% { opacity: 1; transform: scale(1); }
+}
+
+.pacman-dot {
+  animation: pacman-dot 1.5s infinite linear;
+  transform-origin: center;
+}
+
 .wave-glow {
   filter: drop-shadow(0 0 8px rgba(209, 122, 40, 0.58));
 }
@@ -156,44 +157,37 @@ button, input, select, .no-drag {
 
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(209, 122, 40, 0.72) rgba(22, 27, 38, 0.3);
+  scrollbar-color: #1E293B #161B26;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(22, 27, 38, 0.3);
+  background: #161B26;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(209, 122, 40, 0.72);
-  border: 1px solid rgba(22, 27, 38, 0.45);
+  background: #1E293B;
+  border: 1px solid #161B26;
   border-radius: 999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(209, 122, 40, 0.9);
+  background: #252D3D;
 }
 
 @keyframes widget-highlight-pulse {
   0% {
-    outline: 3px solid rgba(209, 122, 40, 0.95);
+    outline: 2px solid #D17A28;
     outline-offset: 1px;
-    box-shadow:
-      0 0 0 0 rgba(209, 122, 40, 0.32),
-      0 0 16px 4px rgba(209, 122, 40, 0.45);
   }
 
   65% {
-    outline: 3px solid rgba(209, 122, 40, 0.28);
-    outline-offset: 6px;
-    box-shadow:
-      0 0 0 0 rgba(209, 122, 40, 0.12),
-      0 0 24px 8px rgba(209, 122, 40, 0.16);
+    outline: 2px solid rgba(209, 122, 40, 0.28);
+    outline-offset: 4px;
   }
 
   100% {
-    outline: 3px solid rgba(209, 122, 40, 0);
-    outline-offset: 8px;
-    box-shadow: 0 0 0 0 rgba(209, 122, 40, 0);
+    outline: 2px solid rgba(209, 122, 40, 0);
+    outline-offset: 6px;
   }
 }
 

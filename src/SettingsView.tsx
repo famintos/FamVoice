@@ -9,7 +9,6 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
   Plus,
   RefreshCw,
-  Settings as SettingsIcon,
   Trash2,
   X,
 } from "lucide-react";
@@ -20,6 +19,8 @@ import {
   PROMPT_OPTIMIZER_MODELS,
   TRANSCRIPTION_PROVIDERS,
 } from "./appConstants";
+import { FamVoiceLogo } from "./FamVoiceLogo";
+import { Select } from "./components/Select";
 import { buildHotkeyString, formatHotkey } from "./appHelpers";
 import type { Replacement, SaveSettingsPayload, SettingsViewModel } from "./appTypes";
 
@@ -82,22 +83,14 @@ function SettingsShell({
   return (
     <main
       data-tauri-drag-region
-      className="signal-shell signal-shell--settings relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[28px]"
+      className="signal-shell signal-shell--settings relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[20px]"
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(209,122,40,0.1),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_16%)]"
-      />
-      <div className="relative z-10 flex items-center justify-between border-b border-white/6 px-4 py-2.5">
-        <div className="flex items-center gap-2 pointer-events-none select-none text-slate-300">
-          <SettingsIcon size={14} className="text-primary" />
-          <div className="flex flex-col">
-            <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">
-              Signal Console
-            </span>
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-200">
-              Settings
-            </span>
+      <div className="relative z-10 flex items-center justify-between px-4 py-2.5">
+        <div className="flex items-center gap-2 pointer-events-none select-none">
+          <FamVoiceLogo size={16} />
+          <div className="flex items-baseline font-medium text-sm text-white tracking-tight">
+            FamVoice<span className="text-primary">.</span>
+            <span className="ml-1.5 text-xs font-normal text-slate-400">Settings</span>
           </div>
         </div>
         <button
@@ -127,10 +120,10 @@ function ControlSection({
   children: ReactNode;
 }) {
   return (
-    <section className="control-section rounded-[20px] border border-white/8 bg-black/18 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <section className="control-section py-3 px-1">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="section-eyebrow font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">
+          <p className="section-eyebrow font-mono text-[10px] uppercase tracking-[0.24em] text-slate-400">
             {eyebrow}
           </p>
           {description ? (
@@ -351,8 +344,7 @@ export function SettingsView() {
         <div className="flex h-full items-center justify-center px-4 py-4 text-center text-xs no-drag">
           {errorMessage ? (
             <div
-              className="status-panel status-panel--error rounded-[18px] border border-red-500/25 bg-red-500/10 px-3 py-3 text-red-100"
-              style={{ borderRadius: 18, overflow: "hidden" }}
+              className="py-2 text-red-400"
             >
               <p className="section-eyebrow font-mono text-[10px] uppercase tracking-[0.24em] text-red-200/80">
                 Settings load error
@@ -360,10 +352,7 @@ export function SettingsView() {
               <p className="mt-2 text-sm leading-5 text-red-50">{errorMessage}</p>
             </div>
           ) : (
-            <div
-              className="status-panel status-panel--neutral rounded-[18px] border border-white/10 bg-black/25 px-3 py-3 text-slate-200"
-              style={{ borderRadius: 18, overflow: "hidden" }}
-            >
+            <div className="py-2 text-slate-200">
               <p className="section-eyebrow font-mono text-[10px] uppercase tracking-[0.24em] text-slate-500">
                 Loading
               </p>
@@ -383,10 +372,9 @@ export function SettingsView() {
             <ControlSection eyebrow="Transcription">
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
             Provider
-            <select
+            <Select
               value={settings.transcription_provider}
-              onChange={(e) => {
-                const provider = e.target.value;
+              onChange={(provider) => {
                 const models = MODELS_BY_PROVIDER[provider] ?? [];
                 setSettings({
                   ...settings,
@@ -394,12 +382,8 @@ export function SettingsView() {
                   model: models[0]?.value ?? "",
                 });
               }}
-              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
-            >
-              {TRANSCRIPTION_PROVIDERS.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
+              options={TRANSCRIPTION_PROVIDERS}
+            />
           </label>
 
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
@@ -414,10 +398,10 @@ export function SettingsView() {
               type="password"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
-              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
+              className="p-1.5 bg-transparent border-b border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
               placeholder={settings.api_key_masked ?? "sk-..."}
             />
-            <span className="text-[10px] text-gray-500">
+            <span className="text-[10px] text-slate-400">
               {settings.api_key_present
                 ? `Saved in your OS credential store as ${settings.api_key_masked}. Leave blank to keep it.`
                 : "Used for OpenAI transcription and prompt optimization. Saved after you enter one."}
@@ -437,10 +421,10 @@ export function SettingsView() {
                 type="password"
                 value={groqApiKeyInput}
                 onChange={(e) => setGroqApiKeyInput(e.target.value)}
-                className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
+                className="p-1.5 bg-transparent border-b border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full"
                 placeholder={settings.groq_api_key_masked ?? "gsk_..."}
               />
-              <span className="text-[10px] text-gray-500">
+              <span className="text-[10px] text-slate-400">
                 {settings.groq_api_key_present
                   ? `Saved in your OS credential store as ${settings.groq_api_key_masked}. Leave blank to keep it.`
                   : "Saved in your OS credential store after you enter one."}
@@ -450,15 +434,11 @@ export function SettingsView() {
 
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
             Model
-            <select
+            <Select
               value={settings.model}
-              onChange={(e) => setSettings({ ...settings, model: e.target.value })}
-              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
-            >
-              {(MODELS_BY_PROVIDER[settings.transcription_provider] ?? []).map((model) => (
-                <option key={model.value} value={model.value}>{model.label}</option>
-              ))}
-            </select>
+              onChange={(value) => setSettings({ ...settings, model: value })}
+              options={MODELS_BY_PROVIDER[settings.transcription_provider] ?? []}
+            />
           </label>
           </ControlSection>
 
@@ -476,24 +456,20 @@ export function SettingsView() {
             />
             <div className="flex flex-col">
               <span>Improve into prompt</span>
-              <span className="text-[10px] text-gray-500">Adds an extra OpenAI model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
+              <span className="text-[10px] text-slate-400">Adds an extra OpenAI model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
             </div>
           </label>
 
           <label className="text-xs text-gray-400 flex flex-col gap-1.5">
             Model
-            <select
+            <Select
               value={settings.prompt_optimizer_model}
-              onChange={(e) => setSettings({ ...settings, prompt_optimizer_model: e.target.value })}
-              className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
-            >
-              {PROMPT_OPTIMIZER_MODELS.map((model) => (
-                <option key={model.value} value={model.value}>{model.label}</option>
-              ))}
-            </select>
+              onChange={(value) => setSettings({ ...settings, prompt_optimizer_model: value })}
+              options={PROMPT_OPTIMIZER_MODELS}
+            />
           </label>
 
-          <p className="text-[10px] text-gray-500">
+          <p className="text-[10px] text-slate-400">
             Uses the saved OpenAI API key above. Keep the static metaprompt first and the dictated request last to maximize prompt caching.
           </p>
           </ControlSection>
@@ -512,8 +488,7 @@ export function SettingsView() {
                   onKeyDown={handleHotkeyCapture}
                   onMouseDown={handleMouseCapture}
                   onContextMenu={(e) => isListening && e.preventDefault()}
-                  className={`flex-1 p-2 bg-black/40 rounded border text-xs text-white focus:outline-none transition-colors w-full cursor-pointer ${isListening ? "border-primary bg-primary/10" : "border-white/10"
-                    }`}
+                  className={`flex-1 p-1.5 bg-transparent border-b text-xs text-white focus:outline-none transition-colors w-full cursor-pointer ${isListening ? "border-primary text-primary" : "border-white/10"}`}
                 />
                 <button
                   type="button"
@@ -527,16 +502,12 @@ export function SettingsView() {
             </div>
             <label className="text-xs text-gray-400 flex flex-col gap-1.5">
               Language Preference
-              <select
+              <Select
                 value={settings.language}
-                onChange={(e) => setSettings({ ...settings, language: e.target.value })}
-                className="p-2 bg-black/40 rounded border border-white/10 text-xs text-white focus:outline-none focus:border-primary transition-colors w-full cursor-pointer"
-              >
-                {LANGUAGES.map((lang) => (
-                  <option key={lang.value} value={lang.value}>{lang.label}</option>
-                ))}
-              </select>
-              <span className="text-[10px] text-gray-500">
+                onChange={(value) => setSettings({ ...settings, language: value })}
+                options={LANGUAGES}
+              />
+              <span className="text-[10px] text-slate-400">
                 Auto Detect handles mixed dictation. Choose Portuguese or English only if you want to bias transcription toward one language.
               </span>
             </label>
@@ -552,7 +523,7 @@ export function SettingsView() {
                   onChange={(e) => setSettings({ ...settings, mic_sensitivity: Number(e.target.value) })}
                   className="flex-1 accent-primary cursor-pointer"
                 />
-                <span className="w-8 text-right text-[10px] text-gray-500">
+                <span className="w-8 text-right text-[10px] text-slate-400">
                   {settings.mic_sensitivity}
                 </span>
               </div>
@@ -560,7 +531,7 @@ export function SettingsView() {
                 <span>Less noise</span>
                 <span>Quieter voice</span>
               </div>
-              <span className="text-[10px] text-gray-500">
+              <span className="text-[10px] text-slate-400">
                 Higher sensitivity helps softer speech, but can pick up more background noise.
               </span>
             </label>
@@ -576,7 +547,7 @@ export function SettingsView() {
               />
               <div className="flex flex-col">
                 <span>Widget Mode</span>
-                <span className="text-[10px] text-gray-500">Minimal UI with only waveforms</span>
+                <span className="text-[10px] text-slate-400">Minimal UI with only waveforms</span>
               </div>
             </label>
 
@@ -599,7 +570,7 @@ export function SettingsView() {
               />
               <div className="flex flex-col">
                 <span>Preserve Clipboard</span>
-                <span className="text-[10px] text-gray-500">Restore the original clipboard after a successful auto-paste</span>
+                <span className="text-[10px] text-slate-400">Restore the original clipboard after a successful auto-paste</span>
               </div>
             </label>
 
@@ -614,7 +585,7 @@ export function SettingsView() {
               <span>Launch on Startup</span>
             </label>
             {!autostartAvailable && (
-              <p className="text-[10px] text-gray-500 pl-7">
+              <p className="text-[10px] text-slate-400 pl-7">
                 Launch on Startup is only available from the installed app.
               </p>
             )}
@@ -637,8 +608,7 @@ export function SettingsView() {
             <div className="space-y-3">
               {isCheckingForUpdates ? (
                 <div
-                  className="status-panel status-panel--neutral rounded-[18px] border border-white/10 bg-black/25 px-3 py-3 text-slate-200"
-                  style={{ borderRadius: 18, overflow: "hidden" }}
+                  className="py-2 text-slate-200"
                 >
                   {currentVersionRow}
                   <p className="mt-3 text-[11px] leading-5 text-slate-400">
@@ -647,8 +617,7 @@ export function SettingsView() {
                 </div>
               ) : updateCheckError ? (
                 <div
-                  className="status-panel status-panel--error rounded-[18px] border border-red-500/25 bg-red-500/10 px-3 py-3 text-red-100"
-                  style={{ borderRadius: 18, overflow: "hidden" }}
+                  className="py-2 text-red-400"
                 >
                   {currentVersionRow}
                   <p className="mt-3 text-[11px] font-medium text-red-100">
@@ -660,8 +629,7 @@ export function SettingsView() {
                 </div>
               ) : availableUpdate ? (
                 <div
-                  className="status-panel status-panel--neutral rounded-[18px] border border-white/10 bg-black/25 px-3 py-3 text-slate-200"
-                  style={{ borderRadius: 18, overflow: "hidden" }}
+                  className="py-2 text-slate-200"
                 >
                   {currentVersionRow}
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-300">
@@ -679,8 +647,7 @@ export function SettingsView() {
                 </div>
               ) : (
                 <div
-                  className="status-panel status-panel--neutral rounded-[18px] border border-white/10 bg-black/25 px-3 py-3 text-slate-200"
-                  style={{ borderRadius: 18, overflow: "hidden" }}
+                  className="py-2 text-slate-200"
                 >
                   {currentVersionRow}
                   <p className="mt-3 text-[11px] leading-5 text-slate-400">
@@ -691,8 +658,7 @@ export function SettingsView() {
 
               {updateInstallError && (
                 <div
-                  className="status-panel status-panel--error rounded-[18px] border border-red-500/25 bg-red-500/10 px-3 py-3 text-red-100"
-                  style={{ borderRadius: 18, overflow: "hidden" }}
+                  className="py-2 text-red-400"
                 >
                   <p className="text-[11px] font-medium text-red-100">
                     Update installation failed.
@@ -723,14 +689,14 @@ export function SettingsView() {
                     value={replacement.target}
                     onChange={(e) => updateReplacement(replacement.id, "target", e.target.value)}
                     placeholder="spoken term"
-                    className="flex-1 min-w-0 rounded border border-white/10 bg-black/40 p-1.5 text-[10px] text-white transition-colors focus:border-primary focus:outline-none"
+                    className="flex-1 min-w-0 bg-transparent border-b border-white/10 p-1.5 text-[10px] text-white transition-colors focus:border-primary focus:outline-none"
                   />
-                  <span className="text-[10px] text-gray-500">-&gt;</span>
+                  <span className="text-[10px] text-slate-400">-&gt;</span>
                   <input
                     value={replacement.replacement}
                     onChange={(e) => updateReplacement(replacement.id, "replacement", e.target.value)}
                     placeholder="preferred text"
-                    className="flex-1 min-w-0 rounded border border-white/10 bg-black/40 p-1.5 text-[10px] text-white transition-colors focus:border-primary focus:outline-none"
+                    className="flex-1 min-w-0 bg-transparent border-b border-white/10 p-1.5 text-[10px] text-white transition-colors focus:border-primary focus:outline-none"
                   />
                   <button
                     onClick={() => removeReplacement(replacement.id)}
@@ -748,18 +714,17 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="border-t border-white/6 px-4 py-3 no-drag">
+      <div className="px-4 py-3 no-drag">
         {errorMessage && (
           <div
-            className="status-panel status-panel--error mb-3 rounded-[18px] border border-red-500/25 bg-red-500/10 px-3 py-3 text-red-100"
-            style={{ borderRadius: 18, overflow: "hidden" }}
+            className="mb-3 text-red-400 text-[11px] font-medium"
           >
-            <p className="text-[11px] leading-5 text-red-100/90">{errorMessage}</p>
+            <p className="leading-5">{errorMessage}</p>
           </div>
         )}
         <button
           onClick={() => saveSettings(settings)}
-          className="w-full rounded-lg bg-primary py-2.5 text-xs font-bold text-slate-950 shadow-[0_14px_24px_rgba(209,122,40,0.18)] transition-all hover:bg-[#b86a1f] active:scale-[0.98]"
+          className="w-full rounded bg-primary py-2.5 text-xs font-bold text-slate-950 transition-all hover:bg-[#b86a1f] active:scale-[0.98]"
         >
           Save Changes
         </button>

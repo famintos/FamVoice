@@ -25,6 +25,7 @@ export function VoiceWave({
   const barClass = size === "large" ? "w-[3px]" : size === "widget" ? "w-[2.5px]" : "w-[2px]";
   const isRecording = mode === "recording";
   const isTranscribing = mode === "transcribing";
+  const isIdleWidget = mode === "idle" && size === "widget";
 
   return (
     <div
@@ -33,11 +34,11 @@ export function VoiceWave({
       {BARS.map((bar, i) => (
         <div
           key={i}
-          className={`${barClass} bg-primary rounded-full ${isRecording ? "wave-bar" : isTranscribing ? "wave-processing" : "wave-idle"}`}
+          className={`${barClass} bg-primary rounded-full ${isRecording ? "wave-bar" : isTranscribing ? "wave-processing" : isIdleWidget ? "pacman-dot" : "wave-idle"}`}
           style={{
-            height: `${bar.peak * 100}%`,
-            animationDuration: isRecording ? `${bar.dur}s` : isTranscribing ? `${1.6 + bar.peak * 0.2}s` : "2s",
-            animationDelay: isRecording ? `${bar.delay}s` : isTranscribing ? `${i * 0.12}s` : `${i * 0.15}s`,
+            height: isIdleWidget ? "2.5px" : `${bar.peak * 100}%`,
+            animationDuration: isRecording ? `${bar.dur}s` : isTranscribing ? `${1.6 + bar.peak * 0.2}s` : isIdleWidget ? "1.5s" : "2s",
+            animationDelay: isRecording ? `${bar.delay}s` : isTranscribing ? `${i * 0.12}s` : isIdleWidget ? `${(BARS.length - 1 - i) * 0.15}s` : `${i * 0.15}s`,
             "--wave-peak": bar.peak,
           } as React.CSSProperties}
         />

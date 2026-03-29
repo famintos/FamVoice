@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("./main.tsx", import.meta.url), "utf8");
 const cssSource = readFileSync(new URL("./App.css", import.meta.url), "utf8");
 const mainViewSource = readFileSync(new URL("./MainView.tsx", import.meta.url), "utf8")
@@ -26,22 +27,25 @@ function getRecordTabBlock() {
 }
 
 function getHistoryTabBlock() {
-  const historyTabIndex = mainViewSource.indexOf("Utility log");
+  const historyTabIndex = mainViewSource.indexOf('className="custom-scrollbar flex-1 overflow-y-auto px-4 pb-4"');
   assert.notEqual(historyTabIndex, -1, "expected history tab content in MainView.tsx");
 
-  return mainViewSource.slice(historyTabIndex - 900, historyTabIndex + 2600);
+  return mainViewSource.slice(historyTabIndex - 300, historyTabIndex + 2200);
 }
 
-test("main.tsx bundles IBM Plex fonts locally", () => {
-  assert.match(mainSource, /@fontsource\/ibm-plex-sans\/400\.css/);
-  assert.match(mainSource, /@fontsource\/ibm-plex-sans\/500\.css/);
-  assert.match(mainSource, /@fontsource\/ibm-plex-sans\/600\.css/);
+test("app shell keeps fonts local and avoids remote font providers", () => {
+  assert.match(mainSource, /@fontsource\/space-grotesk\/400\.css/);
+  assert.match(mainSource, /@fontsource\/space-grotesk\/500\.css/);
+  assert.match(mainSource, /@fontsource\/space-grotesk\/600\.css/);
+  assert.match(mainSource, /@fontsource\/space-grotesk\/700\.css/);
   assert.match(mainSource, /@fontsource\/ibm-plex-mono\/400\.css/);
   assert.match(mainSource, /@fontsource\/ibm-plex-mono\/500\.css/);
+  assert.doesNotMatch(indexSource, /fonts\.googleapis\.com/);
+  assert.doesNotMatch(indexSource, /fonts\.gstatic\.com/);
 });
 
-test("App.css defines the signal-console token set", () => {
-  assert.match(cssSource, /--font-sans:\s*"IBM Plex Sans"/);
+test("App.css defines the refreshed shell token set", () => {
+  assert.match(cssSource, /--font-sans:\s*"Space Grotesk"/);
   assert.match(cssSource, /--font-mono:\s*"IBM Plex Mono"/);
   assert.match(cssSource, /--color-primary:\s*#/);
   assert.match(cssSource, /--color-surface:\s*#/);
@@ -69,46 +73,39 @@ test("widget shell keeps the compact surface without an exterior shadow", () => 
   assert.doesNotMatch(widgetShellBlock, /box-shadow:/);
 });
 
-test("MainView uses the signal-console shell and utility log structure", () => {
-  assert.match(mainViewSource, /className="signal-shell signal-shell--main/);
-  assert.match(mainViewSource, /className="signal-stage/);
-  assert.match(mainViewSource, /className="signal-readout/);
-  assert.match(mainViewSource, /className="utility-log-row/);
-  assert.match(mainViewSource, /className="status-panel status-panel--update"/);
-  assert.match(mainViewSource, /className="status-panel status-panel--warning"/);
-  assert.doesNotMatch(mainViewSource, /bg-\[#0f0f13\]\/85 backdrop-blur-2xl/);
-  assert.doesNotMatch(mainViewSource, /group-hover:opacity-100/);
+test("MainView uses the refreshed shell with an inline update notice", () => {
+  assert.match(mainViewSource, /className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-\[20px\] bg-\[#161B26\]"/);
+  assert.match(mainViewSource, /Update Available/);
+  assert.match(mainViewSource, /pendingUpdate\.version/);
+  assert.match(mainViewSource, /dismissUpdateNotice/);
+  assert.match(mainViewSource, /const hasDismissedUpdateNoticeRef = useRef\(false\);/);
+  assert.match(mainViewSource, /if \(!hasDismissedUpdateNoticeRef\.current\) \{\s*setIsUpdateNoticeOpen\(true\);/);
 });
 
-test("MainView adapts the fixed shell with a scrollable record stack and dense history previews", () => {
+test("MainView keeps the centered record view and lightweight history list", () => {
   const recordTabBlock = getRecordTabBlock();
   const historyTabBlock = getHistoryTabBlock();
 
-  assert.match(recordTabBlock, /custom-scrollbar/);
-  assert.match(recordTabBlock, /overflow-y-auto/);
-  assert.match(historyTabBlock, /line-clamp-2/);
+  assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
+  assert.match(recordTabBlock, /items-center justify-center text-center/);
+  assert.match(recordTabBlock, /line-clamp-3/);
+  assert.match(recordTabBlock, /Configure API Keys/);
+  assert.match(historyTabBlock, /custom-scrollbar/);
+  assert.match(historyTabBlock, /copyToClipboard/);
+  assert.match(historyTabBlock, /repasteHistory/);
+  assert.match(historyTabBlock, /No history yet/);
+  assert.match(historyTabBlock, /group-hover:opacity-100/);
 });
 
-test("SettingsView uses the signal-console settings shell and shared control surfaces", () => {
+test("SettingsView uses the refreshed settings shell and inline update states", () => {
   assert.match(settingsViewSource, /className="signal-shell signal-shell--settings/);
   assert.match(settingsViewSource, /className="control-section/);
   assert.match(settingsViewSource, /className="section-eyebrow/);
-  assert.match(settingsViewSource, /className="status-panel status-panel--neutral/);
-  assert.match(settingsViewSource, /className="status-panel status-panel--error/);
-  assert.doesNotMatch(
-    settingsViewSource,
-    /settings\.api_key_present \? "text-green-400" : "text-amber-400"/,
-  );
-  assert.doesNotMatch(
-    settingsViewSource,
-    /settings\.groq_api_key_present \? "text-green-400" : "text-amber-400"/,
-  );
-  assert.doesNotMatch(
-    settingsViewSource,
-    /font-mono text-amber-200">v\{availableUpdate\.version\}/,
-  );
-  assert.doesNotMatch(
-    settingsViewSource,
-    /bg-\[#0f0f13\] text-white overflow-hidden border border-white\/10 rounded-xl/,
-  );
+  assert.match(settingsViewSource, /import \{ Select \} from "\.\/components\/Select";/);
+  assert.match(settingsViewSource, /<Select/);
+  assert.match(settingsViewSource, /Checking for updates\.\.\./);
+  assert.match(settingsViewSource, /Unable to check for updates right now\./);
+  assert.match(settingsViewSource, /Update installation failed\./);
+  assert.match(settingsViewSource, /className="py-2 text-red-400"/);
+  assert.doesNotMatch(settingsViewSource, /status-panel status-panel--neutral/);
 });

@@ -44,7 +44,7 @@ Tauri v2 app: Rust backend + React 19 frontend communicating via IPC.
 - `settings.rs` / `history.rs` — JSON file persistence in app data dir
 - `glossary.rs` — case-insensitive word/phrase replacement engine
 - `input_hook.rs` — global hotkey and mouse button event handling via rdev
-- `prompt_optimizer/` — optional Anthropic Claude API pass to rewrite transcripts
+- `prompt_optimizer/` — optional OpenAI GPT-5.4 Mini pass to rewrite transcripts
 
 **IPC pattern**: Frontend calls `invoke("command_name", args)` → Rust command handler. Backend pushes status updates via `app.emit("event_name", payload)` → frontend `listen()`. Key events: `status` (idle/recording/transcribing/success/error), `transcript`, `settings-updated`, `history-updated`.
 
@@ -74,6 +74,6 @@ The auto-updater checks `https://github.com/famintos/FamVoice/releases/latest/do
 - Frontend handles UI state, rendering, and event handling only. System integration stays in Rust.
 - Use the existing Tauri IPC command/event pattern — don't introduce alternate transport layers.
 - Settings and history are local persisted JSON. API keys go through the keyring crate.
-- Transcription model lists in code should stay aligned with README.md.
-- The app window is small (260x200), transparent, undecorated, always-on-top, and skips the taskbar.
+- Transcription and prompt optimization model lists in code should stay aligned with README.md.
+- The app window is small (260x175), transparent, undecorated, always-on-top, and skips the taskbar.
 - Releases are Windows-only, built via GitHub Actions on tag push (v*), signed with Tauri updater keys.

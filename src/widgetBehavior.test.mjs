@@ -35,7 +35,7 @@ function getRecordTabBlock() {
   const recordTabIndex = mainViewSource.indexOf('{activeTab === "record" ? (');
   assert.notEqual(recordTabIndex, -1, "expected record tab branch in MainView.tsx");
 
-  return mainViewSource.slice(recordTabIndex, recordTabIndex + 1200);
+  return mainViewSource.slice(recordTabIndex, recordTabIndex + 1800);
 }
 
 test("widget container uses manual dragging instead of native drag-region", () => {
@@ -87,13 +87,11 @@ test("voice wave supports explicit modes and size variants", () => {
 test("record tab keeps waves visible outside the transcribing and result states", () => {
   const recordTabBlock = getRecordTabBlock();
 
-  assert.match(mainViewSource, /const showStatusDot = status === "success" \|\| status === "error";/);
   assert.match(mainViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
   assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
-  assert.doesNotMatch(
-    recordTabBlock,
-    /showStatusDot \?\s*\(\s*<div className=\{`[\s\S]*status === "transcribing" \? "bg-yellow-500 animate-pulse shadow-\[/,
-  );
+  assert.match(recordTabBlock, /transcript \|\| stageHint/);
+  assert.match(mainViewSource, /status === "idle" && !transcript && \(missingTranscriptionKey \|\| missingPromptOptimizerKey\) && \(/);
+  assert.match(recordTabBlock, /Configure API Keys/);
 });
 
 test("widget does not expose an update-ready indicator or tooltip", () => {

@@ -55,8 +55,8 @@ export function WidgetView({
         onContextMenu={onContextMenu}
       >
         <div className="pointer-events-none select-none">
-          <div className="flex h-9 w-9 items-center justify-center rounded-[14px] border border-primary/15 bg-primary/10 shadow-[0_0_16px_rgba(209,122,40,0.18)]">
-            <FamVoiceLogo size={22} />
+          <div className="flex h-9 w-9 items-center justify-center">
+            <FamVoiceLogo size={28} />
           </div>
         </div>
 

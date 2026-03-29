@@ -1,32 +1,12 @@
+import famintoMarkAmber from './assets/faminto-mark-amber.svg';
+
 export const FamVoiceLogo = ({ size = 24, className = '' }: { size?: number | string, className?: string }) => (
-  <svg 
+  <img 
+    src={famintoMarkAmber} 
+    alt="FamVoice Logo" 
     width={size} 
     height={size} 
-    viewBox="0 0 256 256" 
-    fill="none" 
-    xmlns="http://www.w3.org/2000/svg"
-    className={className}
-  >
-    <defs>
-      <linearGradient id="fam_grad_solid" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#FF512F"/>
-        <stop offset="1" stopColor="#F09819"/>
-      </linearGradient>
-      <mask id="bite_mask_solid">
-        <rect x="0" y="0" width="256" height="256" fill="white" />
-        <circle cx="166" cy="64" r="28" fill="black" />
-      </mask>
-    </defs>
-
-    {/* Solid vibrant background circle */}
-    <circle cx="128" cy="128" r="128" fill="url(#fam_grad_solid)" />
-
-    {/* Mic Head with Bite */}
-    <rect x="92" y="32" width="72" height="104" rx="36" fill="white" mask="url(#bite_mask_solid)" />
-
-    {/* Mic Stand */}
-    <path d="M60 108 v 16 a 68 68 0 0 0 136 0 v -16" stroke="white" strokeWidth="20" strokeLinecap="round" fill="none" />
-    <line x1="128" y1="192" x2="128" y2="216" stroke="white" strokeWidth="20" strokeLinecap="round" />
-    <line x1="96" y1="216" x2="160" y2="216" stroke="white" strokeWidth="20" strokeLinecap="round" />
-  </svg>
+    className={className} 
+    draggable={false} 
+  />
 );
