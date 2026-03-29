@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::{collections::VecDeque, time::Duration};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{include_image, AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use audio::AudioState;
@@ -1029,7 +1029,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::new()
                 .tooltip("FamVoice")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(include_image!("./icons/tray-icon-dark.png"))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| match event {
