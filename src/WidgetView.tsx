@@ -54,24 +54,37 @@ export function WidgetView({
         onMouseDownCapture={onMouseDownCapture}
         onContextMenu={onContextMenu}
       >
-        <div className="pointer-events-none select-none">
-          <div className="flex h-9 w-9 items-center justify-center">
-            <FamVoiceLogo size={28} />
-          </div>
-        </div>
-
-        <div className="widget-status flex min-w-0 items-center gap-1.5 pointer-events-none select-none">
-          {showStatusText ? (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
-              <span className={`max-w-[11rem] truncate text-[10px] font-medium whitespace-nowrap ${statusTextClassName}`}>
-                {statusLabel}
-              </span>
+        {(!showStatusText && waveMode === "idle") ? (
+          <div className="flex items-center gap-2.5 pointer-events-none select-none px-2.5 py-1">
+            <FamVoiceLogo size={26} />
+            <div className="flex items-baseline font-medium text-[16px] text-white tracking-tight">
+              FamVoice<span className="text-primary">.</span>
             </div>
-          ) : (
-            <VoiceWave mode={waveMode} size="widget" />
-          )}
-        </div>
+          </div>
+        ) : (
+          <>
+            <div className="pointer-events-none select-none">
+              <div className="flex h-9 w-9 items-center justify-center">
+                <FamVoiceLogo size={28} />
+              </div>
+            </div>
+
+            <div className="widget-status flex min-w-0 items-center gap-1.5 pointer-events-none select-none">
+              {showStatusText ? (
+                <div className="flex min-w-0 items-center gap-1.5 pr-1">
+                  <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
+                  <span className={`max-w-[11rem] truncate text-[10px] font-medium whitespace-nowrap ${statusTextClassName}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+              ) : (
+                <div className="pr-1">
+                  <VoiceWave mode={waveMode} size="widget" />
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </main>
     </div>
   );
