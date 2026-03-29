@@ -48,6 +48,7 @@ The user-approved direction is:
 - Renaming the app from `FamVoice` to `Faminto`.
 - Changing updater, window, tray menu, or backend behavior beyond icon selection.
 - Creating a new brand language outside the existing Faminto guidelines.
+- Performing a full cleanup of every legacy public logo file beyond the favicon entry point and any assets directly needed to complete this system icon refresh.
 
 ## Why This Path
 
@@ -70,6 +71,12 @@ Required source assets:
 - the amber Faminto mark for primary app icon generation
 - monochrome white and black Faminto mark variants for tray usage
 - a checked-in icon source surface for the app icon plate, derived from the approved Faminto desktop examples
+
+The implementation should use explicit repo-local source paths rather than ad hoc copies. Recommended structure:
+
+- `src/assets/brand/` for vendored SVG source assets copied from FamBrand
+- `src-tauri/icons/tray-icon-light.png` for the light-chrome tray variant
+- `src-tauri/icons/tray-icon-dark.png` for the dark-chrome tray variant
 
 The app should not rely on `C:\Users\henri\Desktop\Faminto\FamBrand` after this work lands. Future icon refreshes should be possible from the repo alone.
 
