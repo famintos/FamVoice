@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { MouseEventHandler, RefObject } from "react";
-import { FamVoiceLogo } from "./FamVoiceLogo";
+import { FamVoiceLockup } from "./components/FamVoiceLockup";
 import { VoiceWave } from "./components/VoiceWave";
 import type { Status } from "./appTypes";
 
@@ -10,6 +10,7 @@ interface WidgetViewProps {
   highlightKey?: number;
   errorMessage?: string;
   containerRef: RefObject<HTMLElement | null>;
+  onOpenSettings: () => void;
   onMouseDownCapture: MouseEventHandler<HTMLElement>;
   onContextMenu: MouseEventHandler<HTMLElement>;
 }
@@ -20,20 +21,33 @@ export function WidgetView({
   highlightKey,
   errorMessage,
   containerRef,
+  onOpenSettings,
   onMouseDownCapture,
   onContextMenu,
 }: WidgetViewProps) {
   const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
-  const showStatusText = status === "error" || (status === "idle" && missingApiKey);
-  const statusLabel = status === "error"
+  const showIssue = status === "error" || (status === "idle" && missingApiKey);
+  const statusLabel = status === "error" ? "Transcription error" : "Missing API key";
+  const statusCopy = status === "error"
     ? errorMessage === "No voice detected"
-      ? "No voice"
-      : "Error"
-    : "No key";
+      ? "No voice detected. Try again with a clearer input."
+      : errorMessage || "Check your microphone or input source, then try again."
+    : "Add your API key in Settings to start dictating.";
   const statusDotClassName = status === "error"
     ? "bg-danger shadow-[0_0_10px_rgba(179,93,79,0.32)]"
-    : "bg-primary animate-pulse shadow-[0_0_10px_rgba(209,122,40,0.28)]";
+    : "bg-primary shadow-[0_0_10px_rgba(209,122,40,0.28)]";
   const statusTextClassName = status === "error" ? "text-danger" : "text-primary";
+  const settingsAction = (
+    <button
+      type="button"
+      onClick={() => {
+        void onOpenSettings();
+      }}
+      className="focus-ring w-fit rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-sm font-medium text-white transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:border-primary/40 hover:text-primary"
+    >
+      Open settings
+    </button>
+  );
 
   useEffect(() => {
     if (!highlightKey || !containerRef.current) return;
@@ -49,42 +63,47 @@ export function WidgetView({
         ref={containerRef}
         id="widget-container"
         className="widget-shell relative rounded-[18px] px-2 py-2 overflow-hidden"
-        title={status === "error" ? errorMessage || "Error" : undefined}
         style={{ pointerEvents: "auto" }}
         onMouseDownCapture={onMouseDownCapture}
         onContextMenu={onContextMenu}
       >
-        {(!showStatusText && waveMode === "idle") ? (
-          <div className="flex items-center gap-2.5 pointer-events-none select-none px-2.5 py-1">
-            <FamVoiceLogo size={26} />
-            <div className="flex items-baseline font-medium text-[16px] text-white tracking-tight">
-              FamVoice<span className="text-primary">.</span>
+        {showIssue ? (
+          <div className="flex flex-col gap-3 px-2.5 py-2">
+            <div className="flex items-start gap-2.5">
+              <FamVoiceLockup aria-hidden="true" markSize={26} wordmarkClassName="opacity-0" />
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex items-center gap-1.5">
+                  <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
+                  <p className={`text-sm font-medium ${statusTextClassName}`}>
+                    {statusLabel}
+                  </p>
+                </div>
+                <p className="text-sm leading-5 text-slate-400">
+                  {statusCopy}
+                </p>
+              </div>
             </div>
+
+            {settingsAction}
           </div>
         ) : (
-          <div className="flex items-center gap-2.5 pointer-events-none select-none px-2.5 py-1">
-            <FamVoiceLogo size={26} />
+          <div className="flex flex-col gap-2 px-2.5 py-2">
+            <div className="flex items-center gap-2.5 pointer-events-none select-none">
+              {waveMode === "idle" ? (
+                <FamVoiceLockup markSize={26} />
+              ) : (
+                <div className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none">
+                  <FamVoiceLockup aria-hidden="true" markSize={26} wordmarkClassName="opacity-0" />
 
-            <div className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none">
-              <div
-                aria-hidden="true"
-                className="flex items-baseline font-medium text-[16px] text-white tracking-tight opacity-0"
-              >
-                FamVoice<span className="text-primary">.</span>
-              </div>
-
-              <div className="absolute inset-0 flex items-center justify-center">
-                {showStatusText ? (
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
-                    <span className={`truncate text-[10px] font-medium whitespace-nowrap ${statusTextClassName}`}>
-                      {statusLabel}
-                    </span>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <VoiceWave mode={waveMode} size="widget" />
                   </div>
-                ) : (
-                  <VoiceWave mode={waveMode} size="widget" />
-                )}
-              </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end">
+              {settingsAction}
             </div>
           </div>
         )}

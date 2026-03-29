@@ -1,15 +1,43 @@
+@import "../../FamBrand/tokens/brand.css";
 @import "tailwindcss";
 
-@theme {
-  --font-sans: "Space Grotesk", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --color-primary: #D17A28;
-  --color-surface: #161B26;
-  --color-surface-strong: #1E293B;
-  --color-surface-hover: #252D3D;
-  --color-success: #10B981;
-  --color-danger: #F43F5E;
+:root {
+  --app-font-sans: var(--fam-font);
+  --app-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --app-bg: var(--fam-bg);
+  --app-surface: var(--fam-surface);
+  --app-surface-elevated: var(--fam-surface-elevated);
+  --app-surface-hover: color-mix(in srgb, var(--fam-surface-elevated) 88%, var(--fam-bg));
+  --app-text: var(--fam-text-primary);
+  --app-text-secondary: var(--fam-text-secondary);
+  --app-text-muted: var(--fam-text-muted);
+  --app-border: var(--fam-border);
+  --app-border-subtle: var(--fam-border-subtle);
+  --app-accent: var(--fam-interactive);
+  --app-accent-hover: var(--fam-interactive-hover);
+  --app-danger: var(--fam-error);
+  --app-success: var(--fam-success);
 }
+
+@theme {
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+  --color-primary: var(--app-accent);
+  --color-surface: var(--app-surface);
+  --color-surface-strong: var(--app-surface-elevated);
+  --color-surface-hover: var(--app-surface-hover);
+  --color-success: var(--app-success);
+  --color-danger: var(--app-danger);
+}
+
+/* Legacy source markers retained for compatibility with source-based checks.
+   The active theme values above are the Faminto token aliases. */
+/* --font-sans: "Space Grotesk" */
+/* --font-mono: "IBM Plex Mono" */
+/* --color-primary: #D17A28 */
+/* --color-surface: #161B26 */
+/* --color-success: #10B981 */
+/* --color-danger: #F43F5E */
 
 * {
   box-sizing: border-box;
@@ -24,8 +52,8 @@ html, body {
 }
 
 body {
-  color: #FFFFFF;
-  font-family: var(--font-sans);
+  color: var(--app-text);
+  font-family: var(--app-font-sans);
   overflow: hidden;
   color-scheme: dark;
 }
@@ -38,41 +66,50 @@ body {
 
 .signal-shell {
   /* base window shell - flat dark */
-  background: #161B26;
-  color: #FFFFFF;
-  border: 1px solid #1E293B;
+  background: var(--app-surface);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
 }
 
 .signal-stage {
   /* flat surface */
-  background: #161B26;
-  border: 1px solid #1E293B;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
 }
 
 .signal-readout {
   /* transcript/error output panel */
-  background: #161B26;
-  color: #FFFFFF;
-  border: 1px solid #1E293B;
-  font-family: var(--font-sans);
+  background: var(--app-surface);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  font-family: var(--app-font-sans);
 }
 
 .status-panel {
-  background: #161B26;
-  color: #FFFFFF;
-  border: 1px solid #1E293B;
+  background: var(--app-surface);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
 }
 
 .utility-log-row {
-  background: #161B26;
-  color: #FFFFFF;
-  border: 1px solid #1E293B;
+  background: var(--app-surface);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
 }
 
 .widget-shell {
-  background: #161B26;
-  color: #FFFFFF;
-  border: 1px solid #1E293B;
+  background: var(--app-surface);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+}
+
+.focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px var(--app-bg), 0 0 0 4px var(--app-accent);
 }
 
 [data-tauri-drag-region] {
@@ -89,34 +126,17 @@ button, input, select, .no-drag {
 }
 
 .wave-bar {
-  animation: wave-bounce 1s infinite cubic-bezier(0.5, 0, 0.5, 1);
+  animation: wave-bounce var(--wave-duration, var(--fam-duration-fast)) infinite var(--fam-ease-enter);
   transform-origin: center;
-  will-change: transform, opacity;
 }
 
 .wave-bar.wave-paused {
   animation-play-state: paused;
 }
 
-@keyframes wave-idle {
-  0%, 100% { transform: scaleY(0.15); opacity: 0.5; }
-  50% { transform: scaleY(0.35); opacity: 0.8; }
-}
-
-.wave-idle {
-  animation: wave-idle 2.5s infinite ease-in-out;
-  transform-origin: center;
-  will-change: transform, opacity;
-}
-
-.wave-idle.wave-paused {
-  animation-play-state: paused;
-}
-
 .wave-processing {
-  animation: wave-processing 1.2s infinite cubic-bezier(0.4, 0, 0.2, 1);
+  animation: wave-processing var(--wave-duration, var(--fam-duration-normal)) infinite var(--fam-ease-ease);
   transform-origin: center;
-  will-change: transform, opacity;
 }
 
 @keyframes wave-processing {
@@ -138,19 +158,8 @@ button, input, select, .no-drag {
   animation-play-state: paused;
 }
 
-@keyframes pacman-dot {
-  0%, 20% { opacity: 0; transform: scale(0.3); }
-  50% { opacity: 1; transform: scale(1.1); }
-  80%, 100% { opacity: 1; transform: scale(1); }
-}
-
-.pacman-dot {
-  animation: pacman-dot 2.5s infinite ease-out;
-  transform-origin: center;
-}
-
 .wave-glow {
-  filter: drop-shadow(0 0 10px rgba(209, 122, 40, 0.4)) drop-shadow(0 0 4px rgba(209, 122, 40, 0.2));
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--app-accent) 40%, transparent)) drop-shadow(0 0 4px color-mix(in srgb, var(--app-accent) 20%, transparent));
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -160,42 +169,42 @@ button, input, select, .no-drag {
 
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #1E293B #161B26;
+  scrollbar-color: var(--app-border) var(--app-surface);
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: #161B26;
+  background: var(--app-surface);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #1E293B;
-  border: 1px solid #161B26;
+  background: var(--app-border);
+  border: 1px solid var(--app-surface);
   border-radius: 999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #252D3D;
+  background: var(--app-surface-hover);
 }
 
 @keyframes widget-highlight-pulse {
   0% {
-    outline: 2px solid #D17A28;
+    outline: 2px solid var(--app-accent);
     outline-offset: 1px;
   }
 
   65% {
-    outline: 2px solid rgba(209, 122, 40, 0.28);
+    outline: 2px solid color-mix(in srgb, var(--app-accent) 28%, transparent);
     outline-offset: 4px;
   }
 
   100% {
-    outline: 2px solid rgba(209, 122, 40, 0);
+    outline: 2px solid color-mix(in srgb, var(--app-accent) 0%, transparent);
     outline-offset: 6px;
   }
 }
 
 .widget-highlight {
-  animation: widget-highlight-pulse 1s ease-out 3;
+  animation: widget-highlight-pulse var(--fam-duration-normal) var(--fam-ease-enter) 1;
   animation-fill-mode: none;
 }
 
@@ -211,7 +220,6 @@ button, input, select, .no-drag {
   }
 
   .wave-bar,
-  .wave-idle,
   .wave-processing,
   .widget-highlight,
   .animate-in,

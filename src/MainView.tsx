@@ -20,8 +20,8 @@ import type {
   Status,
   WidgetWindowMetrics,
 } from "./appTypes";
-import { FamVoiceLogo } from "./FamVoiceLogo";
 import { VoiceWave } from "./components/VoiceWave";
+import { FamVoiceLockup } from "./components/FamVoiceLockup";
 import { WidgetView } from "./WidgetView";
 import {
   getWidgetInteractiveBounds,
@@ -32,6 +32,7 @@ import {
 const appWindow = getCurrentWindow();
 
 export function MainView() {
+  const controlMotion = "transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)]";
   const [status, setStatus] = useState<Status>("idle");
   const [transcript, setTranscript] = useState("");
   const [settings, setSettings] = useState<SettingsViewModel | null>(null);
@@ -293,7 +294,7 @@ export function MainView() {
       : status === "success"
         ? "Ready for paste-back."
         : status === "error"
-          ? "See details below."
+          ? "Review the message below, then try again."
           : "Hold hotkey to dictate.";
 
   if (settings?.widget_mode) {
@@ -304,8 +305,16 @@ export function MainView() {
         highlightKey={highlightKey}
         errorMessage={status === "error" ? transcript : undefined}
         containerRef={widgetContainerRef}
+        onOpenSettings={handleOpenSettings}
         onMouseDownCapture={(e) => {
           if (e.button !== 0) return;
+          const target = e.target;
+          if (
+            target instanceof HTMLElement &&
+            target.closest("button, a, input, select, textarea, [role='button']")
+          ) {
+            return;
+          }
           e.preventDefault();
           widgetDragGraceUntilRef.current = Date.now() + WIDGET_DRAG_START_GRACE_MS;
           ignoreCursorEventsRef.current = false;
@@ -324,32 +333,33 @@ export function MainView() {
 
   return (
     <main
-      data-tauri-drag-region
       className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[20px] bg-[#161B26]"
     >
       {pendingUpdate && isUpdateNoticeOpen && (
         <div className="absolute inset-x-2 top-2 z-20 no-drag rounded-xl bg-transparent p-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
-              <p className="text-xs font-medium text-white">Update Available</p>
-              <p className="text-[10px] text-primary">v{pendingUpdate.version}</p>
+              <p className="text-sm font-medium text-white">Update available</p>
+              <p className="text-sm text-primary">v{pendingUpdate.version}</p>
             </div>
             <button
+              type="button"
               onClick={dismissUpdateNotice}
-              className="text-slate-500 hover:text-white"
+              className={`focus-ring rounded p-1 text-slate-500 ${controlMotion} hover:text-white`}
               aria-label="Dismiss update notice"
             >
               <X size={14} />
             </button>
           </div>
           <button
+            type="button"
             onClick={() => {
               dismissUpdateNotice();
               void handleOpenSettings();
             }}
-            className="mt-3 w-full rounded py-1.5 text-[11px] text-primary hover:text-white transition-colors text-left"
+            className={`focus-ring mt-3 w-full rounded py-1.5 text-left text-sm font-medium text-primary ${controlMotion} hover:text-white`}
           >
-            Open Settings →
+            Open settings
           </button>
         </div>
       )}
@@ -357,110 +367,182 @@ export function MainView() {
       {/* Header */}
       <div data-tauri-drag-region className="relative z-10 flex items-center justify-between px-4 pt-4 pb-2">
         <div className="flex items-center gap-2 pointer-events-none select-none">
-          <FamVoiceLogo size={18} />
-          <div className="flex items-baseline font-medium text-sm text-white tracking-tight">
-            FamVoice<span className="text-primary">.</span>
-          </div>
+          <FamVoiceLockup markSize={18} />
         </div>
 
         <div className="flex items-center gap-2.5 no-drag text-slate-500">
-          <button onClick={handleOpenSettings} className="hover:text-white transition-colors" title="Settings"><SettingsIcon size={12} /></button>
-          <button onClick={() => appWindow.minimize()} className="hover:text-white transition-colors" title="Minimize"><Minus size={12} /></button>
-          <button onClick={() => appWindow.close()} className="hover:text-red-400 transition-colors" title="Close"><X size={12} /></button>
+          <button
+            type="button"
+            onClick={() => appWindow.minimize()}
+            className={`focus-ring rounded p-1 ${controlMotion} hover:text-white`}
+            aria-label="Minimize window"
+          >
+            <Minus size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => appWindow.close()}
+            className={`focus-ring rounded p-1 ${controlMotion} hover:text-red-400`}
+            aria-label="Close window"
+          >
+            <X size={12} />
+          </button>
         </div>
       </div>
 
       {/* Tab Switcher */}
       <div className="relative z-10 px-4 no-drag">
         <div className="flex items-center justify-between pb-2">
-          <div className="flex gap-4">
+          <div className="flex gap-2" role="tablist" aria-label="Main sections">
             <button
+              type="button"
+              id="record-tab"
+              role="tab"
               onClick={() => setActiveTab("record")}
-              className={`text-[10px] font-mono uppercase tracking-widest transition-colors ${
-                activeTab === "record" ? "text-primary" : "text-slate-500 hover:text-slate-300"
+              aria-controls="record-panel"
+              aria-selected={activeTab === "record"}
+              className={`focus-ring rounded-full px-3 py-1.5 text-sm font-medium tracking-tight ${controlMotion} ${
+                activeTab === "record"
+                  ? "bg-white/10 text-white"
+                  : "text-slate-500 hover:text-slate-300"
               }`}
             >
-              Dictate
+              Record
             </button>
             <button
+              type="button"
+              id="history-tab"
+              role="tab"
               onClick={() => setActiveTab("history")}
-              className={`text-[10px] font-mono uppercase tracking-widest transition-colors ${
-                activeTab === "history" ? "text-primary" : "text-slate-500 hover:text-slate-300"
+              aria-controls="history-panel"
+              aria-selected={activeTab === "history"}
+              className={`focus-ring rounded-full px-3 py-1.5 text-sm font-medium tracking-tight ${controlMotion} ${
+                activeTab === "history"
+                  ? "bg-white/10 text-white"
+                  : "text-slate-500 hover:text-slate-300"
               }`}
             >
               History
             </button>
           </div>
-          
-          {activeTab === "history" && (
-            <div className="flex items-center gap-3">
-              {history.length > 0 && (
-                <button
-                  onClick={clearHistory}
-                  className="text-[10px] font-mono uppercase tracking-widest text-slate-400 hover:text-red-400 transition-colors"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleOpenSettings()}
+              className={`focus-ring inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-sm font-medium text-slate-400 ${controlMotion} hover:border-primary/40 hover:text-white`}
+              aria-label="Open settings"
+            >
+              <SettingsIcon size={12} />
+              Settings
+            </button>
+            {activeTab === "history" && history.length > 0 && (
+              <button
+                type="button"
+                onClick={clearHistory}
+                className={`focus-ring rounded-full px-3 py-1.5 text-sm font-medium tracking-tight text-slate-400 ${controlMotion} hover:text-red-400`}
+              >
+                Clear history
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Content Area */}
       <div className="relative z-10 flex-1 overflow-hidden">
         {activeTab === "record" ? (
-          <div className="flex h-full flex-col px-4 pb-2">
-            <div className="flex flex-1 flex-col items-center justify-center text-center no-drag">
-              <div className="mb-2 flex h-12 w-full items-center justify-center">
+          <div
+            id="record-panel"
+            role="tabpanel"
+            aria-labelledby="record-tab"
+            className="flex h-full flex-col px-4 pb-4"
+          >
+            <div className="flex flex-1 flex-col gap-4 rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4 no-drag">
+              <div className="flex flex-wrap items-center gap-3">
                 <VoiceWave mode={waveMode} size="large" />
-              </div>
-              
-              <h2 className="text-sm font-medium tracking-tight text-white mb-1">
-                {statusLabel}
-              </h2>
-              
-              <div className="w-full px-2 max-w-[240px]">
-                {status === "error" && transcript ? (
-                  <div className="flex flex-col items-center gap-1 text-red-400 text-[10px]">
-                    <AlertCircle size={12} />
-                    <p className="line-clamp-2 leading-tight">{transcript}</p>
-                  </div>
-                ) : (
-                  <p className={`text-[11px] leading-tight ${transcript ? "text-slate-200 line-clamp-3" : "text-slate-500"}`}>
-                    {transcript || stageHint}
+                <div className="space-y-1">
+                  <h2 className="text-base font-medium tracking-tight text-white">
+                    {statusLabel}
+                  </h2>
+                  <p className="max-w-[34rem] text-base leading-7 text-slate-400">
+                    {stageHint}
                   </p>
+                </div>
+              </div>
+
+              <div className="w-full max-w-[44rem] space-y-3">
+                {status === "error" && transcript ? (
+                  <div className="rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle size={16} className="mt-0.5 shrink-0 text-danger" />
+                      <div className="space-y-2">
+                        <p className="text-base leading-7 text-red-50">{transcript}</p>
+                        <p className="text-base leading-7 text-red-100/80">Review the error details, then try again or open settings.</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : transcript ? (
+                  <p className="text-base leading-7 text-slate-100">{transcript}</p>
+                ) : (
+                  <p className="text-base leading-7 text-slate-400">{stageHint}</p>
                 )}
               </div>
 
               {status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey) && (
-                <button
-                  onClick={handleOpenSettings}
-                  className="mt-6 text-[10px] font-mono uppercase tracking-widest text-primary/80 transition-colors hover:text-primary"
-                >
-                  Configure API Keys →
-                </button>
+                <div className="w-full max-w-[34rem] rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3">
+                  <p className="text-base leading-7 text-amber-50">
+                    Open settings to add the missing API key before you dictate.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenSettings()}
+                    className={`focus-ring mt-3 rounded-full border border-primary/30 bg-black/20 px-3 py-1.5 text-sm font-medium text-primary ${controlMotion} hover:bg-white/10`}
+                  >
+                    Open settings
+                  </button>
+                </div>
               )}
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col no-drag">
+          <div
+            id="history-panel"
+            role="tabpanel"
+            aria-labelledby="history-tab"
+            className="flex h-full flex-col no-drag"
+          >
             <div className="custom-scrollbar flex-1 overflow-y-auto px-4 pb-4">
               {history.map((item) => (
-                <div key={item.id} className="group relative py-3 px-2 -mx-2 rounded-lg hover:bg-white/5 transition-colors">
-                  <p className="text-xs leading-relaxed text-slate-200 pr-2">{item.text}</p>
+                <div key={item.id} className={`relative -mx-2 rounded-lg px-2 py-3 ${controlMotion} hover:bg-white/5`}>
+                  <p className="pr-2 text-base leading-7 text-slate-200">{item.text}</p>
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-[10px] text-slate-600 font-mono">
                       {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
-                    <div className="flex gap-3 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button onClick={() => copyToClipboard(item.text)} className="text-slate-500 hover:text-white transition-colors" title="Copy">
+                    <div className="flex items-center gap-1 text-slate-500">
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(item.text)}
+                        className={`focus-ring rounded p-1 ${controlMotion} hover:text-white`}
+                        aria-label="Copy transcript"
+                      >
                         <Copy size={12} />
                       </button>
-                      <button onClick={() => repasteHistory(item.text)} className="text-slate-500 hover:text-primary transition-colors" title="Re-paste">
+                      <button
+                        type="button"
+                        onClick={() => repasteHistory(item.text)}
+                        className={`focus-ring rounded p-1 ${controlMotion} hover:text-primary`}
+                        aria-label="Re-paste transcript"
+                      >
                         <RefreshCw size={12} />
                       </button>
-                      <button onClick={() => deleteHistory(item.id)} className="text-slate-400 hover:text-red-400 transition-colors" title="Delete">
+                      <button
+                        type="button"
+                        onClick={() => deleteHistory(item.id)}
+                        className={`focus-ring rounded p-1 ${controlMotion} hover:text-red-400`}
+                        aria-label="Delete transcript"
+                      >
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -469,9 +551,14 @@ export function MainView() {
               ))}
               
               {history.length === 0 && (
-                <div className="flex h-full flex-col items-center justify-center text-slate-600 pointer-events-none pb-8">
-                  <HistoryIcon size={24} className="mb-3 opacity-50" />
-                  <p className="text-xs">No history yet</p>
+                <div className="flex h-full flex-col items-center justify-center pb-8 text-center text-slate-500 pointer-events-none">
+                  <HistoryIcon size={28} className="mb-3 opacity-50" />
+                  <p className="text-base font-medium text-slate-200">
+                    Dictate something to create your first history entry.
+                  </p>
+                  <p className="mt-2 max-w-[18rem] text-base leading-7 text-slate-400">
+                    Your past dictations will appear here so you can copy, re-paste, or delete them later.
+                  </p>
                 </div>
               )}
             </div>

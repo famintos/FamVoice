@@ -32,7 +32,7 @@ function getSettingsLoadingBlock() {
   const loadingIndex = settingsViewSource.indexOf("if (!settings) {");
   assert.notEqual(loadingIndex, -1, "expected settings loading branch in SettingsView.tsx");
 
-  return settingsViewSource.slice(loadingIndex, loadingIndex + 1200);
+  return settingsViewSource.slice(loadingIndex, loadingIndex + 2000);
 }
 
 function getRefreshUpdateBlock() {
@@ -74,19 +74,19 @@ test("main view keeps the startup update check from reopening after dismissal", 
   assert.match(updateEffectBlock, /if \(!hasDismissedUpdateNoticeRef\.current\) \{\s*setIsUpdateNoticeOpen\(true\);\s*\}/);
   assert.match(noticeBlock, /onClick=\{dismissUpdateNotice\}[\s\S]*?aria-label="Dismiss update notice"/);
   assert.match(noticeBlock, /onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);\s*\}\}/);
-  assert.match(noticeBlock, /Open Settings/);
+  assert.match(noticeBlock, /Open settings/);
 });
 
 test("main view keeps a one-shot dismissible update notice with version text", () => {
   const noticeBlock = getUpdateNoticeBlock();
   const updatePanelWithActionPattern =
-    /className="absolute inset-x-2 top-2 z-20 no-drag rounded-xl bg-transparent p-3"[\s\S]*?<button[\s\S]*?onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);[\s\S]*?\}\}[\s\S]*?>\s*Open Settings/u;
+    /className="absolute inset-x-2 top-2 z-20 no-drag rounded-xl bg-transparent p-3"[\s\S]*?<button[\s\S]*?onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);[\s\S]*?\}\}[\s\S]*?>\s*Open settings/u;
 
   assert.match(mainViewSource, /const \[isUpdateNoticeOpen, setIsUpdateNoticeOpen\] = useState\(false\);/);
   assert.match(mainViewSource, /const hasDismissedUpdateNoticeRef = useRef\(false\);/);
   assert.match(noticeBlock, /className="absolute inset-x-2 top-2 z-20 no-drag rounded-xl bg-transparent p-3"/);
   assert.match(noticeBlock, updatePanelWithActionPattern);
-  assert.match(noticeBlock, /Update Available/);
+  assert.match(noticeBlock, /Update available/);
   assert.match(noticeBlock, /v\{pendingUpdate\.version\}/);
   assert.match(noticeBlock, /onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);/);
   assert.match(noticeBlock, /onClick=\{dismissUpdateNotice\}[\s\S]*?aria-label="Dismiss update notice"/);
@@ -129,7 +129,8 @@ test("settings view owns the manual update action and refresh logic", () => {
 test("settings view renders the initial loading state inline", () => {
   const settingsLoadingBlock = getSettingsLoadingBlock();
 
-  assert.ok(settingsLoadingBlock.includes('className="py-2 text-slate-200"'));
+  assert.ok(settingsLoadingBlock.includes('rounded-2xl border border-white/10 bg-black/20'));
+  assert.ok(settingsLoadingBlock.includes("Loading"));
   assert.ok(settingsLoadingBlock.includes("Loading settings..."));
   assert.ok(!settingsLoadingBlock.includes("bg-[#0f0f13] text-white overflow-hidden border border-white/10 rounded-xl"));
 });
@@ -148,7 +149,7 @@ test("settings view surfaces update check failures instead of falling back to no
 
   assert.ok(loadingBranch.includes('className="py-2 text-slate-200"'));
   assert.ok(errorBranch.includes('className="py-2 text-red-400"'));
-  assert.ok(errorBranch.includes("Unable to check for updates right now."));
+  assert.ok(errorBranch.includes("Could not check for updates."));
 });
 
 test("settings view uses inline update states for availability and install failures", () => {

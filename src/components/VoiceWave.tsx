@@ -22,6 +22,8 @@ export function VoiceWave({
   size?: "default" | "widget" | "large";
 }) {
   const isActiveWidget = size === "widget" && mode !== "idle";
+  const isRecording = mode === "recording";
+  const isTranscribing = mode === "transcribing";
   const containerClass = size === "large"
     ? "h-10 gap-[4px] justify-center"
     : size === "widget"
@@ -33,10 +35,11 @@ export function VoiceWave({
     : size === "widget" 
       ? isActiveWidget ? "w-[3.5px]" : "w-[3px]" 
       : "w-[2.5px]";
-
-  const isRecording = mode === "recording";
-  const isTranscribing = mode === "transcribing";
-  const isIdleWidget = mode === "idle" && size === "widget";
+  const motionClass = isRecording
+    ? "wave-bar"
+    : isTranscribing
+      ? "wave-processing"
+      : "transition-[opacity,transform,height] duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)]";
 
   return (
     <div
@@ -45,17 +48,15 @@ export function VoiceWave({
       {BARS.map((bar, i) => (
         <div
           key={i}
-          className={`${barClass} bg-primary rounded-full transition-all duration-500 ${
-            isRecording ? "wave-bar" : 
-            isTranscribing ? "wave-processing" : 
-            isIdleWidget ? "pacman-dot" : "wave-idle"
-          }`}
+          className={`${barClass} bg-primary rounded-full ${motionClass}`}
           style={{
-            height: isIdleWidget ? "3px" : `${bar.peak * 100}%`,
-            animationDuration: isRecording ? `${bar.dur}s` : isTranscribing ? "1.2s" : "2.5s",
-            animationDelay: isRecording ? `${bar.delay}s` : isTranscribing ? `${i * 0.1}s` : `${i * 0.2}s`,
-            "--wave-peak": bar.peak,
-            opacity: isTranscribing ? 0.4 : 1
+            height: `${bar.peak * 100}%`,
+            animationDelay: isRecording ? `${bar.delay}s` : isTranscribing ? `${i * 0.08}s` : undefined,
+            opacity: isTranscribing ? 0.45 : isRecording ? 1 : 0.72,
+            ["--wave-duration" as "--wave-duration"]: isRecording
+              ? "var(--fam-duration-fast)"
+              : "var(--fam-duration-normal)",
+            ["--wave-peak" as "--wave-peak"]: bar.peak,
           } as React.CSSProperties}
         />
       ))}
