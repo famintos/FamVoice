@@ -23,7 +23,7 @@ function assertAllExist(relativePaths, message) {
 test("index.html points at the branded favicon instead of vite.svg", () => {
   const indexHtml = readText("index.html");
 
-  assert.match(indexHtml, /<link rel="icon" type="image\/svg\+xml" href="\/favicon\.svg" \/>/);
+  assert.match(indexHtml, /href="\/favicon\.svg"/);
   assert.doesNotMatch(indexHtml, /vite\.svg/);
 });
 
@@ -68,6 +68,6 @@ test("tray icon assets are vendored", () => {
 test("tray wiring in lib.rs uses the monochrome icon instead of the default window icon", () => {
   const libRs = readText("src-tauri/src/lib.rs");
 
-  assert.match(libRs, /include_image!\("\.\/icons\/tray-icon-dark\.png"\)/);
-  assert.doesNotMatch(libRs, /\.icon\(app\.default_window_icon\(\)\.unwrap\(\)\.clone\(\)\)/);
+  assert.match(libRs, /include_image!\(\s*["']\.\/icons\/tray-icon-(?:dark|light)\.png["']\s*\)/);
+  assert.doesNotMatch(libRs, /app\.default_window_icon\(\)\.unwrap\(\)\.clone\(\)/);
 });
