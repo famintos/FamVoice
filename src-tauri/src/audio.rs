@@ -2,6 +2,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 use tokio::sync::mpsc;
 
 /// Target sample rate for OpenAI transcription models (16kHz is optimal)
@@ -30,7 +31,7 @@ pub struct UploadAudioSelection<'a> {
 }
 
 pub enum AudioCommand {
-    Start(tokio::sync::oneshot::Sender<Result<(), String>>),
+    Start(tauri::AppHandle, tokio::sync::oneshot::Sender<Result<(), String>>),
     Stop(tokio::sync::oneshot::Sender<Option<Vec<i16>>>),
 }
 
@@ -139,6 +140,7 @@ fn build_mono_input_stream<T, Convert, ErrFn>(
     sample_buffer: Arc<Mutex<Vec<i16>>>,
     preroll_buffer: Arc<Mutex<Vec<i16>>>,
     armed: Arc<AtomicBool>,
+    app_handle: tauri::AppHandle,
     capture_channels: usize,
     capture_rate: u32,
     downsample_ratio: f64,
@@ -154,6 +156,8 @@ where
     let mut mono_buf: Vec<f64> = Vec::with_capacity(8192);
     let mut resampled_buf: Vec<i16> = Vec::with_capacity((8192.0 / downsample_ratio) as usize + 16);
     let mut filter = LowPassFilter::new(filter_cutoff, capture_rate as f64);
+    let mut last_emit = std::time::Instant::now();
+    let mut smoothed_level = 0.0f64;
 
     device.build_input_stream(
         stream_config,
@@ -168,7 +172,9 @@ where
                 convert_sample,
             );
 
-            if !armed.load(Ordering::Acquire) {
+            let is_armed = armed.load(Ordering::Acquire);
+
+            if !is_armed {
                 if let Ok(mut buf) = preroll_buffer.lock() {
                     buf.extend_from_slice(&resampled_buf);
                     if buf.len() > PREROLL_SAMPLES {
@@ -182,6 +188,28 @@ where
             if let Ok(mut buf) = sample_buffer.lock() {
                 append_samples_capped(&mut buf, &resampled_buf);
             }
+
+            if last_emit.elapsed().as_millis() >= 16 {
+                let rms = frame_rms(&resampled_buf);
+                // Drastically increased sensitivity (from 2400 to 800)
+                let target_level = (rms / 800.0).clamp(0.0, 1.0);
+
+                // Even faster attack (0.8) and slightly faster decay (0.3)
+                if target_level > smoothed_level {
+                    smoothed_level = 0.8 * target_level + 0.2 * smoothed_level;
+                } else {
+                    smoothed_level = 0.3 * target_level + 0.7 * smoothed_level;
+                }
+
+                if smoothed_level > 0.001 {
+                    let _ = app_handle.emit("mic-level", smoothed_level);
+                } else if smoothed_level > 0.0 {
+                    let _ = app_handle.emit("mic-level", 0.0);
+                    smoothed_level = 0.0;
+                }
+                
+                last_emit = std::time::Instant::now();
+            }
         },
         err_fn,
         None,
@@ -194,6 +222,7 @@ fn start_persistent_input_stream(
     armed: Arc<AtomicBool>,
     is_recording: Arc<AtomicBool>,
     needs_rebuild: Arc<AtomicBool>,
+    app_handle: tauri::AppHandle,
 ) -> Result<cpal::Stream, String> {
     let host = cpal::default_host();
     let device = host
@@ -237,6 +266,7 @@ fn start_persistent_input_stream(
             sample_buffer.clone(),
             preroll_buffer.clone(),
             armed.clone(),
+            app_handle.clone(),
             capture_channels,
             capture_rate,
             downsample_ratio,
@@ -250,6 +280,7 @@ fn start_persistent_input_stream(
             sample_buffer.clone(),
             preroll_buffer.clone(),
             armed.clone(),
+            app_handle.clone(),
             capture_channels,
             capture_rate,
             downsample_ratio,
@@ -292,7 +323,7 @@ impl Default for AudioState {
 
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
-                    AudioCommand::Start(reply) => {
+                    AudioCommand::Start(app_handle, reply) => {
                         if needs_rebuild_clone.swap(false, Ordering::SeqCst) {
                             stream.take();
                         }
@@ -304,6 +335,7 @@ impl Default for AudioState {
                                 armed_clone.clone(),
                                 is_recording_clone.clone(),
                                 needs_rebuild_clone.clone(),
+                                app_handle.clone(),
                             ) {
                                 Ok(new_stream) => {
                                     stream = Some(new_stream);
@@ -551,11 +583,11 @@ pub fn select_samples_for_upload<'a>(
     }
 }
 
-pub async fn start_recording(state: &AudioState) -> Result<(), String> {
+pub async fn start_recording(app_handle: tauri::AppHandle, state: &AudioState) -> Result<(), String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     state
         .cmd_tx
-        .send(AudioCommand::Start(tx))
+        .send(AudioCommand::Start(app_handle, tx))
         .await
         .map_err(|e| e.to_string())?;
     rx.await

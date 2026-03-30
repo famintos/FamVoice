@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 
 const PROFILE_PRESETS = {
   default: [0.42, 0.58, 0.76, 0.94, 1, 0.94, 0.76, 0.58, 0.42],
-  widget: [0.42, 0.58, 0.76, 0.94, 1, 0.94, 0.76, 0.58, 0.42],
+  widget: [0.5, 0.74, 0.94, 1, 0.94, 0.74, 0.5],
   large: [0.36, 0.48, 0.62, 0.78, 0.92, 1, 0.92, 0.78, 0.62, 0.48, 0.36],
 } satisfies Record<"default" | "widget" | "large", number[]>;
 
@@ -30,7 +30,6 @@ export function VoiceWave({
 
     const unlisten = listen<number>("mic-level", (event) => {
       if (containerRef.current) {
-        // Use a small smoothing/dampening if needed, but for now direct
         containerRef.current.style.setProperty("--mic-level", event.payload.toString());
       }
     });
@@ -60,17 +59,17 @@ export function VoiceWave({
   const containerClass = size === "large"
     ? "h-12 gap-[3px] justify-center"
     : size === "widget"
-      ? "h-6 w-full justify-center gap-[1px] px-0"
+      ? "h-6 w-full justify-center gap-[2px] px-0.5"
       : "h-5 gap-[2px] justify-center";
 
   const barWidth = size === "large"
     ? "w-[4.5px]"
     : size === "widget"
-      ? "w-[3px]"
+      ? "w-[4px]"
       : "w-[3.5px]";
 
   const motionClass = isRecording
-    ? "wave-bar" // Removed wave-pulse to use mic-level driven height
+    ? "wave-bar"
     : isTranscribing
       ? "wave-processing wave-shimmer"
       : "";

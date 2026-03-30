@@ -305,7 +305,7 @@ async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
     let tasks_state: State<BackgroundTasksState> = app.state();
     tasks_state.invalidate_status_reset();
 
-    match audio::start_recording(&*audio_state).await {
+    match audio::start_recording(app.clone(), &*audio_state).await {
         Ok(()) => {
             let _ = app.emit("status", "recording");
             Ok(())
