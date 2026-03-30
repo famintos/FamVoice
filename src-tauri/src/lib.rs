@@ -1029,7 +1029,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::new()
                 .tooltip("FamVoice")
-                .icon(include_image!("./icons/tray-icon-dark.png"))
+                .icon(include_image!("./icons/tray-icon-amber.png"))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| match event {

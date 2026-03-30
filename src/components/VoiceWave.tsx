@@ -24,6 +24,8 @@ export function VoiceWave({
   const isActiveWidget = size === "widget" && mode !== "idle";
   const isRecording = mode === "recording";
   const isTranscribing = mode === "transcribing";
+  const isIdle = mode === "idle";
+
   const containerClass = size === "large"
     ? "h-7 gap-[3px] justify-center"
     : size === "widget"
@@ -39,7 +41,7 @@ export function VoiceWave({
     ? "wave-bar"
     : isTranscribing
       ? "wave-processing"
-      : "transition-[opacity,transform,height] duration-[var(--fam-duration-slow)] ease-[var(--fam-ease-ease)]";
+      : "";
 
   return (
     <div
@@ -50,14 +52,15 @@ export function VoiceWave({
           key={i}
           className={`${barClass} bg-primary rounded-full ${motionClass}`}
           style={{
-            height: mode === "idle" ? `${bar.peak * 45}%` : `${bar.peak * 100}%`,
+            height: isIdle ? `${bar.peak * 35}%` : `${bar.peak * 100}%`,
             animationDelay: isRecording ? `${bar.delay}s` : isTranscribing ? `${i * 0.08}s` : undefined,
-            opacity: isTranscribing ? 0.45 : isRecording ? 1 : 0.6,
+            animationPlayState: isIdle ? "paused" : "running",
+            opacity: isIdle ? 0.35 : isTranscribing ? 0.5 : 1,
             ["--wave-duration" as "--wave-duration"]: isRecording
               ? `${bar.dur * 0.8}s`
               : isTranscribing
                 ? `${bar.dur * 1.2}s`
-                : "var(--fam-duration-normal)",
+                : "0s",
             ["--wave-peak" as "--wave-peak"]: bar.peak,
           } as React.CSSProperties}
         />

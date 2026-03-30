@@ -455,29 +455,29 @@ export function MainView() {
             id="record-panel"
             role="tabpanel"
             aria-labelledby="record-tab"
-            className="flex h-full flex-col px-3 pb-3"
+            className="flex h-full flex-col px-3 pb-1.5"
           >
-            <div className="flex flex-1 flex-col items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-2.5 no-drag text-center">
-              <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-1 flex-col items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 pt-1 pb-3 no-drag text-center">
+              <div className="flex flex-col items-center gap-1.5">
                 <VoiceWave mode={waveMode} size="large" />
-                <div className="space-y-0.5">
+                <div className="space-y-0">
                   <h2 className="text-sm font-medium tracking-tight text-white">
                     {statusLabel}
                   </h2>
                   <p
                     className={`max-w-[14rem] text-[11px] leading-tight text-slate-400 ${
-                      status === "error" ? "min-h-[1rem]" : "min-h-[1.75rem]"
+                      (status === "error" || status === "success" || status === "transcribing" || Boolean(transcript)) ? "h-0 overflow-hidden" : "mt-0.5 min-h-[1.5rem]"
                     } ${
-                      status === "error" ? "invisible" : ""
+                      (status === "error" || status === "success" || status === "transcribing" || Boolean(transcript)) ? "invisible" : ""
                     }`}
-                    aria-hidden={status === "error"}
+                    aria-hidden={status === "error" || status === "success" || status === "transcribing" || Boolean(transcript)}
                   >
                     {stageHint}
                   </p>
                 </div>
               </div>
 
-              <div className="mt-0.5 flex min-h-[2.5rem] w-full max-w-[16rem] items-start justify-center">
+              <div className={`${(status === "error" || status === "success" || status === "transcribing" || Boolean(transcript)) ? "mt-1.5" : "mt-0.5"} flex min-h-[2.75rem] w-full max-w-[16rem] items-start justify-center`}>
                 {showRecordError ? (
                   <div className="w-full rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5">
                     <div className="flex items-start gap-2 text-left">
@@ -489,7 +489,7 @@ export function MainView() {
                     </div>
                   </div>
                 ) : showRecordTranscript ? (
-                  <div className="custom-scrollbar max-h-[2.5rem] overflow-y-auto px-1">
+                  <div className="custom-scrollbar max-h-[2.75rem] overflow-y-auto px-1">
                     <p className="text-[11px] leading-tight text-slate-100">{transcript}</p>
                   </div>
                 ) : showSettingsNotice ? (
@@ -506,7 +506,7 @@ export function MainView() {
                     </button>
                   </div>
                 ) : (
-                  <div className="h-[2.5rem]" aria-hidden="true" />
+                  <div className="h-[2.75rem]" aria-hidden="true" />
                 )}
               </div>
             </div>

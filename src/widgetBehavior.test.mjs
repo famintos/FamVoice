@@ -120,7 +120,7 @@ test("widget does not expose an update-ready indicator or tooltip", () => {
   assert.doesNotMatch(widgetViewSource, /right-click to restart/);
 });
 
-test("widget keeps the compact lockup and exposes a visible settings action", () => {
+test("widget keeps the compact lockup and only hides settings while showing an error", () => {
   assert.doesNotMatch(widgetViewSource, />Fam</);
   assert.match(widgetViewSource, /className="widget-status/);
   assert.match(
@@ -135,13 +135,17 @@ test("widget keeps the compact lockup and exposes a visible settings action", ()
   assert.match(widgetViewSource, /className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none"/);
   assert.match(widgetViewSource, /className="absolute inset-0 flex items-center justify-center"/);
   assert.match(widgetViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
-  assert.match(widgetViewSource, /const showIssue = status === "error" \|\| \(status === "idle" && missingApiKey\);/);
-  assert.match(widgetViewSource, /const statusLabel = status === "error" \? "Transcription error" : "Missing API key";/);
+  assert.match(widgetViewSource, /const showError = status === "error";/);
+  assert.match(widgetViewSource, /const showIssue = showError \|\| \(status === "idle" && missingApiKey\);/);
+  assert.match(widgetViewSource, /const showSettingsAction = !showError;/);
+  assert.match(widgetViewSource, /const statusLabel = showError \? "Transcription error" : "Missing API key";/);
   assert.match(widgetViewSource, /No voice detected\./);
   assert.match(widgetViewSource, /Transcription failed\./);
   assert.match(widgetViewSource, /Add API key in settings\./);
   assert.match(widgetViewSource, /<VoiceWave mode=\{/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{waveMode\} size="widget" \/>/);
+  assert.match(widgetViewSource, /\{showSettingsAction \? \(/);
+  assert.match(widgetViewSource, /className=\{`flex items-center px-1\.5 py-1 \$\{showSettingsAction \? "gap-3" : "gap-0"\}`\}/);
   assert.doesNotMatch(widgetViewSource, /shadow-\[0_0_15px_rgba\(255,81,47,0\.4\)\]/);
   assert.doesNotMatch(widgetViewSource, /status === "transcribing" && \(/);
   assert.doesNotMatch(widgetViewSource, /animate-pulse/);

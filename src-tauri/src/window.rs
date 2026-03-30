@@ -88,7 +88,8 @@ pub(crate) fn open_settings_window(app: &AppHandle) -> Result<(), String> {
     .decorations(false)
     .transparent(true)
     .shadow(false)
-    .always_on_top(true);
+    .always_on_top(true)
+    .skip_taskbar(true);
 
     if let Some(main) = app.get_webview_window("main") {
         if let (Ok(pos), Ok(size), Ok(factor)) =

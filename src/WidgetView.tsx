@@ -25,17 +25,19 @@ export function WidgetView({
   onMouseDownCapture,
 }: WidgetViewProps) {
   const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
-  const showIssue = status === "error" || (status === "idle" && missingApiKey);
-  const statusLabel = status === "error" ? "Transcription error" : "Missing API key";
-  const statusCopy = status === "error"
+  const showError = status === "error";
+  const showIssue = showError || (status === "idle" && missingApiKey);
+  const showSettingsAction = !showError;
+  const statusLabel = showError ? "Transcription error" : "Missing API key";
+  const statusCopy = showError
     ? errorMessage === "No voice detected"
       ? "No voice detected."
       : errorMessage || "Transcription failed."
     : "Add API key in settings.";
-  const statusDotClassName = status === "error"
+  const statusDotClassName = showError
     ? "bg-danger shadow-[0_0_10px_rgba(179,93,79,0.32)]"
     : "bg-primary shadow-[0_0_10px_rgba(209,122,40,0.28)]";
-  const statusTextClassName = status === "error" ? "text-danger" : "text-primary";
+  const statusTextClassName = showError ? "text-danger" : "text-primary";
   const settingsAction = (
     <button
       type="button"
@@ -71,10 +73,10 @@ export function WidgetView({
         }}
       >
         {showIssue ? (
-          <div className="flex items-center gap-3 px-1.5 py-1">
-            <div className="relative flex items-center select-none">
+          <div className={`flex items-center px-1.5 py-1 ${showSettingsAction ? "gap-3" : "gap-0"}`}>
+            <div className="relative flex min-w-0 flex-1 items-center select-none">
               <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
-              <div className="absolute inset-y-0 right-0 left-[28px] flex flex-col justify-center min-w-0">
+              <div className="absolute inset-y-0 right-0 left-[28px] flex min-w-0 flex-col justify-center">
                 <div className="flex items-center gap-1.5">
                   <div className={`h-1 w-1 shrink-0 rounded-full ${statusDotClassName}`} />
                   <p className={`truncate text-[10px] font-bold leading-none ${statusTextClassName}`}>
@@ -87,9 +89,11 @@ export function WidgetView({
               </div>
             </div>
 
-            <div className="ml-1">
-              {settingsAction}
-            </div>
+            {showSettingsAction ? (
+              <div className="ml-1">
+                {settingsAction}
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="flex items-center gap-3 px-1.5 py-1">
