@@ -49,13 +49,13 @@ test("widget container uses manual dragging instead of native drag-region", () =
   assert.match(widgetBranchBlock, /void appWindow\.startDragging\(\)\.catch/);
 });
 
-test("widget right click opens settings from the widget container", () => {
+test("widget right click is ignored instead of opening settings", () => {
   const widgetBranchBlock = getWidgetBranchBlock();
 
-  assert.match(widgetViewSource, /onContextMenu=\{onContextMenu\}/);
-  assert.match(widgetBranchBlock, /onContextMenu=\{\(e\) => \{/);
-  assert.match(widgetBranchBlock, /void handleOpenSettings\(\)/);
+  assert.doesNotMatch(widgetBranchBlock, /void handleOpenSettings\(\)/);
   assert.doesNotMatch(widgetBranchBlock, /void handleUpdate\(\)/);
+  assert.match(widgetViewSource, /onContextMenu=\{\(e\) => \{/);
+  assert.match(widgetViewSource, /e\.preventDefault\(\);/);
 });
 
 test("widget drag start sets a grace period before requesting the window drag", () => {

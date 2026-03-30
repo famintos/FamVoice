@@ -13,7 +13,6 @@ interface WidgetViewProps {
   containerRef: RefObject<HTMLElement | null>;
   onOpenSettings: () => void;
   onMouseDownCapture: MouseEventHandler<HTMLElement>;
-  onContextMenu: MouseEventHandler<HTMLElement>;
 }
 
 export function WidgetView({
@@ -24,7 +23,6 @@ export function WidgetView({
   containerRef,
   onOpenSettings,
   onMouseDownCapture,
-  onContextMenu,
 }: WidgetViewProps) {
   const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
   const showIssue = status === "error" || (status === "idle" && missingApiKey);
@@ -68,7 +66,9 @@ export function WidgetView({
         className="widget-shell relative rounded-[16px] px-2 py-1.5 overflow-hidden"
         style={{ pointerEvents: "auto" }}
         onMouseDownCapture={onMouseDownCapture}
-        onContextMenu={onContextMenu}
+        onContextMenu={(e) => {
+          e.preventDefault();
+        }}
       >
         {showIssue ? (
           <div className="flex flex-col gap-1.5 px-1 py-1">

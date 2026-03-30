@@ -310,7 +310,7 @@ export function MainView() {
           if (e.button !== 0) return;
           const target = e.target;
           if (
-            target instanceof HTMLElement &&
+            target instanceof Element &&
             target.closest("button, a, input, select, textarea, [role='button']")
           ) {
             return;
@@ -322,10 +322,6 @@ export function MainView() {
           void appWindow.startDragging().catch((error) => {
             console.error("Failed to start widget drag:", error);
           });
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          void handleOpenSettings();
         }}
       />
     );
