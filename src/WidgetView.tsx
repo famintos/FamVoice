@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { MouseEventHandler, RefObject } from "react";
+import { Settings } from "lucide-react";
 import { FamVoiceLockup } from "./components/FamVoiceLockup";
 import { VoiceWave } from "./components/VoiceWave";
 import type { Status } from "./appTypes";
@@ -30,9 +31,9 @@ export function WidgetView({
   const statusLabel = status === "error" ? "Transcription error" : "Missing API key";
   const statusCopy = status === "error"
     ? errorMessage === "No voice detected"
-      ? "No voice detected. Try again with a clearer input."
-      : errorMessage || "Check your microphone or input source, then try again."
-    : "Add your API key in Settings to start dictating.";
+      ? "No voice detected."
+      : errorMessage || "Transcription failed."
+    : "Add API key in settings.";
   const statusDotClassName = status === "error"
     ? "bg-danger shadow-[0_0_10px_rgba(179,93,79,0.32)]"
     : "bg-primary shadow-[0_0_10px_rgba(209,122,40,0.28)]";
@@ -40,12 +41,14 @@ export function WidgetView({
   const settingsAction = (
     <button
       type="button"
-      onClick={() => {
+      onClick={(e) => {
+        e.stopPropagation();
         void onOpenSettings();
       }}
-      className="focus-ring w-fit rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs font-medium text-white transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:border-primary/40 hover:text-primary"
+      className="focus-ring flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-black/20 text-slate-400 transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:border-primary/40 hover:text-white no-drag"
+      aria-label="Settings"
     >
-      Open settings
+      <Settings size={11} />
     </button>
   );
 
@@ -62,38 +65,40 @@ export function WidgetView({
       <main
         ref={containerRef}
         id="widget-container"
-        className="widget-shell relative rounded-[18px] px-2 py-2 overflow-hidden"
+        className="widget-shell relative rounded-[16px] px-2 py-1.5 overflow-hidden"
         style={{ pointerEvents: "auto" }}
         onMouseDownCapture={onMouseDownCapture}
         onContextMenu={onContextMenu}
       >
         {showIssue ? (
-          <div className="flex flex-col gap-3 px-2.5 py-2">
+          <div className="flex flex-col gap-1.5 px-1 py-1">
             <div className="flex items-start gap-2.5">
-              <FamVoiceLockup aria-hidden="true" markSize={26} wordmarkClassName="opacity-0" />
-              <div className="min-w-0 flex-1 space-y-0.5">
+              <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
+              <div className="min-w-0 flex-1 space-y-0">
                 <div className="flex items-center gap-1.5">
                   <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
-                  <p className={`text-sm font-medium ${statusTextClassName}`}>
+                  <p className={`text-[11px] font-semibold ${statusTextClassName}`}>
                     {statusLabel}
                   </p>
                 </div>
-                <p className="text-sm leading-5 text-slate-400">
+                <p className="text-[10px] leading-tight text-slate-400">
                   {statusCopy}
                 </p>
               </div>
             </div>
 
-            {settingsAction}
+            <div className="flex justify-end pt-0.5">
+              {settingsAction}
+            </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-2 px-2.5 py-2">
+          <div className="flex items-center gap-3 px-1.5 py-1">
             <div className="flex items-center gap-2.5 pointer-events-none select-none">
               {waveMode === "idle" ? (
-                <FamVoiceLockup markSize={26} />
+                <FamVoiceLockup markSize={22} />
               ) : (
                 <div className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none">
-                  <FamVoiceLockup aria-hidden="true" markSize={26} wordmarkClassName="opacity-0" />
+                  <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
 
                   <div className="absolute inset-0 flex items-center justify-center">
                     <VoiceWave mode={waveMode} size="widget" />
@@ -102,7 +107,7 @@ export function WidgetView({
               )}
             </div>
 
-            <div className="flex justify-end">
+            <div className="ml-1">
               {settingsAction}
             </div>
           </div>
