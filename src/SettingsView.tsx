@@ -121,12 +121,12 @@ function ControlSection({
   return (
     <section className="control-section py-3 px-1">
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <p className="section-eyebrow text-sm font-medium tracking-tight text-slate-200">
+        <div className="flex flex-col gap-1">
+          <p className="section-eyebrow text-[10px] font-bold uppercase tracking-widest text-slate-500">
             {eyebrow}
           </p>
           {description ? (
-            <p className="max-w-[42rem] text-base leading-7 text-slate-500">
+            <p className="max-w-[42rem] text-xs leading-normal text-slate-400/80">
               {description}
             </p>
           ) : null}
@@ -336,7 +336,7 @@ export function SettingsView() {
 
   const closeSettingsWindow = () => invoke("close_settings_window");
   const currentVersionRow = (
-    <div className="flex items-center justify-between text-sm text-slate-300">
+    <div className="flex items-center justify-between text-sm font-medium text-slate-200">
       <span>Current version</span>
       <span className="text-slate-400">{appVersion ? `v${appVersion}` : "Loading..."}</span>
     </div>
@@ -351,7 +351,7 @@ export function SettingsView() {
               <p className="text-base font-medium text-red-100">
                 Could not load settings.
               </p>
-              <p className="mt-2 text-base leading-7 text-red-50/90">
+              <p className="mt-2 text-sm leading-6 text-red-50/90">
                 Retry loading the window. If it keeps failing, close it and open Settings again.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -379,7 +379,7 @@ export function SettingsView() {
               <p className="text-base font-medium tracking-tight text-slate-200">
                 Loading
               </p>
-              <p className="mt-2 text-base leading-7 text-slate-100">
+              <p className="mt-2 text-sm leading-6 text-slate-100">
                 Loading settings...
               </p>
             </div>
@@ -411,11 +411,11 @@ export function SettingsView() {
             />
           </label>
 
-          <label className="flex flex-col gap-1.5 text-sm text-slate-300">
+          <label className="flex flex-col gap-1 text-sm">
             <div className="flex items-center justify-between">
-              <span>OpenAI API Key</span>
-              <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.api_key_present ? "text-green-400" : "text-slate-500"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${settings.api_key_present ? "bg-green-400" : "bg-slate-500"}`} />
+              <span className="font-medium text-slate-200">OpenAI API Key</span>
+              <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider ${settings.api_key_present ? "text-green-500" : "text-slate-500"}`}>
+                <span className={`w-1 h-1 rounded-full ${settings.api_key_present ? "bg-green-500" : "bg-slate-500"}`} />
                 {settings.api_key_present ? "Configured" : "Not set"}
               </span>
             </div>
@@ -426,7 +426,7 @@ export function SettingsView() {
                 className={`focus-ring w-full border-b border-white/10 bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary`}
                 placeholder={settings.api_key_masked ?? "sk-..."}
               />
-              <span className="text-base leading-7 text-slate-400">
+              <span className="text-[11px] leading-relaxed text-slate-500">
                 {settings.api_key_present
                   ? `Saved in your OS credential store as ${settings.api_key_masked}. Leave blank to keep it.`
                 : "Used for OpenAI transcription and prompt optimization. Saved after you enter one."}
@@ -434,11 +434,11 @@ export function SettingsView() {
           </label>
 
           {settings.transcription_provider === "groq" && (
-            <label className="flex flex-col gap-1.5 text-sm text-slate-300">
+            <label className="flex flex-col gap-1 text-sm">
               <div className="flex items-center justify-between">
-                <span>Groq API Key</span>
-                <span className={`flex items-center gap-1 text-[10px] font-medium ${settings.groq_api_key_present ? "text-green-400" : "text-slate-500"}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${settings.groq_api_key_present ? "bg-green-400" : "bg-slate-500"}`} />
+                <span className="font-medium text-slate-200">Groq API Key</span>
+                <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider ${settings.groq_api_key_present ? "text-green-500" : "text-slate-500"}`}>
+                  <span className={`w-1 h-1 rounded-full ${settings.groq_api_key_present ? "bg-green-500" : "bg-slate-500"}`} />
                   {settings.groq_api_key_present ? "Configured" : "Not set"}
                 </span>
               </div>
@@ -449,7 +449,7 @@ export function SettingsView() {
                 className={`focus-ring w-full border-b border-white/10 bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary`}
                 placeholder={settings.groq_api_key_masked ?? "gsk_..."}
               />
-              <span className="text-base leading-7 text-slate-400">
+              <span className="text-[11px] leading-relaxed text-slate-500">
                 {settings.groq_api_key_present
                   ? `Saved in your OS credential store as ${settings.groq_api_key_masked}. Leave blank to keep it.`
                   : "Saved in your OS credential store after you enter one."}
@@ -457,7 +457,7 @@ export function SettingsView() {
             </label>
           )}
 
-          <label className="flex flex-col gap-1.5 text-sm text-slate-300">
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-200">
             Model
             <Select
               value={settings.model}
@@ -472,20 +472,22 @@ export function SettingsView() {
             description="Runs a second OpenAI pass after transcription to rewrite the finalized transcript into an English implementation prompt for coding agents."
           >
 
-          <label className={`flex items-center gap-3 text-sm text-slate-300 cursor-pointer ${controlMotion} hover:text-white`}>
-            <input
-              type="checkbox"
-              checked={settings.prompt_optimization_enabled}
-              onChange={(e) => setSettings({ ...settings, prompt_optimization_enabled: e.target.checked })}
-              className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
-            />
-            <div className="flex flex-col">
-              <span>Improve into prompt</span>
-              <span className="text-base leading-7 text-slate-400">Adds an extra OpenAI model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
+          <label className={`flex items-start gap-3 text-sm cursor-pointer ${controlMotion}`}>
+            <div className="pt-1">
+              <input
+                type="checkbox"
+                checked={settings.prompt_optimization_enabled}
+                onChange={(e) => setSettings({ ...settings, prompt_optimization_enabled: e.target.checked })}
+                className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
+              />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="font-medium text-slate-200">Improve into prompt</span>
+              <span className="text-xs leading-normal text-slate-500">Adds an extra OpenAI model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
             </div>
           </label>
 
-          <label className="flex flex-col gap-1.5 text-sm text-slate-300">
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-200">
             Model
             <Select
               value={settings.prompt_optimizer_model}
@@ -494,15 +496,15 @@ export function SettingsView() {
             />
           </label>
 
-          <p className="text-base leading-7 text-slate-400">
+          <p className="text-xs leading-normal text-slate-500">
             Uses the saved OpenAI API key above. Keep the static metaprompt first and the dictated request last to maximize prompt caching.
           </p>
           </ControlSection>
 
           <ControlSection eyebrow="Behavior">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5 text-sm text-slate-300">
-              Hotkey
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-slate-200">Hotkey</span>
               <div className="flex gap-2 items-center">
                 <input
                   type="text"
@@ -525,20 +527,20 @@ export function SettingsView() {
                 </button>
               </div>
             </div>
-            <label className="flex flex-col gap-1.5 text-sm text-slate-300">
-              Language Preference
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-slate-200">Language Preference</span>
               <Select
                 value={settings.language}
                 onChange={(value) => setSettings({ ...settings, language: value })}
                 options={LANGUAGES}
               />
-              <span className="text-base leading-7 text-slate-400">
+              <span className="text-[11px] leading-relaxed text-slate-500">
                 Auto Detect handles mixed dictation. Choose Portuguese or English only if you want to bias transcription toward one language.
               </span>
             </label>
 
-            <label className="flex flex-col gap-1.5 text-sm text-slate-300">
-              Mic Sensitivity
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-slate-200">Mic Sensitivity</span>
               <div className="flex items-center gap-3">
                 <input
                   type="range"
@@ -548,72 +550,78 @@ export function SettingsView() {
                   onChange={(e) => setSettings({ ...settings, mic_sensitivity: Number(e.target.value) })}
                   className="focus-ring flex-1 cursor-pointer accent-primary"
                 />
-                <span className="w-8 text-right text-sm text-slate-400">
+                <span className="w-8 text-right text-xs font-mono text-slate-500">
                   {settings.mic_sensitivity}
                 </span>
               </div>
-              <div className="flex justify-between text-sm text-slate-500">
+              <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-600">
                 <span>Less noise</span>
                 <span>Quieter voice</span>
               </div>
-              <span className="text-base leading-7 text-slate-400">
+              <span className="text-[11px] leading-relaxed text-slate-500">
                 Higher sensitivity helps softer speech, but can pick up more background noise.
               </span>
             </label>
           </div>
 
-          <div className="space-y-2">
-            <label className={`flex items-center gap-3 text-sm text-slate-300 cursor-pointer ${controlMotion} hover:text-white`}>
-              <input
-                type="checkbox"
-                checked={settings.widget_mode}
-                onChange={(e) => setSettings({ ...settings, widget_mode: e.target.checked })}
-                className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
-              />
-              <div className="flex flex-col">
-                <span>Widget Mode</span>
-                <span className="text-base leading-7 text-slate-400">Minimal UI with only waveforms</span>
+          <div className="space-y-4 pt-2">
+            <label className={`flex items-start gap-3 text-sm cursor-pointer ${controlMotion}`}>
+              <div className="pt-1">
+                <input
+                  type="checkbox"
+                  checked={settings.widget_mode}
+                  onChange={(e) => setSettings({ ...settings, widget_mode: e.target.checked })}
+                  className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
+                />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium text-slate-200">Widget Mode</span>
+                <span className="text-xs leading-normal text-slate-500">Minimal UI with only waveforms</span>
               </div>
             </label>
 
-            <label className={`flex items-center gap-3 text-sm text-slate-300 cursor-pointer ${controlMotion} hover:text-white`}>
+            <label className={`flex items-center gap-3 text-sm cursor-pointer ${controlMotion}`}>
               <input
                 type="checkbox"
                 checked={settings.auto_paste}
                 onChange={(e) => setSettings({ ...settings, auto_paste: e.target.checked })}
                 className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
               />
-              <span>Auto Paste Transcript</span>
+              <span className="font-medium text-slate-200">Auto Paste Transcript</span>
             </label>
 
-            <label className={`flex items-center gap-3 text-sm text-slate-300 cursor-pointer ${controlMotion} hover:text-white`}>
-              <input
-                type="checkbox"
-                checked={settings.preserve_clipboard}
-                onChange={(e) => setSettings({ ...settings, preserve_clipboard: e.target.checked })}
-                className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
-              />
-              <div className="flex flex-col">
-                <span>Preserve Clipboard</span>
-                <span className="text-base leading-7 text-slate-400">Restore the original clipboard after a successful auto-paste</span>
+            <label className={`flex items-start gap-3 text-sm cursor-pointer ${controlMotion}`}>
+              <div className="pt-1">
+                <input
+                  type="checkbox"
+                  checked={settings.preserve_clipboard}
+                  onChange={(e) => setSettings({ ...settings, preserve_clipboard: e.target.checked })}
+                  className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
+                />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium text-slate-200">Preserve Clipboard</span>
+                <span className="text-xs leading-normal text-slate-500">Restore the original clipboard after a successful auto-paste</span>
               </div>
             </label>
 
-            <label className={`flex items-center gap-3 text-sm text-slate-300 cursor-pointer ${controlMotion} hover:text-white`}>
-              <input
-                type="checkbox"
-                checked={autostart}
-                onChange={(e) => setAutostart(e.target.checked)}
-                disabled={!autostartAvailable}
-                className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
-              />
-              <span>Launch on Startup</span>
-            </label>
-            {!autostartAvailable && (
-              <p className="pl-7 text-base leading-7 text-slate-400">
-                Launch on Startup is only available from the installed app.
-              </p>
-            )}
+            <div className="flex flex-col gap-2">
+              <label className={`flex items-center gap-3 text-sm cursor-pointer ${controlMotion}`}>
+                <input
+                  type="checkbox"
+                  checked={autostart}
+                  onChange={(e) => setAutostart(e.target.checked)}
+                  disabled={!autostartAvailable}
+                  className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
+                />
+                <span className="font-medium text-slate-200">Launch on Startup</span>
+              </label>
+              {!autostartAvailable && (
+                <p className="pl-7 text-xs leading-normal text-slate-500">
+                  Launch on Startup is only available from the installed app.
+                </p>
+              )}
+            </div>
           </div>
           </ControlSection>
 
@@ -623,7 +631,7 @@ export function SettingsView() {
               <button
                 type="button"
                 onClick={() => void refreshUpdate()}
-                className={`focus-ring flex cursor-pointer items-center gap-1 text-sm text-slate-400 ${controlMotion} hover:text-primary`}
+                className={`focus-ring flex cursor-pointer items-center gap-1 text-xs font-medium text-slate-500 ${controlMotion} hover:text-primary`}
               >
                 <RefreshCw size={10} />
                 Refresh
@@ -634,20 +642,20 @@ export function SettingsView() {
               {isCheckingForUpdates ? (
                 <div className="py-2 text-slate-200">
                   {currentVersionRow}
-                  <p className="mt-3 text-base leading-7 text-slate-400">
+                  <p className="mt-3 text-xs leading-normal text-slate-500">
                     Checking for updates...
                   </p>
                 </div>
               ) : updateCheckError ? (
-                <div className="py-2 text-red-400">
+                <div className="py-2">
                   {currentVersionRow}
-                  <p className="mt-3 text-base font-medium text-red-100">
+                  <p className="mt-3 text-sm font-medium text-red-400">
                     Could not check for updates.
                   </p>
-                  <p className="mt-1 text-base leading-7 text-red-100/90">
+                  <p className="mt-1 text-xs leading-normal text-red-400/80">
                     Refresh to try again.
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-red-100/70">
+                  <p className="mt-2 text-[10px] font-mono leading-normal text-red-400/60">
                     {updateCheckError}
                   </p>
                 </div>
@@ -656,15 +664,15 @@ export function SettingsView() {
                   className="py-2 text-slate-200"
                 >
                   {currentVersionRow}
-                  <div className="mt-3 flex items-center justify-between text-sm text-slate-300">
+                  <div className="mt-3 flex items-center justify-between text-xs font-medium text-slate-300">
                     <span>Update available</span>
-                    <span className="text-sm font-mono text-slate-400">v{availableUpdate.version}</span>
+                    <span className="font-mono text-slate-500">v{availableUpdate.version}</span>
                   </div>
                   <button
                     type="button"
                     onClick={handleApplyUpdate}
                     disabled={isApplyingUpdate}
-                    className="focus-ring mt-3 w-full rounded-lg border border-primary/30 bg-primary/10 py-2 text-sm font-semibold text-amber-50 transition-[background-color,color,transform] duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="focus-ring mt-3 w-full rounded border border-primary/30 bg-primary/10 py-2 text-sm font-semibold text-amber-50 transition-[background-color,color,transform] duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isApplyingUpdate ? "Updating..." : "Update"}
                   </button>
@@ -672,21 +680,21 @@ export function SettingsView() {
               ) : (
                 <div className="py-2 text-slate-200">
                   {currentVersionRow}
-                  <p className="mt-3 text-base leading-7 text-slate-400">
+                  <p className="mt-3 text-xs leading-normal text-slate-500">
                     No update available.
                   </p>
                 </div>
               )}
 
               {updateInstallError && (
-                <div className="py-2 text-red-400">
-                  <p className="text-base font-medium text-red-100">
+                <div className="py-2">
+                  <p className="text-sm font-medium text-red-400">
                     Update installation failed.
                   </p>
-                  <p className="mt-1 text-base leading-7 text-red-100/90">
+                  <p className="mt-1 text-xs leading-normal text-red-400/80">
                     Close and reopen FamVoice, then try installing the update again.
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-red-100/70">
+                  <p className="mt-2 text-[10px] font-mono leading-normal text-red-400/60">
                     {updateInstallError}
                   </p>
                 </div>
@@ -700,7 +708,7 @@ export function SettingsView() {
               <button
                 type="button"
                 onClick={addReplacement}
-                className={`focus-ring flex cursor-pointer items-center gap-1 text-sm text-primary ${controlMotion} hover:text-amber-200`}
+                className={`focus-ring flex cursor-pointer items-center gap-1 text-xs font-medium text-primary ${controlMotion} hover:text-amber-200`}
               >
                 <Plus size={10} /> Add
               </button>
@@ -710,37 +718,37 @@ export function SettingsView() {
               {settings.replacements.map((replacement) => (
                 <div
                   key={replacement.id}
-                  className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/20 p-3 md:flex-row md:items-end"
+                  className="flex items-end gap-3 rounded-xl border border-white/10 bg-black/10 p-3"
                 >
-                  <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm font-medium text-slate-400">
-                    <span>Spoken term</span>
+                  <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm font-medium">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Spoken term</span>
                     <input
                       value={replacement.target}
                       onChange={(e) => updateReplacement(replacement.id, "target", e.target.value)}
-                      className={`focus-ring min-w-0 border-b border-white/10 bg-transparent p-1.5 text-base text-white ${controlMotion} focus-visible:border-primary`}
+                      className={`focus-ring min-w-0 border-b border-white/10 bg-transparent p-1 text-base text-white ${controlMotion} focus-visible:border-primary`}
                     />
                   </label>
-                  <span className="hidden pb-2 text-sm text-slate-400 md:block">-&gt;</span>
-                  <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm font-medium text-slate-400">
-                    <span>Replacement</span>
+                  <span className="pb-2 text-sm text-slate-600">-&gt;</span>
+                  <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm font-medium">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Replacement</span>
                     <input
                       value={replacement.replacement}
                       onChange={(e) => updateReplacement(replacement.id, "replacement", e.target.value)}
-                      className={`focus-ring min-w-0 border-b border-white/10 bg-transparent p-1.5 text-base text-white ${controlMotion} focus-visible:border-primary`}
+                      className={`focus-ring min-w-0 border-b border-white/10 bg-transparent p-1 text-base text-white ${controlMotion} focus-visible:border-primary`}
                     />
                   </label>
                   <button
                     type="button"
                     onClick={() => removeReplacement(replacement.id)}
                     aria-label="Delete glossary row"
-                    className={`focus-ring self-end cursor-pointer rounded p-1 text-gray-600 ${controlMotion} hover:text-red-400`}
+                    className={`focus-ring self-end cursor-pointer rounded p-1 text-gray-700 ${controlMotion} hover:text-red-500`}
                   >
                     <Trash2 size={12} />
                   </button>
                 </div>
               ))}
               {settings.replacements.length === 0 && (
-                <p className="text-base italic text-slate-500">No glossary entries configured.</p>
+                <p className="text-sm italic text-slate-600">No glossary entries configured.</p>
               )}
             </div>
           </ControlSection>
@@ -753,7 +761,7 @@ export function SettingsView() {
             <p className="text-base font-medium text-red-100">
               Could not save settings.
             </p>
-            <p className="mt-1 text-base leading-7 text-red-50/90">
+            <p className="mt-1 text-sm leading-6 text-red-50/90">
               Check the fields above, fix any missing values, and save again.
             </p>
             <p className="mt-2 text-sm leading-6 text-red-50/70">

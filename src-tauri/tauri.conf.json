@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "FamVoice",
-        "width": 260,
-        "height": 175,
+        "width": 330,
+        "height": 180,
         "transparent": true,
         "shadow": false,
         "decorations": false,

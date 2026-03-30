@@ -27,7 +27,7 @@ function getRecordTabBlock() {
 }
 
 function getHistoryTabBlock() {
-  const historyTabIndex = mainViewSource.indexOf('className="custom-scrollbar flex-1 overflow-y-auto px-4 pb-4"');
+  const historyTabIndex = mainViewSource.indexOf('className="custom-scrollbar flex-1 overflow-y-auto px-3 pb-3"');
   assert.notEqual(historyTabIndex, -1, "expected history tab content in MainView.tsx");
 
   return mainViewSource.slice(historyTabIndex - 300, historyTabIndex + 3200);
@@ -74,7 +74,7 @@ test("widget shell keeps the compact surface without an exterior shadow", () => 
 });
 
 test("MainView uses the refreshed shell with an inline update notice", () => {
-  assert.match(mainViewSource, /className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-\[20px\] bg-\[#161B26\]"/);
+  assert.match(mainViewSource, /className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-\[16px\] bg-\[#161B26\]"/);
   assert.match(mainViewSource, /Update available/);
   assert.match(mainViewSource, /pendingUpdate\.version/);
   assert.match(mainViewSource, /dismissUpdateNotice/);
@@ -87,9 +87,9 @@ test("MainView keeps the open record surface and guided history list", () => {
   const historyTabBlock = getHistoryTabBlock();
 
   assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
-  assert.match(recordTabBlock, /rounded-\[24px\] border border-white\/10 bg-white\/\[0\.03\]/);
-  assert.match(recordTabBlock, /flex flex-wrap items-center gap-3/);
-  assert.match(recordTabBlock, /text-base leading-7 text-slate-400/);
+  assert.match(recordTabBlock, /rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\]/);
+  assert.match(recordTabBlock, /flex flex-wrap items-center gap-2/);
+  assert.match(recordTabBlock, /text-xs leading-5 text-slate-400/);
   assert.match(recordTabBlock, /Review the error details, then try again or open settings\./);
   assert.match(recordTabBlock, /Open settings to add the missing API key before you dictate\./);
   assert.match(historyTabBlock, /custom-scrollbar/);

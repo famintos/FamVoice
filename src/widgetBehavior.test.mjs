@@ -87,8 +87,8 @@ test("voice wave supports explicit modes and size variants", () => {
   assert.match(voiceWaveSource, /w-\[3px\]/);
   assert.match(voiceWaveSource, /w-\[3\.5px\]/);
   assert.match(voiceWaveSource, /size === "large"/);
-  assert.match(voiceWaveSource, /h-10 gap-\[4px\]/);
-  assert.match(voiceWaveSource, /w-\[4px\]/);
+  assert.match(voiceWaveSource, /h-7 gap-\[3px\]/);
+  assert.match(voiceWaveSource, /w-\[3px\]/);
   assert.match(voiceWaveSource, /const motionClass = isRecording[\s\S]*"wave-bar"[\s\S]*"wave-processing"[\s\S]*transition-\[opacity,transform,height\]/);
 });
 
@@ -97,9 +97,9 @@ test("record tab keeps the open record surface and guided recovery states", () =
 
   assert.match(mainViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
   assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
-  assert.match(recordTabBlock, /rounded-\[24px\] border border-white\/10 bg-white\/\[0\.03\]/);
-  assert.match(recordTabBlock, /<p className="text-base leading-7 text-slate-100">\{transcript\}<\/p>/);
-  assert.match(recordTabBlock, /<p className="text-base leading-7 text-slate-400">\{stageHint\}<\/p>/);
+  assert.match(recordTabBlock, /rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\]/);
+  assert.match(recordTabBlock, /<p className="text-xs leading-5 text-slate-100">\{transcript\}<\/p>/);
+  assert.match(recordTabBlock, /<p className="text-xs leading-5 text-slate-400">\{stageHint\}<\/p>/);
   assert.match(recordTabBlock, /Review the error details, then try again or open settings\./);
   assert.match(mainViewSource, /status === "idle" && !transcript && \(missingTranscriptionKey \|\| missingPromptOptimizerKey\) && \(/);
   assert.match(recordTabBlock, /Open settings to add the missing API key before you dictate\./);

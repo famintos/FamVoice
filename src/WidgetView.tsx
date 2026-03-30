@@ -43,7 +43,7 @@ export function WidgetView({
       onClick={() => {
         void onOpenSettings();
       }}
-      className="focus-ring w-fit rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-sm font-medium text-white transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:border-primary/40 hover:text-primary"
+      className="focus-ring w-fit rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs font-medium text-white transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:border-primary/40 hover:text-primary"
     >
       Open settings
     </button>

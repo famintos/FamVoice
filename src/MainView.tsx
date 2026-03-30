@@ -333,14 +333,14 @@ export function MainView() {
 
   return (
     <main
-      className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[20px] bg-[#161B26]"
+      className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[16px] bg-[#161B26]"
     >
       {pendingUpdate && isUpdateNoticeOpen && (
-        <div className="absolute inset-x-2 top-2 z-20 no-drag rounded-xl bg-transparent p-3">
+        <div className="absolute inset-x-1.5 top-1.5 z-20 no-drag rounded-lg bg-transparent p-2">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
-              <p className="text-sm font-medium text-white">Update available</p>
-              <p className="text-sm text-primary">v{pendingUpdate.version}</p>
+              <p className="text-xs font-medium text-white">Update available</p>
+              <p className="text-xs text-primary">v{pendingUpdate.version}</p>
             </div>
             <button
               type="button"
@@ -348,7 +348,7 @@ export function MainView() {
               className={`focus-ring rounded p-1 text-slate-500 ${controlMotion} hover:text-white`}
               aria-label="Dismiss update notice"
             >
-              <X size={14} />
+              <X size={12} />
             </button>
           </div>
           <button
@@ -357,7 +357,7 @@ export function MainView() {
               dismissUpdateNotice();
               void handleOpenSettings();
             }}
-            className={`focus-ring mt-3 w-full rounded py-1.5 text-left text-sm font-medium text-primary ${controlMotion} hover:text-white`}
+            className={`focus-ring mt-2 w-full rounded py-1 text-left text-xs font-medium text-primary ${controlMotion} hover:text-white`}
           >
             Open settings
           </button>
@@ -365,35 +365,35 @@ export function MainView() {
       )}
 
       {/* Header */}
-      <div data-tauri-drag-region className="relative z-10 flex items-center justify-between px-4 pt-4 pb-2">
+      <div data-tauri-drag-region className="relative z-10 flex items-center justify-between px-3 pt-2 pb-0.5">
         <div className="flex items-center gap-2 pointer-events-none select-none">
-          <FamVoiceLockup markSize={18} />
+          <FamVoiceLockup markSize={14} />
         </div>
 
-        <div className="flex items-center gap-2.5 no-drag text-slate-500">
+        <div className="flex items-center gap-1.5 no-drag text-slate-500">
           <button
             type="button"
             onClick={() => appWindow.minimize()}
-            className={`focus-ring rounded p-1 ${controlMotion} hover:text-white`}
+            className={`focus-ring rounded p-0.5 ${controlMotion} hover:text-white`}
             aria-label="Minimize window"
           >
-            <Minus size={12} />
+            <Minus size={10} />
           </button>
           <button
             type="button"
             onClick={() => appWindow.close()}
-            className={`focus-ring rounded p-1 ${controlMotion} hover:text-red-400`}
+            className={`focus-ring rounded p-0.5 ${controlMotion} hover:text-red-400`}
             aria-label="Close window"
           >
-            <X size={12} />
+            <X size={10} />
           </button>
         </div>
       </div>
 
       {/* Tab Switcher */}
-      <div className="relative z-10 px-4 no-drag">
-        <div className="flex items-center justify-between pb-2">
-          <div className="flex gap-2" role="tablist" aria-label="Main sections">
+      <div className="relative z-10 px-3 no-drag">
+        <div className="flex items-center justify-between pb-0.5">
+          <div className="flex gap-1" role="tablist" aria-label="Main sections">
             <button
               type="button"
               id="record-tab"
@@ -401,7 +401,7 @@ export function MainView() {
               onClick={() => setActiveTab("record")}
               aria-controls="record-panel"
               aria-selected={activeTab === "record"}
-              className={`focus-ring rounded-full px-3 py-1.5 text-sm font-medium tracking-tight ${controlMotion} ${
+               className={`focus-ring rounded-full px-2 py-1 text-[11px] font-medium tracking-tight ${controlMotion} ${
                 activeTab === "record"
                   ? "bg-white/10 text-white"
                   : "text-slate-500 hover:text-slate-300"
@@ -416,7 +416,7 @@ export function MainView() {
               onClick={() => setActiveTab("history")}
               aria-controls="history-panel"
               aria-selected={activeTab === "history"}
-              className={`focus-ring rounded-full px-3 py-1.5 text-sm font-medium tracking-tight ${controlMotion} ${
+               className={`focus-ring rounded-full px-2 py-1 text-[11px] font-medium tracking-tight ${controlMotion} ${
                 activeTab === "history"
                   ? "bg-white/10 text-white"
                   : "text-slate-500 hover:text-slate-300"
@@ -426,21 +426,21 @@ export function MainView() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => void handleOpenSettings()}
-              className={`focus-ring inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-sm font-medium text-slate-400 ${controlMotion} hover:border-primary/40 hover:text-white`}
+              className={`focus-ring inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[11px] font-medium text-slate-400 ${controlMotion} hover:border-primary/40 hover:text-white`}
               aria-label="Open settings"
             >
-              <SettingsIcon size={12} />
+              <SettingsIcon size={10} />
               Settings
             </button>
             {activeTab === "history" && history.length > 0 && (
               <button
                 type="button"
                 onClick={clearHistory}
-                className={`focus-ring rounded-full px-3 py-1.5 text-sm font-medium tracking-tight text-slate-400 ${controlMotion} hover:text-red-400`}
+                className={`focus-ring rounded-full px-2 py-1 text-[11px] font-medium tracking-tight text-slate-400 ${controlMotion} hover:text-red-400`}
               >
                 Clear history
               </button>
@@ -456,50 +456,50 @@ export function MainView() {
             id="record-panel"
             role="tabpanel"
             aria-labelledby="record-tab"
-            className="flex h-full flex-col px-4 pb-4"
+            className="flex h-full flex-col px-3 pb-3"
           >
-            <div className="flex flex-1 flex-col gap-4 rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4 no-drag">
-              <div className="flex flex-wrap items-center gap-3">
-                <VoiceWave mode={waveMode} size="large" />
-                <div className="space-y-1">
-                  <h2 className="text-base font-medium tracking-tight text-white">
+            <div className={`flex flex-1 flex-col items-center ${status === "error" ? "justify-start pt-2" : "justify-center"} gap-2 rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-2 no-drag text-center`}>
+              <div className="flex flex-col items-center gap-1.5">
+                <VoiceWave mode={waveMode} size={status === "error" ? "default" : "large"} />
+                <div className="space-y-0">
+                  <h2 className="text-sm font-medium tracking-tight text-white">
                     {statusLabel}
                   </h2>
-                  <p className="max-w-[34rem] text-base leading-7 text-slate-400">
-                    {stageHint}
-                  </p>
+                  {status !== "error" && (
+                    <p className="max-w-[14rem] text-[11px] leading-tight text-slate-400">
+                      {stageHint}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              <div className="w-full max-w-[44rem] space-y-3">
+              <div className="w-full max-w-[16rem]">
                 {status === "error" && transcript ? (
-                  <div className="rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle size={16} className="mt-0.5 shrink-0 text-danger" />
-                      <div className="space-y-2">
-                        <p className="text-base leading-7 text-red-50">{transcript}</p>
-                        <p className="text-base leading-7 text-red-100/80">Review the error details, then try again or open settings.</p>
+                  <div className="rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5">
+                    <div className="flex items-start gap-2 text-left">
+                      <AlertCircle size={13} className="mt-0.5 shrink-0 text-danger" />
+                      <div className="space-y-0.5">
+                        <p className="text-[11px] font-medium leading-tight text-red-50">{transcript}</p>
+                        <p className="text-[10px] leading-tight text-red-100/60">Try again or check settings.</p>
                       </div>
                     </div>
                   </div>
                 ) : transcript ? (
-                  <p className="text-base leading-7 text-slate-100">{transcript}</p>
-                ) : (
-                  <p className="text-base leading-7 text-slate-400">{stageHint}</p>
-                )}
+                  <p className="text-[11px] leading-tight text-slate-100">{transcript}</p>
+                ) : null}
               </div>
 
               {status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey) && (
-                <div className="w-full max-w-[34rem] rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3">
-                  <p className="text-base leading-7 text-amber-50">
-                    Open settings to add the missing API key before you dictate.
+                <div className="w-full max-w-[14rem] rounded-lg border border-primary/20 bg-primary/10 px-2 py-1.5">
+                  <p className="text-[10px] leading-tight text-amber-50">
+                    Add API key in settings.
                   </p>
                   <button
                     type="button"
                     onClick={() => void handleOpenSettings()}
-                    className={`focus-ring mt-3 rounded-full border border-primary/30 bg-black/20 px-3 py-1.5 text-sm font-medium text-primary ${controlMotion} hover:bg-white/10`}
+                    className={`focus-ring mt-1 rounded-full border border-primary/30 bg-black/20 px-2 py-0.5 text-[9px] font-medium text-primary ${controlMotion} hover:bg-white/10`}
                   >
-                    Open settings
+                    Settings
                   </button>
                 </div>
               )}
@@ -512,11 +512,11 @@ export function MainView() {
             aria-labelledby="history-tab"
             className="flex h-full flex-col no-drag"
           >
-            <div className="custom-scrollbar flex-1 overflow-y-auto px-4 pb-4">
+            <div className="custom-scrollbar flex-1 overflow-y-auto px-3 pb-3">
               {history.map((item) => (
-                <div key={item.id} className={`relative -mx-2 rounded-lg px-2 py-3 ${controlMotion} hover:bg-white/5`}>
-                  <p className="pr-2 text-base leading-7 text-slate-200">{item.text}</p>
-                  <div className="mt-2 flex items-center justify-between">
+                <div key={item.id} className={`relative -mx-1 rounded-lg px-1 py-2 ${controlMotion} hover:bg-white/5`}>
+                  <p className="pr-1 text-xs leading-5 text-slate-200">{item.text}</p>
+                  <div className="mt-1.5 flex items-center justify-between">
                     <span className="text-[10px] text-slate-600 font-mono">
                       {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
@@ -527,7 +527,7 @@ export function MainView() {
                         className={`focus-ring rounded p-1 ${controlMotion} hover:text-white`}
                         aria-label="Copy transcript"
                       >
-                        <Copy size={12} />
+                        <Copy size={10} />
                       </button>
                       <button
                         type="button"
@@ -535,7 +535,7 @@ export function MainView() {
                         className={`focus-ring rounded p-1 ${controlMotion} hover:text-primary`}
                         aria-label="Re-paste transcript"
                       >
-                        <RefreshCw size={12} />
+                        <RefreshCw size={10} />
                       </button>
                       <button
                         type="button"
@@ -543,7 +543,7 @@ export function MainView() {
                         className={`focus-ring rounded p-1 ${controlMotion} hover:text-red-400`}
                         aria-label="Delete transcript"
                       >
-                        <Trash2 size={12} />
+                        <Trash2 size={10} />
                       </button>
                     </div>
                   </div>
@@ -551,12 +551,12 @@ export function MainView() {
               ))}
               
               {history.length === 0 && (
-                <div className="flex h-full flex-col items-center justify-center pb-8 text-center text-slate-500 pointer-events-none">
-                  <HistoryIcon size={28} className="mb-3 opacity-50" />
-                  <p className="text-base font-medium text-slate-200">
+                <div className="flex h-full flex-col items-center justify-center pb-4 text-center text-slate-500 pointer-events-none">
+                  <HistoryIcon size={20} className="mb-2 opacity-50" />
+                  <p className="text-sm font-medium text-slate-200">
                     Dictate something to create your first history entry.
                   </p>
-                  <p className="mt-2 max-w-[18rem] text-base leading-7 text-slate-400">
+                  <p className="mt-1 max-w-[14rem] text-xs leading-5 text-slate-400">
                     Your past dictations will appear here so you can copy, re-paste, or delete them later.
                   </p>
                 </div>

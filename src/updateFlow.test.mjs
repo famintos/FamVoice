@@ -80,11 +80,11 @@ test("main view keeps the startup update check from reopening after dismissal", 
 test("main view keeps a one-shot dismissible update notice with version text", () => {
   const noticeBlock = getUpdateNoticeBlock();
   const updatePanelWithActionPattern =
-    /className="absolute inset-x-2 top-2 z-20 no-drag rounded-xl bg-transparent p-3"[\s\S]*?<button[\s\S]*?onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);[\s\S]*?\}\}[\s\S]*?>\s*Open settings/u;
+    /className="absolute inset-x-1\.5 top-1\.5 z-20 no-drag rounded-lg bg-transparent p-2"[\s\S]*?<button[\s\S]*?onClick=\{\(\) => \{\s*dismissUpdateNotice\(\);\s*void handleOpenSettings\(\);[\s\S]*?\}\}[\s\S]*?>\s*Open settings/u;
 
   assert.match(mainViewSource, /const \[isUpdateNoticeOpen, setIsUpdateNoticeOpen\] = useState\(false\);/);
   assert.match(mainViewSource, /const hasDismissedUpdateNoticeRef = useRef\(false\);/);
-  assert.match(noticeBlock, /className="absolute inset-x-2 top-2 z-20 no-drag rounded-xl bg-transparent p-3"/);
+  assert.match(noticeBlock, /className="absolute inset-x-1\.5 top-1\.5 z-20 no-drag rounded-lg bg-transparent p-2"/);
   assert.match(noticeBlock, updatePanelWithActionPattern);
   assert.match(noticeBlock, /Update available/);
   assert.match(noticeBlock, /v\{pendingUpdate\.version\}/);

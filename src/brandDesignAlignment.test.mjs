@@ -45,10 +45,10 @@ test("main shell keeps drag behavior on the title bar only", () => {
 });
 
 test("main record and history copy uses the upgraded body scale", () => {
-  assert.match(mainView, /text-base leading-7 text-slate-400/);
-  assert.match(mainView, /text-base leading-7 text-red-100\/80/);
-  assert.match(mainView, /text-base leading-7 text-amber-50/);
-  assert.match(mainView, /text-base leading-7 text-slate-200/);
+  assert.match(mainView, /text-xs leading-5 text-slate-400/);
+  assert.match(mainView, /text-xs leading-5 text-red-100\/80/);
+  assert.match(mainView, /text-xs leading-5 text-amber-50/);
+  assert.match(mainView, /text-xs leading-5 text-slate-200/);
 });
 
 test("main icon-only controls expose explicit aria labels", () => {
@@ -71,8 +71,8 @@ test("glossary rows keep persistent labels", () => {
 });
 
 test("settings helper copy and glossary content use the upgraded body scale", () => {
-  assert.match(settingsView, /max-w-\[42rem\] text-base leading-7 text-slate-500/);
-  assert.match(settingsView, /text-base leading-7 text-slate-400/);
+  assert.match(settingsView, /max-w-\[42rem\] text-sm leading-6 text-slate-500/);
+  assert.match(settingsView, /text-sm leading-6 text-slate-400/);
   assert.match(settingsView, /const controlMotion = "transition-colors duration-\[var\(--fam-duration-fast\)\] ease-\[var\(--fam-ease-ease\)\]";/);
   assert.match(settingsView, /text-base text-white \$\{controlMotion\} focus-visible:border-primary/);
   assert.match(settingsView, /-&gt;<\/span>/);
@@ -123,7 +123,7 @@ test("widget missing-key and error states expose a visible settings action", () 
   assert.match(widgetView, /Open settings/);
   assert.doesNotMatch(widgetView, /title=/);
   assert.match(widgetView, /const settingsAction = \(\s*<button/);
-  assert.match(widgetView, /className="focus-ring [^"]*text-sm font-medium[^"]*"/);
+  assert.match(widgetView, /className="focus-ring [^"]*text-xs font-medium[^"]*"/);
 });
 
 test("widget normal states expose a visible settings action", () => {

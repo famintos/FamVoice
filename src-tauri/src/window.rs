@@ -1,7 +1,7 @@
 use tauri::{AppHandle, LogicalSize, Manager, Size, WebviewWindow};
 
-const DEFAULT_WINDOW_WIDTH: f64 = 260.0;
-const DEFAULT_WINDOW_HEIGHT: f64 = 175.0;
+const DEFAULT_WINDOW_WIDTH: f64 = 360.0;
+const DEFAULT_WINDOW_HEIGHT: f64 = 200.0;
 const DEFAULT_WIDGET_WIDTH: f64 = 128.0;
 const DEFAULT_WIDGET_HEIGHT: f64 = 44.0;
 
