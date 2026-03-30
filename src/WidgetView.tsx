@@ -71,23 +71,23 @@ export function WidgetView({
         }}
       >
         {showIssue ? (
-          <div className="flex flex-col gap-1.5 px-1 py-1">
-            <div className="flex items-start gap-2.5">
+          <div className="flex items-center gap-3 px-1.5 py-1">
+            <div className="relative flex items-center select-none">
               <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
-              <div className="min-w-0 flex-1 space-y-0">
+              <div className="absolute inset-y-0 right-0 left-[28px] flex flex-col justify-center min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
-                  <p className={`text-[11px] font-semibold ${statusTextClassName}`}>
+                  <div className={`h-1 w-1 shrink-0 rounded-full ${statusDotClassName}`} />
+                  <p className={`truncate text-[10px] font-bold leading-none ${statusTextClassName}`}>
                     {statusLabel}
                   </p>
                 </div>
-                <p className="text-[10px] leading-tight text-slate-400">
+                <p className="truncate text-[9px] leading-tight text-slate-400">
                   {statusCopy}
                 </p>
               </div>
             </div>
 
-            <div className="flex justify-end pt-0.5">
+            <div className="ml-1">
               {settingsAction}
             </div>
           </div>

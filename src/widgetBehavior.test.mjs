@@ -35,7 +35,7 @@ function getRecordTabBlock() {
   const recordTabIndex = mainViewSource.indexOf('{activeTab === "record" ? (');
   assert.notEqual(recordTabIndex, -1, "expected record tab branch in MainView.tsx");
 
-  return mainViewSource.slice(recordTabIndex, recordTabIndex + 2600);
+  return mainViewSource.slice(recordTabIndex, recordTabIndex + 3600);
 }
 
 test("widget container uses manual dragging instead of native drag-region", () => {
@@ -96,13 +96,22 @@ test("record tab keeps the open record surface and guided recovery states", () =
   const recordTabBlock = getRecordTabBlock();
 
   assert.match(mainViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
+  assert.match(mainViewSource, /const showSettingsNotice = status === "idle" && !transcript && \(missingTranscriptionKey \|\| missingPromptOptimizerKey\);/);
+  assert.match(mainViewSource, /const showRecordError = status === "error" && Boolean\(transcript\);/);
+  assert.match(mainViewSource, /const showRecordTranscript = !showRecordError && Boolean\(transcript\);/);
   assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
+  assert.match(recordTabBlock, /flex flex-1 flex-col items-center justify-center rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\] px-3 py-2\.5 no-drag text-center/);
   assert.match(recordTabBlock, /rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\]/);
-  assert.match(recordTabBlock, /<p className="text-xs leading-5 text-slate-100">\{transcript\}<\/p>/);
-  assert.match(recordTabBlock, /<p className="text-xs leading-5 text-slate-400">\{stageHint\}<\/p>/);
-  assert.match(recordTabBlock, /Review the error details, then try again or open settings\./);
-  assert.match(mainViewSource, /status === "idle" && !transcript && \(missingTranscriptionKey \|\| missingPromptOptimizerKey\) && \(/);
-  assert.match(recordTabBlock, /Open settings to add the missing API key before you dictate\./);
+  assert.match(recordTabBlock, /flex flex-col items-center gap-2/);
+  assert.match(recordTabBlock, /mt-0\.5 flex min-h-\[2\.5rem\] w-full max-w-\[16rem\] items-start justify-center/);
+  assert.match(recordTabBlock, /status === "error" \? "min-h-\[1rem\]" : "min-h-\[1\.75rem\]"/);
+  assert.match(recordTabBlock, /<p className="text-\[11px\] font-medium leading-tight text-red-50">\{transcript\}<\/p>/);
+  assert.match(recordTabBlock, /status === "error" \? "invisible" : ""/);
+  assert.match(recordTabBlock, /aria-hidden=\{status === "error"\}/);
+  assert.match(recordTabBlock, /custom-scrollbar max-h-\[2\.5rem\] overflow-y-auto px-1/);
+  assert.match(recordTabBlock, /Try again or check settings\./);
+  assert.match(recordTabBlock, /Add API key in settings\./);
+  assert.match(recordTabBlock, /<div className="h-\[2\.5rem\]" aria-hidden="true" \/>/);
 });
 
 test("widget does not expose an update-ready indicator or tooltip", () => {
@@ -116,21 +125,21 @@ test("widget keeps the compact lockup and exposes a visible settings action", ()
   assert.match(widgetViewSource, /className="widget-status/);
   assert.match(
     widgetViewSource,
-    /className="widget-shell relative rounded-\[18px\] px-2 py-2 overflow-hidden"/,
+    /className="widget-shell relative rounded-\[16px\] px-2 py-1\.5 overflow-hidden"/,
   );
   assert.match(widgetViewSource, /className="flex items-center gap-2\.5 pointer-events-none select-none"/);
   assert.match(widgetViewSource, /const settingsAction = \(/);
-  assert.match(widgetViewSource, /Open settings/);
-  assert.match(widgetViewSource, /<FamVoiceLockup markSize=\{26\} \/>/);
-  assert.match(widgetViewSource, /<FamVoiceLockup aria-hidden="true" markSize=\{26\} wordmarkClassName="opacity-0" \/>/);
+  assert.match(widgetViewSource, /Settings/);
+  assert.match(widgetViewSource, /<FamVoiceLockup markSize=\{22\} \/>/);
+  assert.match(widgetViewSource, /<FamVoiceLockup aria-hidden="true" markSize=\{22\} wordmarkClassName="opacity-0" \/>/);
   assert.match(widgetViewSource, /className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none"/);
   assert.match(widgetViewSource, /className="absolute inset-0 flex items-center justify-center"/);
   assert.match(widgetViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
   assert.match(widgetViewSource, /const showIssue = status === "error" \|\| \(status === "idle" && missingApiKey\);/);
   assert.match(widgetViewSource, /const statusLabel = status === "error" \? "Transcription error" : "Missing API key";/);
-  assert.match(widgetViewSource, /No voice detected\. Try again with a clearer input\./);
-  assert.match(widgetViewSource, /Check your microphone or input source, then try again\./);
-  assert.match(widgetViewSource, /Add your API key in Settings to start dictating\./);
+  assert.match(widgetViewSource, /No voice detected\./);
+  assert.match(widgetViewSource, /Transcription failed\./);
+  assert.match(widgetViewSource, /Add API key in settings\./);
   assert.match(widgetViewSource, /<VoiceWave mode=\{/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{waveMode\} size="widget" \/>/);
   assert.doesNotMatch(widgetViewSource, /shadow-\[0_0_15px_rgba\(255,81,47,0\.4\)\]/);
@@ -140,6 +149,6 @@ test("widget keeps the compact lockup and exposes a visible settings action", ()
 
 test("widget keeps errors inline instead of a tooltip title", () => {
   assert.doesNotMatch(widgetViewSource, /title=/);
-  assert.match(widgetViewSource, /<p className="text-sm leading-5 text-slate-400">\s*\{statusCopy\}\s*<\/p>/);
-  assert.match(widgetViewSource, /Open settings/);
+  assert.match(widgetViewSource, /<p className="truncate text-\[9px\] leading-tight text-slate-400">\s*\{statusCopy\}\s*<\/p>/);
+  assert.match(widgetViewSource, /Settings/);
 });

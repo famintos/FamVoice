@@ -277,6 +277,9 @@ export function MainView() {
   );
 
   const missingPromptOptimizerKey = settings && settings.prompt_optimization_enabled && !settings.api_key_present;
+  const showSettingsNotice = status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey);
+  const showRecordError = status === "error" && Boolean(transcript);
+  const showRecordTranscript = !showRecordError && Boolean(transcript);
   const statusLabel = status === "recording"
     ? "Listening"
     : status === "transcribing"
@@ -454,24 +457,29 @@ export function MainView() {
             aria-labelledby="record-tab"
             className="flex h-full flex-col px-3 pb-3"
           >
-            <div className={`flex flex-1 flex-col items-center ${status === "error" ? "justify-start pt-2" : "justify-center"} gap-2 rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-2 no-drag text-center`}>
-              <div className="flex flex-col items-center gap-1.5">
-                <VoiceWave mode={waveMode} size={status === "error" ? "default" : "large"} />
-                <div className="space-y-0">
+            <div className="flex flex-1 flex-col items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-2.5 no-drag text-center">
+              <div className="flex flex-col items-center gap-2">
+                <VoiceWave mode={waveMode} size="large" />
+                <div className="space-y-0.5">
                   <h2 className="text-sm font-medium tracking-tight text-white">
                     {statusLabel}
                   </h2>
-                  {status !== "error" && (
-                    <p className="max-w-[14rem] text-[11px] leading-tight text-slate-400">
-                      {stageHint}
-                    </p>
-                  )}
+                  <p
+                    className={`max-w-[14rem] text-[11px] leading-tight text-slate-400 ${
+                      status === "error" ? "min-h-[1rem]" : "min-h-[1.75rem]"
+                    } ${
+                      status === "error" ? "invisible" : ""
+                    }`}
+                    aria-hidden={status === "error"}
+                  >
+                    {stageHint}
+                  </p>
                 </div>
               </div>
 
-              <div className="w-full max-w-[16rem]">
-                {status === "error" && transcript ? (
-                  <div className="rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5">
+              <div className="mt-0.5 flex min-h-[2.5rem] w-full max-w-[16rem] items-start justify-center">
+                {showRecordError ? (
+                  <div className="w-full rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5">
                     <div className="flex items-start gap-2 text-left">
                       <AlertCircle size={13} className="mt-0.5 shrink-0 text-danger" />
                       <div className="space-y-0.5">
@@ -480,25 +488,27 @@ export function MainView() {
                       </div>
                     </div>
                   </div>
-                ) : transcript ? (
-                  <p className="text-[11px] leading-tight text-slate-100">{transcript}</p>
-                ) : null}
+                ) : showRecordTranscript ? (
+                  <div className="custom-scrollbar max-h-[2.5rem] overflow-y-auto px-1">
+                    <p className="text-[11px] leading-tight text-slate-100">{transcript}</p>
+                  </div>
+                ) : showSettingsNotice ? (
+                  <div className="w-full max-w-[14rem] rounded-lg border border-primary/20 bg-primary/10 px-2 py-1.5">
+                    <p className="text-[10px] leading-tight text-amber-50">
+                      Add API key in settings.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenSettings()}
+                      className={`focus-ring mt-1 rounded-full border border-primary/30 bg-black/20 px-2 py-0.5 text-[9px] font-medium text-primary ${controlMotion} hover:bg-white/10`}
+                    >
+                      Settings
+                    </button>
+                  </div>
+                ) : (
+                  <div className="h-[2.5rem]" aria-hidden="true" />
+                )}
               </div>
-
-              {status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey) && (
-                <div className="w-full max-w-[14rem] rounded-lg border border-primary/20 bg-primary/10 px-2 py-1.5">
-                  <p className="text-[10px] leading-tight text-amber-50">
-                    Add API key in settings.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void handleOpenSettings()}
-                    className={`focus-ring mt-1 rounded-full border border-primary/30 bg-black/20 px-2 py-0.5 text-[9px] font-medium text-primary ${controlMotion} hover:bg-white/10`}
-                  >
-                    Settings
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         ) : (
