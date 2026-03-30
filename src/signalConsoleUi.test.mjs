@@ -62,7 +62,7 @@ test("App.css defines the refreshed shell token set", () => {
 });
 
 test("WidgetView uses the compact widget shell and status surface", () => {
-  assert.match(widgetViewSource, /className="widget-shell/);
+  assert.match(widgetViewSource, /className=\{shellClassName\}/);
   assert.match(widgetViewSource, /className="widget-status/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{/);
 });

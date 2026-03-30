@@ -42,7 +42,7 @@ test("widget container uses manual dragging instead of native drag-region", () =
   const widgetBranchBlock = getWidgetBranchBlock();
 
   assert.equal(widgetViewSource.includes("data-tauri-drag-region"), false);
-  assert.match(widgetViewSource, /className="widget-shell/);
+  assert.match(widgetViewSource, /className=\{shellClassName\}/);
   assert.match(widgetViewSource, /id="widget-container"/);
   assert.match(widgetViewSource, /onMouseDownCapture=\{onMouseDownCapture\}/);
   assert.match(widgetBranchBlock, /onMouseDownCapture=\{\(e\) => \{/);
@@ -79,17 +79,22 @@ test("voice wave supports explicit modes and size variants", () => {
   assert.match(voiceWaveSource, /mode === "transcribing"/);
   assert.match(voiceWaveSource, /size = "default"/);
   assert.match(voiceWaveSource, /size\?: "default" \| "widget" \| "large"/);
-  assert.match(voiceWaveSource, /const isActiveWidget = size === "widget" && mode !== "idle";/);
+  assert.match(voiceWaveSource, /const PROFILE_PRESETS = \{/);
   assert.match(voiceWaveSource, /size === "widget"/);
-  assert.match(voiceWaveSource, /h-5 gap-\[2\.5px\]/);
-  assert.match(voiceWaveSource, /w-\[2\.5px\]/);
-  assert.match(voiceWaveSource, /h-6 w-full justify-between/);
+  assert.match(voiceWaveSource, /h-5 gap-\[2px\] justify-center/);
+  assert.match(voiceWaveSource, /h-6 w-full justify-center gap-\[1px\] px-0/);
   assert.match(voiceWaveSource, /w-\[3px\]/);
+  assert.match(voiceWaveSource, /w-\[4\.5px\]/);
   assert.match(voiceWaveSource, /w-\[3\.5px\]/);
   assert.match(voiceWaveSource, /size === "large"/);
-  assert.match(voiceWaveSource, /h-7 gap-\[3px\]/);
-  assert.match(voiceWaveSource, /w-\[3px\]/);
-  assert.match(voiceWaveSource, /const motionClass = isRecording[\s\S]*"wave-bar"[\s\S]*"wave-processing"[\s\S]*""/);
+  assert.match(voiceWaveSource, /h-12 gap-\[3px\] justify-center/);
+  assert.match(voiceWaveSource, /bg-primary/);
+  assert.doesNotMatch(voiceWaveSource, /bg-gradient-to-t/);
+  assert.match(voiceWaveSource, /transition-\[opacity,height\]/);
+  assert.match(voiceWaveSource, /\["--bar-rest-scale" as any\]/);
+  assert.match(voiceWaveSource, /\["--bar-active-scale" as any\]/);
+  assert.match(voiceWaveSource, /wave-bar/);
+  assert.match(voiceWaveSource, /wave-processing wave-shimmer/);
 });
 
 test("record tab keeps the open record surface and guided recovery states", () => {
@@ -117,35 +122,40 @@ test("widget does not expose an update-ready indicator or tooltip", () => {
   assert.doesNotMatch(widgetViewSource, /right-click to restart/);
 });
 
-test("widget keeps the compact lockup and only hides settings while showing an error", () => {
+test("widget keeps the compact lockup without a settings action", () => {
   assert.doesNotMatch(widgetViewSource, />Fam</);
   assert.match(widgetViewSource, /className="widget-status/);
-  assert.match(
-    widgetViewSource,
-    /className="widget-shell relative rounded-\[16px\] px-2 py-1\.5 overflow-hidden"/,
-  );
-  assert.match(widgetViewSource, /className="flex items-center gap-2\.5 pointer-events-none select-none"/);
-  assert.match(widgetViewSource, /const settingsAction = \(/);
-  assert.match(widgetViewSource, /Settings/);
+  assert.match(widgetViewSource, /const shellClassName = isCompactWaveState/);
+  assert.match(widgetViewSource, /widget-shell widget-shell--compact relative rounded-\[16px\] pl-1\.5 pr-0\.5 py-1\.5 overflow-hidden/);
+  assert.match(widgetViewSource, /widget-shell relative rounded-\[16px\] pl-2 pr-1 py-1\.5 overflow-hidden/);
+  assert.match(widgetViewSource, /const rowClassName = isCompactWaveState/);
+  assert.match(widgetViewSource, /gap-1\.5/);
+  assert.match(widgetViewSource, /gap-2\.5/);
+  assert.doesNotMatch(widgetViewSource, /const settingsAction = \(/);
+  assert.doesNotMatch(widgetViewSource, /aria-label="Settings"/);
   assert.match(widgetViewSource, /<FamVoiceLockup markSize=\{22\} \/>/);
-  assert.match(widgetViewSource, /<FamVoiceLockup aria-hidden="true" markSize=\{22\} wordmarkClassName="opacity-0" \/>/);
-  assert.match(widgetViewSource, /className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none"/);
-  assert.match(widgetViewSource, /className="absolute inset-y-0 right-0 left-\[28px\] flex items-center"/);
+  assert.match(widgetViewSource, /<FamVoiceLogo size=\{activeMarkSize\} className="shrink-0" \/>/);
+  assert.match(widgetViewSource, /className="widget-status flex min-w-0 items-center justify-center pointer-events-none select-none"/);
+  assert.match(widgetViewSource, /const renderedWaveMode = waveMode === "idle" && isFinishing \? "transcribing" : waveMode;/);
+  assert.match(widgetViewSource, /const waveWrapClassName = isFinishing/);
+  assert.match(widgetViewSource, /widget-wave-wrap widget-wave-wrap--finish/);
   assert.match(widgetViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
+  assert.match(widgetViewSource, /const \[isFinishing, setIsFinishing\] = useState\(false\);/);
+  assert.match(widgetViewSource, /const previousStatusRef = useRef<Status>\(status\);/);
+  assert.match(widgetViewSource, /previousStatus === "recording" && \(status === "transcribing" \|\| status === "success"\)/);
   assert.match(widgetViewSource, /const showError = status === "error";/);
   assert.match(widgetViewSource, /const showIssue = showError \|\| \(status === "idle" && missingApiKey\);/);
-  assert.match(widgetViewSource, /const showSettingsAction = !showError;/);
-  assert.match(widgetViewSource, /const statusLabel = showError \? "Transcription error" : "Missing API key";/);
+  assert.match(widgetViewSource, /const statusLabel = showError \? "Error" : "API key missing";/);
   assert.match(widgetViewSource, /const widgetSizeAnchor = \(/);
   assert.match(widgetViewSource, /className="pointer-events-none invisible"/);
   assert.match(widgetViewSource, /\{widgetSizeAnchor\}/);
-  assert.match(widgetViewSource, /No voice detected\./);
-  assert.match(widgetViewSource, /Transcription failed\./);
-  assert.match(widgetViewSource, /Add API key in settings\./);
+  assert.match(widgetViewSource, /No speech found\./);
+  assert.match(widgetViewSource, /Try again\./);
+  assert.match(widgetViewSource, /Open Settings\./);
   assert.match(widgetViewSource, /<VoiceWave mode=\{/);
-  assert.match(widgetViewSource, /<VoiceWave mode=\{waveMode\} size="widget" \/>/);
-  assert.match(widgetViewSource, /\{showSettingsAction \? \(/);
-  assert.match(widgetViewSource, /className=\{`flex w-full items-center px-1\.5 py-1 \$\{showSettingsAction \? "gap-3" : "gap-0"\}`\}/);
+  assert.match(widgetViewSource, /<VoiceWave mode=\{renderedWaveMode\} size="widget" \/>/);
+  assert.match(widgetViewSource, /flex w-full items-center pl-1\.5 pr-0\.5 py-1/);
+  assert.match(widgetViewSource, /flex w-full items-center pl-1 pr-0 py-1/);
   assert.doesNotMatch(widgetViewSource, /shadow-\[0_0_15px_rgba\(255,81,47,0\.4\)\]/);
   assert.doesNotMatch(widgetViewSource, /status === "transcribing" && \(/);
   assert.doesNotMatch(widgetViewSource, /animate-pulse/);
@@ -154,5 +164,5 @@ test("widget keeps the compact lockup and only hides settings while showing an e
 test("widget keeps errors inline instead of a tooltip title", () => {
   assert.doesNotMatch(widgetViewSource, /title=/);
   assert.match(widgetViewSource, /<p className="truncate text-\[9px\] leading-tight text-slate-400">\s*\{statusCopy\}\s*<\/p>/);
-  assert.match(widgetViewSource, /Settings/);
+  assert.doesNotMatch(widgetViewSource, /aria-label="Settings"/);
 });

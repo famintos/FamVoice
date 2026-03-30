@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MouseEventHandler, RefObject } from "react";
-import { Settings } from "lucide-react";
+import { FamVoiceLogo } from "./FamVoiceLogo";
 import { FamVoiceLockup } from "./components/FamVoiceLockup";
 import { VoiceWave } from "./components/VoiceWave";
 import type { Status } from "./appTypes";
@@ -11,7 +11,6 @@ interface WidgetViewProps {
   highlightKey?: number;
   errorMessage?: string;
   containerRef: RefObject<HTMLElement | null>;
-  onOpenSettings: () => void;
   onMouseDownCapture: MouseEventHandler<HTMLElement>;
 }
 
@@ -21,44 +20,50 @@ export function WidgetView({
   highlightKey,
   errorMessage,
   containerRef,
-  onOpenSettings,
   onMouseDownCapture,
 }: WidgetViewProps) {
   const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
+  const [isFinishing, setIsFinishing] = useState(false);
+  const previousStatusRef = useRef<Status>(status);
+  const finishTimeoutRef = useRef<number | null>(null);
   const showError = status === "error";
   const showIssue = showError || (status === "idle" && missingApiKey);
-  const showSettingsAction = !showError;
-  const statusLabel = showError ? "Transcription error" : "Missing API key";
+  const statusLabel = showError ? "Error" : "API key missing";
   const statusCopy = showError
     ? errorMessage === "No voice detected"
-      ? "No voice detected."
-      : errorMessage || "Transcription failed."
-    : "Add API key in settings.";
+      ? "No speech found."
+      : "Try again."
+    : "Open Settings.";
   const statusDotClassName = showError
     ? "bg-danger shadow-[0_0_10px_rgba(179,93,79,0.32)]"
     : "bg-primary shadow-[0_0_10px_rgba(209,122,40,0.28)]";
   const statusTextClassName = showError ? "text-danger" : "text-primary";
-  const settingsAction = (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        void onOpenSettings();
-      }}
-      className="focus-ring flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-black/20 text-slate-400 transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:border-primary/40 hover:text-white no-drag"
-      aria-label="Settings"
-    >
-      <Settings size={11} />
-    </button>
-  );
+  const isCompactWaveState = !showIssue && (status === "recording" || status === "transcribing" || isFinishing);
+  const shellClassName = isCompactWaveState
+    ? "widget-shell widget-shell--compact relative rounded-[16px] pl-1.5 pr-0.5 py-1.5 overflow-hidden"
+    : "widget-shell relative rounded-[16px] pl-2 pr-1 py-1.5 overflow-hidden";
+  const rowClassName = isCompactWaveState
+    ? "flex w-full items-center pl-1 pr-0 py-1"
+    : "flex w-full items-center pl-1.5 pr-0.5 py-1";
+  const activeMarkSize = 22;
+  const activeWaveSlotClassName = "flex h-6 w-[35px] items-center";
+  const waveWrapClassName = isFinishing
+    ? "widget-wave-wrap widget-wave-wrap--finish"
+    : "widget-wave-wrap";
+  const renderedWaveMode = waveMode === "idle" && isFinishing ? "transcribing" : waveMode;
   const widgetSizeAnchor = (
     <div className="pointer-events-none invisible">
-      <div className="flex items-center gap-3 px-1.5 py-1">
-        <div className="flex items-center gap-2.5 select-none">
-          <FamVoiceLockup markSize={22} />
+      <div className={rowClassName}>
+        <div className={`flex items-center select-none ${isCompactWaveState ? "gap-1.5" : "gap-2.5"}`}>
+          {isCompactWaveState ? (
+            <FamVoiceLogo size={activeMarkSize} className="shrink-0" />
+          ) : (
+            <FamVoiceLockup markSize={22} />
+          )}
+          {isCompactWaveState ? (
+            <div className="h-6 w-[35px]" aria-hidden="true" />
+          ) : null}
         </div>
-
-        <div className="ml-1 h-6 w-6 shrink-0" />
       </div>
     </div>
   );
@@ -71,12 +76,46 @@ export function WidgetView({
     el.classList.add("widget-highlight");
   }, [highlightKey, containerRef]);
 
+  useEffect(() => {
+    const previousStatus = previousStatusRef.current;
+
+    if (previousStatus === "recording" && (status === "transcribing" || status === "success")) {
+      setIsFinishing(true);
+
+      if (finishTimeoutRef.current !== null) {
+        window.clearTimeout(finishTimeoutRef.current);
+      }
+
+      finishTimeoutRef.current = window.setTimeout(() => {
+        setIsFinishing(false);
+        finishTimeoutRef.current = null;
+      }, 360);
+    } else if (status === "recording" || showIssue) {
+      setIsFinishing(false);
+
+      if (finishTimeoutRef.current !== null) {
+        window.clearTimeout(finishTimeoutRef.current);
+        finishTimeoutRef.current = null;
+      }
+    }
+
+    previousStatusRef.current = status;
+  }, [showIssue, status]);
+
+  useEffect(() => {
+    return () => {
+      if (finishTimeoutRef.current !== null) {
+        window.clearTimeout(finishTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="w-full h-full flex items-center justify-center p-2" style={{ pointerEvents: "none" }}>
       <main
         ref={containerRef}
         id="widget-container"
-        className="widget-shell relative rounded-[16px] px-2 py-1.5 overflow-hidden"
+        className={shellClassName}
         style={{ pointerEvents: "auto" }}
         onMouseDownCapture={onMouseDownCapture}
         onContextMenu={(e) => {
@@ -87,7 +126,7 @@ export function WidgetView({
 
         <div className="absolute inset-0 flex items-center">
           {showIssue ? (
-            <div className={`flex w-full items-center px-1.5 py-1 ${showSettingsAction ? "gap-3" : "gap-0"}`}>
+            <div className="flex w-full items-center pl-1.5 pr-0.5 py-1">
               <div className="relative flex min-w-0 flex-1 items-center select-none">
                 <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
                 <div className="absolute inset-y-0 right-0 left-[28px] flex min-w-0 flex-col justify-center">
@@ -102,31 +141,22 @@ export function WidgetView({
                   </p>
                 </div>
               </div>
-
-              {showSettingsAction ? (
-                <div className="ml-1">
-                  {settingsAction}
-                </div>
-              ) : null}
             </div>
           ) : (
-            <div className="flex w-full items-center gap-3 px-1.5 py-1">
-              <div className="flex items-center gap-2.5 pointer-events-none select-none">
-                {waveMode === "idle" ? (
+            <div className={rowClassName}>
+              <div className={`flex items-center pointer-events-none select-none ${isCompactWaveState ? "gap-1.5" : "gap-2.5"}`}>
+                {renderedWaveMode === "idle" ? (
                   <FamVoiceLockup markSize={22} />
                 ) : (
-                  <div className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none">
-                    <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
-
-                    <div className="absolute inset-y-0 right-0 left-[28px] flex items-center">
-                      <VoiceWave mode={waveMode} size="widget" />
+                  <div className="widget-status flex min-w-0 items-center justify-center pointer-events-none select-none">
+                    <FamVoiceLogo size={activeMarkSize} className="shrink-0" />
+                    <div className={activeWaveSlotClassName}>
+                      <div className={waveWrapClassName}>
+                        <VoiceWave mode={renderedWaveMode} size="widget" />
+                      </div>
                     </div>
                   </div>
                 )}
-              </div>
-
-              <div className="ml-1">
-                {settingsAction}
               </div>
             </div>
           )}

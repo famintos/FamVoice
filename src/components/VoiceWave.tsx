@@ -1,14 +1,12 @@
 import type React from "react";
-import { useMemo } from "react";
+import { useMemo, useEffect, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 
-/**
- * State of the Art VoiceWave
- * Features:
- * - Robust Pill Design: Drastically fewer, thicker bars for a premium look.
- * - Symmetrical "mirrored" expansion from center.
- * - Gradient fills using brand interactive color.
- * - Distinct animations for recording (organic) and transcribing (traveling pulse).
- */
+const PROFILE_PRESETS = {
+  default: [0.42, 0.58, 0.76, 0.94, 1, 0.94, 0.76, 0.58, 0.42],
+  widget: [0.42, 0.58, 0.76, 0.94, 1, 0.94, 0.76, 0.58, 0.42],
+  large: [0.36, 0.48, 0.62, 0.78, 0.92, 1, 0.92, 0.78, 0.62, 0.48, 0.36],
+} satisfies Record<"default" | "widget" | "large", number[]>;
 
 export function VoiceWave({
   mode = "idle",
@@ -20,66 +18,92 @@ export function VoiceWave({
   const isIdle = mode === "idle";
   const isRecording = mode === "recording";
   const isTranscribing = mode === "transcribing";
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Drastically reduce bar count to allow for much thicker bars
-  const barCount = size === "large" ? 14 : 9;
-  
-  const bars = useMemo(() => {
-    return Array.from({ length: barCount }).map((_, i) => {
-      // Create a smooth organic profile for the bars
-      const t = i / (barCount - 1);
-      // Bell-curve (Gaussian) distribution for heights - tighter for fewer bars
-      const profile = Math.exp(-Math.pow(t - 0.5, 2) / 0.05);
-      
-      const dur = 0.7 + Math.random() * 0.5;
-      const delay = -Math.random() * 2;
-      return { profile, dur, delay };
+  useEffect(() => {
+    if (!isRecording) {
+      if (containerRef.current) {
+        containerRef.current.style.setProperty("--mic-level", "0");
+      }
+      return;
+    }
+
+    const unlisten = listen<number>("mic-level", (event) => {
+      if (containerRef.current) {
+        // Use a small smoothing/dampening if needed, but for now direct
+        containerRef.current.style.setProperty("--mic-level", event.payload.toString());
+      }
     });
-  }, [barCount]);
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [isRecording]);
+
+  const bars = useMemo(() => {
+    const profiles = PROFILE_PRESETS[size];
+    const centerIndex = (profiles.length - 1) / 2;
+
+    return profiles.map((profile, index) => {
+      const distanceFromCenter = Math.abs(index - centerIndex);
+
+      return {
+        profile,
+        delay: `${-(distanceFromCenter * 0.08)}s`,
+        duration: `${1 + distanceFromCenter * 0.06}s`,
+        restScale: 0.64 + profile * 0.14,
+        activeScale: 0.9 + profile * 0.18,
+      };
+    });
+  }, [size]);
 
   const containerClass = size === "large"
-    ? "h-12 gap-2 justify-center"
+    ? "h-12 gap-[3px] justify-center"
     : size === "widget"
-      ? "h-6 w-full justify-around px-2"
-      : "h-5 gap-1.5 justify-center";
-  
-  const barWidth = size === "large" 
-    ? "w-2.5" // 10px
-    : size === "widget" 
-      ? "w-2"   // 8px
-      : "w-1.5"; // 6px
+      ? "h-6 w-full justify-center gap-[1px] px-0"
+      : "h-5 gap-[2px] justify-center";
+
+  const barWidth = size === "large"
+    ? "w-[4.5px]"
+    : size === "widget"
+      ? "w-[3px]"
+      : "w-[3.5px]";
 
   const motionClass = isRecording
-    ? "wave-pulse"
+    ? "wave-bar" // Removed wave-pulse to use mic-level driven height
     : isTranscribing
-      ? "wave-shimmer"
+      ? "wave-processing wave-shimmer"
       : "";
 
   return (
     <div
-      className={`flex items-center ${containerClass} pointer-events-none relative ${isRecording ? "wave-bloom" : ""}`}
+      ref={containerRef}
+      className={`relative flex items-center ${containerClass} pointer-events-none`}
+      style={{ "--mic-level": "0" } as React.CSSProperties}
     >
-      {bars.map((bar, i) => (
+      {bars.map((bar, index) => (
         <div
-          key={i}
-          className={`${barWidth} shrink-0 bg-gradient-to-t from-primary/40 via-primary to-primary/40 rounded-full transition-all duration-300 ${motionClass}`}
+          key={index}
+          className={`${barWidth} shrink-0 rounded-full bg-primary transition-[opacity,height] duration-100 ease-[cubic-bezier(0.17,0.67,0.22,1.25)] ${motionClass}`}
           style={{
-            height: isIdle 
-              ? `${Math.max(12, bar.profile * 30)}%` 
-              : `${Math.max(15, bar.profile * 100)}%`,
-            opacity: isIdle ? 0.25 : 1,
-            animationDelay: isRecording 
-              ? `${bar.delay}s` 
-              : isTranscribing 
-                ? `${i * 0.05}s` 
+            height: isIdle
+              ? `${32 + bar.profile * 16}%`
+              : isRecording
+                ? `calc(20% + (var(--mic-level) * ${bar.profile * 84}%))`
+                : size === "widget"
+                  ? `${44 + bar.profile * 30}%`
+                  : `${40 + bar.profile * 42}%`,
+            opacity: isIdle ? 0.3 : 0.92,
+            animationDelay: isTranscribing
+                ? `${index * 0.08}s`
                 : undefined,
-            animationDuration: isRecording
-              ? `${bar.dur * 0.9}s`
-              : isTranscribing
-                ? `1.2s`
+            animationDuration: isTranscribing
+                ? "1.35s"
                 : "0s",
             animationPlayState: isIdle ? "paused" : "running",
             ["--bar-profile" as any]: bar.profile,
+            ["--bar-rest-scale" as any]: bar.restScale,
+            ["--bar-active-scale" as any]: bar.activeScale,
             transformOrigin: "center",
           } as React.CSSProperties}
         />
