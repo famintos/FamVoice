@@ -51,6 +51,17 @@ export function WidgetView({
       <Settings size={11} />
     </button>
   );
+  const widgetSizeAnchor = (
+    <div className="pointer-events-none invisible">
+      <div className="flex items-center gap-3 px-1.5 py-1">
+        <div className="flex items-center gap-2.5 select-none">
+          <FamVoiceLockup markSize={22} />
+        </div>
+
+        <div className="ml-1 h-6 w-6 shrink-0" />
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     if (!highlightKey || !containerRef.current) return;
@@ -72,50 +83,54 @@ export function WidgetView({
           e.preventDefault();
         }}
       >
-        {showIssue ? (
-          <div className={`flex items-center px-1.5 py-1 ${showSettingsAction ? "gap-3" : "gap-0"}`}>
-            <div className="relative flex min-w-0 flex-1 items-center select-none">
-              <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
-              <div className="absolute inset-y-0 right-0 left-[28px] flex min-w-0 flex-col justify-center">
-                <div className="flex items-center gap-1.5">
-                  <div className={`h-1 w-1 shrink-0 rounded-full ${statusDotClassName}`} />
-                  <p className={`truncate text-[10px] font-bold leading-none ${statusTextClassName}`}>
-                    {statusLabel}
+        {widgetSizeAnchor}
+
+        <div className="absolute inset-0 flex items-center">
+          {showIssue ? (
+            <div className={`flex w-full items-center px-1.5 py-1 ${showSettingsAction ? "gap-3" : "gap-0"}`}>
+              <div className="relative flex min-w-0 flex-1 items-center select-none">
+                <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
+                <div className="absolute inset-y-0 right-0 left-[28px] flex min-w-0 flex-col justify-center">
+                  <div className="flex items-center gap-1.5">
+                    <div className={`h-1 w-1 shrink-0 rounded-full ${statusDotClassName}`} />
+                    <p className={`truncate text-[10px] font-bold leading-none ${statusTextClassName}`}>
+                      {statusLabel}
+                    </p>
+                  </div>
+                  <p className="truncate text-[9px] leading-tight text-slate-400">
+                    {statusCopy}
                   </p>
                 </div>
-                <p className="truncate text-[9px] leading-tight text-slate-400">
-                  {statusCopy}
-                </p>
               </div>
-            </div>
 
-            {showSettingsAction ? (
+              {showSettingsAction ? (
+                <div className="ml-1">
+                  {settingsAction}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex w-full items-center gap-3 px-1.5 py-1">
+              <div className="flex items-center gap-2.5 pointer-events-none select-none">
+                {waveMode === "idle" ? (
+                  <FamVoiceLockup markSize={22} />
+                ) : (
+                  <div className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none">
+                    <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
+
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <VoiceWave mode={waveMode} size="widget" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="ml-1">
                 {settingsAction}
               </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 px-1.5 py-1">
-            <div className="flex items-center gap-2.5 pointer-events-none select-none">
-              {waveMode === "idle" ? (
-                <FamVoiceLockup markSize={22} />
-              ) : (
-                <div className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none">
-                  <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
-
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <VoiceWave mode={waveMode} size="widget" />
-                  </div>
-                </div>
-              )}
             </div>
-
-            <div className="ml-1">
-              {settingsAction}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </main>
     </div>
   );

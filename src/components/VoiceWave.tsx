@@ -1,17 +1,25 @@
 import type React from "react";
 
 const BARS: { peak: number; dur: number; delay: number }[] = [
-  { peak: 0.40, dur: 1.10, delay: -0.10 },
-  { peak: 0.55, dur: 0.95, delay: -0.25 },
-  { peak: 0.75, dur: 1.05, delay: -0.45 },
-  { peak: 0.92, dur: 0.85, delay: -0.65 },
-  { peak: 1.00, dur: 1.15, delay: -0.85 },
-  { peak: 0.92, dur: 0.90, delay: -1.05 },
-  { peak: 0.75, dur: 1.00, delay: -0.55 },
-  { peak: 0.55, dur: 0.80, delay: -0.35 },
-  { peak: 0.40, dur: 1.10, delay: -0.15 },
-  { peak: 0.30, dur: 0.95, delay: -0.75 },
   { peak: 0.25, dur: 1.05, delay: -0.95 },
+  { peak: 0.30, dur: 0.95, delay: -0.75 },
+  { peak: 0.40, dur: 1.10, delay: -0.10 },
+  { peak: 0.50, dur: 1.00, delay: -0.20 },
+  { peak: 0.65, dur: 0.90, delay: -0.35 },
+  { peak: 0.80, dur: 1.15, delay: -0.50 },
+  { peak: 0.92, dur: 0.85, delay: -0.65 },
+  { peak: 0.98, dur: 1.05, delay: -0.75 },
+  { peak: 1.00, dur: 1.15, delay: -0.85 },
+  { peak: 0.98, dur: 0.95, delay: -0.95 },
+  { peak: 0.92, dur: 0.90, delay: -1.05 },
+  { peak: 0.80, dur: 1.00, delay: -1.20 },
+  { peak: 0.65, dur: 1.10, delay: -1.35 },
+  { peak: 0.50, dur: 0.85, delay: -1.50 },
+  { peak: 0.40, dur: 0.95, delay: -1.65 },
+  { peak: 0.30, dur: 1.05, delay: -1.80 },
+  { peak: 0.25, dur: 0.90, delay: -1.95 },
+  { peak: 0.20, dur: 1.15, delay: -2.10 },
+  { peak: 0.15, dur: 1.00, delay: -2.25 },
 ];
 
 export function VoiceWave({
@@ -29,7 +37,7 @@ export function VoiceWave({
   const containerClass = size === "large"
     ? "h-7 gap-[3px] justify-center"
     : size === "widget"
-      ? isActiveWidget ? "h-6 w-[72px] justify-between" : "h-5 gap-[3px] justify-center"
+      ? isActiveWidget ? "h-6 w-[110px] justify-between" : "h-5 gap-[3px] justify-center"
       : "h-5 gap-[2.5px] justify-center";
   
   const barClass = size === "large" 
