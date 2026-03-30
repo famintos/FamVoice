@@ -121,46 +121,58 @@ button, input, select, .no-drag {
   -webkit-app-region: no-drag;
 }
 
-@keyframes wave-bounce {
-  0%, 100% { transform: scaleY(0.15); opacity: 0.7; }
-  50% { transform: scaleY(var(--wave-peak, 1)); opacity: 1; }
+@keyframes wave-pulse {
+  0%, 100% { 
+    transform: scaleY(0.15); 
+    opacity: 0.45; 
+  }
+  50% { 
+    transform: scaleY(var(--bar-profile, 1)); 
+    opacity: 1; 
+  }
 }
 
-.wave-bar {
-  animation: wave-bounce var(--wave-duration, var(--fam-duration-fast)) infinite var(--fam-ease-enter);
+.wave-pulse {
+  animation-name: wave-pulse;
+  animation-iteration-count: infinite;
+  animation-timing-function: var(--fam-ease-ease);
   transform-origin: center;
 }
 
-.wave-bar.wave-paused {
-  animation-play-state: paused;
+@keyframes wave-shimmer {
+  0% { 
+    transform: scaleY(0.12); 
+    opacity: 0.15; 
+  }
+  20% { 
+    transform: scaleY(calc(var(--bar-profile, 1) * 0.85)); 
+    opacity: 1; 
+  }
+  40% { 
+    transform: scaleY(0.12); 
+    opacity: 0.15; 
+  }
+  100% { 
+    transform: scaleY(0.12); 
+    opacity: 0.15; 
+  }
 }
 
-.wave-processing {
-  animation: wave-processing var(--wave-duration, var(--fam-duration-normal)) infinite var(--fam-ease-ease);
+.wave-shimmer {
+  animation-name: wave-shimmer;
+  animation-iteration-count: infinite;
+  animation-timing-function: var(--fam-ease-ease);
   transform-origin: center;
 }
 
-@keyframes wave-processing {
-  0% {
-    transform: scaleY(0.2);
-    opacity: 0.3;
-  }
-  30% {
-    transform: scaleY(calc(var(--wave-peak, 1) * 0.8));
-    opacity: 1;
-  }
-  100% {
-    transform: scaleY(0.2);
-    opacity: 0.3;
-  }
+.wave-bloom {
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--app-accent) 32%, transparent)) 
+          drop-shadow(0 0 4px color-mix(in srgb, var(--app-accent) 18%, transparent));
 }
 
-.wave-processing.wave-paused {
+.wave-pulse.wave-paused,
+.wave-shimmer.wave-paused {
   animation-play-state: paused;
-}
-
-.wave-glow {
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--app-accent) 40%, transparent)) drop-shadow(0 0 4px color-mix(in srgb, var(--app-accent) 20%, transparent));
 }
 
 .custom-scrollbar::-webkit-scrollbar {

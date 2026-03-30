@@ -39,12 +39,14 @@ pub struct HttpClientState {
 
 pub struct BackgroundTasksState {
     handles: std::sync::Mutex<VecDeque<tokio::task::JoinHandle<()>>>,
+    status_reset_generation: std::sync::atomic::AtomicU64,
 }
 
 impl BackgroundTasksState {
     fn new() -> Self {
         Self {
             handles: std::sync::Mutex::new(VecDeque::new()),
+            status_reset_generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -57,6 +59,23 @@ impl BackgroundTasksState {
                 }
             }
         }
+    }
+
+    fn invalidate_status_reset(&self) {
+        self.status_reset_generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn schedule_status_reset_generation(&self) -> u64 {
+        self.status_reset_generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1
+    }
+
+    fn is_current_status_reset_generation(&self, generation: u64) -> bool {
+        self.status_reset_generation
+            .load(std::sync::atomic::Ordering::SeqCst)
+            == generation
     }
 }
 
@@ -283,6 +302,8 @@ fn transcription_language_override(language_preference: &str) -> Option<&str> {
 #[tauri::command]
 async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
     let audio_state: State<AudioState> = app.state();
+    let tasks_state: State<BackgroundTasksState> = app.state();
+    tasks_state.invalidate_status_reset();
 
     match audio::start_recording(&*audio_state).await {
         Ok(()) => {
@@ -435,9 +456,13 @@ fn emit_history_updated(app: &AppHandle, history_state: &HistoryState) {
 }
 
 fn schedule_status_reset(app: AppHandle, tasks_state: &BackgroundTasksState) {
+    let generation = tasks_state.schedule_status_reset_generation();
     let handle = tokio::spawn(async move {
         tokio::time::sleep(status_reset_delay()).await;
-        let _ = app.emit("status", "idle");
+        let tasks_state: State<BackgroundTasksState> = app.state();
+        if tasks_state.is_current_status_reset_generation(generation) {
+            let _ = app.emit("status", "idle");
+        }
     });
     tasks_state.spawn(handle);
 }
@@ -693,11 +718,10 @@ async fn deliver_transcript(
 
 #[tauri::command]
 async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
-    let _ = app.emit("status", "transcribing");
-
     let audio_state: State<AudioState> = app.state();
-
     let tasks_state: State<BackgroundTasksState> = app.state();
+    tasks_state.invalidate_status_reset();
+    let _ = app.emit("status", "transcribing");
     let settings_state: State<SettingsState> = app.state();
     let history_state: State<HistoryState> = app.state();
     let clipboard_state: State<ClipboardState> = app.state();
@@ -783,6 +807,25 @@ mod tests {
             clipboard_restore_delay(),
             std::time::Duration::from_millis(25)
         );
+    }
+
+    #[test]
+    fn test_status_reset_generation_is_current_when_scheduled() {
+        let tasks = BackgroundTasksState::new();
+
+        let generation = tasks.schedule_status_reset_generation();
+
+        assert!(tasks.is_current_status_reset_generation(generation));
+    }
+
+    #[test]
+    fn test_status_reset_generation_is_invalidated_by_new_activity() {
+        let tasks = BackgroundTasksState::new();
+        let generation = tasks.schedule_status_reset_generation();
+
+        tasks.invalidate_status_reset();
+
+        assert!(!tasks.is_current_status_reset_generation(generation));
     }
 
     #[tokio::test]

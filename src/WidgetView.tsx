@@ -118,7 +118,7 @@ export function WidgetView({
                   <div className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none">
                     <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
 
-                    <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="absolute inset-y-0 right-0 left-[28px] flex items-center">
                       <VoiceWave mode={waveMode} size="widget" />
                     </div>
                   </div>

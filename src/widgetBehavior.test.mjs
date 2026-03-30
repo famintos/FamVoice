@@ -83,7 +83,7 @@ test("voice wave supports explicit modes and size variants", () => {
   assert.match(voiceWaveSource, /size === "widget"/);
   assert.match(voiceWaveSource, /h-5 gap-\[2\.5px\]/);
   assert.match(voiceWaveSource, /w-\[2\.5px\]/);
-  assert.match(voiceWaveSource, /h-6 w-\[110px\] justify-between/);
+  assert.match(voiceWaveSource, /h-6 w-full justify-between/);
   assert.match(voiceWaveSource, /w-\[3px\]/);
   assert.match(voiceWaveSource, /w-\[3\.5px\]/);
   assert.match(voiceWaveSource, /size === "large"/);
@@ -130,7 +130,7 @@ test("widget keeps the compact lockup and only hides settings while showing an e
   assert.match(widgetViewSource, /<FamVoiceLockup markSize=\{22\} \/>/);
   assert.match(widgetViewSource, /<FamVoiceLockup aria-hidden="true" markSize=\{22\} wordmarkClassName="opacity-0" \/>/);
   assert.match(widgetViewSource, /className="widget-status relative flex min-w-0 items-center justify-center pointer-events-none select-none"/);
-  assert.match(widgetViewSource, /className="absolute inset-0 flex items-center justify-center"/);
+  assert.match(widgetViewSource, /className="absolute inset-y-0 right-0 left-\[28px\] flex items-center"/);
   assert.match(widgetViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
   assert.match(widgetViewSource, /const showError = status === "error";/);
   assert.match(widgetViewSource, /const showIssue = showError \|\| \(status === "idle" && missingApiKey\);/);
