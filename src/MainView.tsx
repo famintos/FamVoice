@@ -449,15 +449,15 @@ export function MainView() {
       </div>
 
       {/* Content Area */}
-      <div className="relative z-10 flex-1 overflow-hidden">
+      <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
         {activeTab === "record" ? (
           <div
             id="record-panel"
             role="tabpanel"
             aria-labelledby="record-tab"
-            className="flex h-full flex-col px-3 pb-1.5"
+            className="flex h-full min-h-0 flex-col px-3 pb-3"
           >
-            <div className="flex flex-1 flex-col items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 pt-1 pb-3 no-drag text-center">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 pt-1 pb-3 no-drag text-center">
               <div className="flex flex-col items-center gap-1.5">
                 <VoiceWave mode={waveMode} size="large" />
                 <div className="space-y-0">
