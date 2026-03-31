@@ -125,9 +125,10 @@ test("widget does not expose an update-ready indicator or tooltip", () => {
 test("widget keeps the compact lockup without a settings action", () => {
   assert.doesNotMatch(widgetViewSource, />Fam</);
   assert.match(widgetViewSource, /className="widget-status/);
-  assert.match(widgetViewSource, /const shellClassName = isCompactWaveState/);
+  assert.match(widgetViewSource, /const shellClassName = `\$\{isCompactWaveState/);
   assert.match(widgetViewSource, /widget-shell widget-shell--compact relative rounded-\[16px\] pl-1\.5 pr-0\.5 py-1\.5 overflow-hidden/);
   assert.match(widgetViewSource, /widget-shell relative rounded-\[16px\] pl-2 pr-1 py-1\.5 overflow-hidden/);
+  assert.match(widgetViewSource, /widget-shell--mic-warning/);
   assert.match(widgetViewSource, /const rowClassName = isCompactWaveState/);
   assert.match(widgetViewSource, /gap-1\.5/);
   assert.match(widgetViewSource, /gap-2\.5/);
@@ -143,6 +144,7 @@ test("widget keeps the compact lockup without a settings action", () => {
   assert.match(widgetViewSource, /const \[isFinishing, setIsFinishing\] = useState\(false\);/);
   assert.match(widgetViewSource, /const previousStatusRef = useRef<Status>\(status\);/);
   assert.match(widgetViewSource, /previousStatus === "recording" && \(status === "transcribing" \|\| status === "success"\)/);
+  assert.match(widgetViewSource, /const \[showMicWarning, setShowMicWarning\] = useState\(false\);/);
   assert.match(widgetViewSource, /const showError = status === "error";/);
   assert.match(widgetViewSource, /const showIssue = showError \|\| \(status === "idle" && missingApiKey\);/);
   assert.match(widgetViewSource, /const statusLabel = showError \? "Error" : "API key missing";/);

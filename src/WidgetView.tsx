@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { MouseEventHandler, RefObject } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { FamVoiceLogo } from "./FamVoiceLogo";
 import { FamVoiceLockup } from "./components/FamVoiceLockup";
 import { VoiceWave } from "./components/VoiceWave";
 import type { Status } from "./appTypes";
+
+const MIC_WARNING_LEVEL_THRESHOLD = 0.035;
+const MIC_WARNING_INITIAL_DELAY_MS = 1200;
+const MIC_WARNING_INACTIVITY_DELAY_MS = 1800;
+const MIC_WARNING_POLL_INTERVAL_MS = 150;
 
 interface WidgetViewProps {
   status: Status;
@@ -24,6 +30,7 @@ export function WidgetView({
 }: WidgetViewProps) {
   const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
   const [isFinishing, setIsFinishing] = useState(false);
+  const [showMicWarning, setShowMicWarning] = useState(false);
   const previousStatusRef = useRef<Status>(status);
   const finishTimeoutRef = useRef<number | null>(null);
   const showError = status === "error";
@@ -39,9 +46,10 @@ export function WidgetView({
     : "bg-primary shadow-[0_0_10px_rgba(209,122,40,0.28)]";
   const statusTextClassName = showError ? "text-danger" : "text-primary";
   const isCompactWaveState = !showIssue && (status === "recording" || status === "transcribing" || isFinishing);
-  const shellClassName = isCompactWaveState
+  const showWarningRing = showMicWarning || (status === "idle" && missingApiKey);
+  const shellClassName = `${isCompactWaveState
     ? "widget-shell widget-shell--compact relative rounded-[16px] pl-1.5 pr-0.5 py-1.5 overflow-hidden"
-    : "widget-shell relative rounded-[16px] pl-2 pr-1 py-1.5 overflow-hidden";
+    : "widget-shell relative rounded-[16px] pl-2 pr-1 py-1.5 overflow-hidden"}${showWarningRing ? " widget-shell--mic-warning" : ""}`;
   const rowClassName = isCompactWaveState
     ? "flex w-full items-center pl-1 pr-0 py-1"
     : "flex w-full items-center pl-1.5 pr-0.5 py-1";
@@ -101,6 +109,44 @@ export function WidgetView({
 
     previousStatusRef.current = status;
   }, [showIssue, status]);
+
+  useEffect(() => {
+    if (status !== "recording") {
+      setShowMicWarning(false);
+      return;
+    }
+
+    setShowMicWarning(false);
+
+    let lastHeardAt = Date.now();
+    let hasDetectedSpeech = false;
+    const startedAt = lastHeardAt;
+
+    const syncMicWarning = () => {
+      const now = Date.now();
+      const shouldWarn = hasDetectedSpeech
+        ? now - lastHeardAt >= MIC_WARNING_INACTIVITY_DELAY_MS
+        : now - startedAt >= MIC_WARNING_INITIAL_DELAY_MS;
+
+      setShowMicWarning((current) => (current === shouldWarn ? current : shouldWarn));
+    };
+
+    const intervalId = window.setInterval(syncMicWarning, MIC_WARNING_POLL_INTERVAL_MS);
+    const unlisten = listen<number>("mic-level", (event) => {
+      if (event.payload < MIC_WARNING_LEVEL_THRESHOLD) {
+        return;
+      }
+
+      hasDetectedSpeech = true;
+      lastHeardAt = Date.now();
+      setShowMicWarning(false);
+    });
+
+    return () => {
+      window.clearInterval(intervalId);
+      void unlisten.then((fn) => fn());
+    };
+  }, [status]);
 
   useEffect(() => {
     return () => {
