@@ -308,7 +308,6 @@ export function MainView() {
         highlightKey={highlightKey}
         errorMessage={status === "error" ? transcript : undefined}
         containerRef={widgetContainerRef}
-        onOpenSettings={handleOpenSettings}
         onMouseDownCapture={(e) => {
           if (e.button !== 0) return;
           const target = e.target;
