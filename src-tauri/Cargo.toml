@@ -32,7 +32,11 @@ tauri-plugin-process = "2"
 rdev = { version = "0.5", features = ["unstable_grab"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_System_Console",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+] }
 
 [profile.release]
 opt-level = 3

@@ -1,11 +1,10 @@
 use crate::audio::AudioState;
 #[cfg(not(target_os = "windows"))]
 use rdev::grab;
-#[cfg(target_os = "windows")]
-use rdev::listen;
 use rdev::{Button, Event, EventType};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+#[cfg(not(target_os = "windows"))]
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
@@ -106,6 +105,17 @@ fn decide_mouse_hotkey_action(
 }
 
 pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows we use a direct WH_MOUSE_LL hook instead of rdev::listen.
+        // rdev::listen installs BOTH WH_KEYBOARD_LL and WH_MOUSE_LL, which interferes
+        // with software like DeskFlow/Synergy that injects keyboard events from another PC.
+        // Using only WH_MOUSE_LL avoids this conflict entirely.
+        win_mouse_hook::start(app, hotkey_shared);
+        return;
+    }
+
+    #[cfg(not(target_os = "windows"))]
     thread::spawn(move || {
         let mut retry_delay = Duration::from_millis(MOUSE_GRAB_RETRY_INITIAL_DELAY_MS);
 
@@ -113,12 +123,6 @@ pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
             let app_handle = app.clone();
             let hotkey = hotkey_shared.clone();
 
-            #[cfg(target_os = "windows")]
-            let listener_result = listen(move |event| {
-                handle_event_windows(&app_handle, &hotkey, event);
-            });
-
-            #[cfg(not(target_os = "windows"))]
             let listener_result = grab(move |event| handle_event(&app_handle, &hotkey, event));
 
             match listener_result {
@@ -234,6 +238,119 @@ fn handle_event(
         | MouseHotkeyAction::StopRecording
         | MouseHotkeyAction::Swallow => None,
         MouseHotkeyAction::PassThrough => Some(event),
+    }
+}
+
+/// Windows-only: WH_MOUSE_LL hook that replaces rdev::listen.
+///
+/// rdev::listen on Windows installs both WH_KEYBOARD_LL and WH_MOUSE_LL.
+/// The keyboard hook interferes with DeskFlow/Synergy input injection,
+/// causing keystroke corruption. This module installs only WH_MOUSE_LL.
+#[cfg(target_os = "windows")]
+mod win_mouse_hook {
+    use super::{
+        handle_event_windows, AppHandle, Arc, Button, Duration, Event, EventType, Mutex,
+        MOUSE_GRAB_RETRY_INITIAL_DELAY_MS, MOUSE_GRAB_RETRY_MAX_DELAY_MS,
+    };
+    use std::sync::OnceLock;
+    use std::thread;
+    use std::time::SystemTime;
+    use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallNextHookEx, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx, MSG,
+        MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_XBUTTONDOWN,
+        WM_XBUTTONUP,
+    };
+
+    struct HookCtx {
+        app: AppHandle,
+        hotkey: Arc<Mutex<String>>,
+    }
+
+    // Safety: AppHandle and Arc<Mutex<String>> are both Send + Sync.
+    unsafe impl Send for HookCtx {}
+    unsafe impl Sync for HookCtx {}
+
+    static CTX: OnceLock<HookCtx> = OnceLock::new();
+
+    unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        if code >= 0 {
+            let ms = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
+            let event_type = match wparam as u32 {
+                WM_MBUTTONDOWN => Some(EventType::ButtonPress(Button::Middle)),
+                WM_MBUTTONUP => Some(EventType::ButtonRelease(Button::Middle)),
+                WM_XBUTTONDOWN => {
+                    let hi = (ms.mouseData >> 16) as u16;
+                    match hi {
+                        1 => Some(EventType::ButtonPress(Button::Unknown(1))),
+                        2 => Some(EventType::ButtonPress(Button::Unknown(2))),
+                        _ => None,
+                    }
+                }
+                WM_XBUTTONUP => {
+                    let hi = (ms.mouseData >> 16) as u16;
+                    match hi {
+                        1 => Some(EventType::ButtonRelease(Button::Unknown(1))),
+                        2 => Some(EventType::ButtonRelease(Button::Unknown(2))),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+
+            if let (Some(et), Some(ctx)) = (event_type, CTX.get()) {
+                let event = Event {
+                    event_type: et,
+                    time: SystemTime::now(),
+                    name: None,
+                };
+                handle_event_windows(&ctx.app, &ctx.hotkey, event);
+            }
+        }
+
+        CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+    }
+
+    pub fn start(app: AppHandle, hotkey: Arc<Mutex<String>>) {
+        let _ = CTX.set(HookCtx { app, hotkey });
+
+        thread::spawn(|| {
+            let mut retry_delay = Duration::from_millis(MOUSE_GRAB_RETRY_INITIAL_DELAY_MS);
+
+            loop {
+                let hook =
+                    unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(hook_proc), std::ptr::null_mut(), 0) };
+
+                if hook.is_null() {
+                    eprintln!(
+                        "[FamVoice] Failed to install WH_MOUSE_LL hook, retrying in {}ms",
+                        retry_delay.as_millis()
+                    );
+                    thread::sleep(retry_delay);
+                    let next = (retry_delay.as_millis() as u64)
+                        .saturating_mul(2)
+                        .min(MOUSE_GRAB_RETRY_MAX_DELAY_MS);
+                    retry_delay = Duration::from_millis(next);
+                    continue;
+                }
+
+                retry_delay = Duration::from_millis(MOUSE_GRAB_RETRY_INITIAL_DELAY_MS);
+                eprintln!("[FamVoice] WH_MOUSE_LL hook installed");
+
+                unsafe {
+                    let mut msg: MSG = std::mem::zeroed();
+                    loop {
+                        let r = GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0);
+                        if r == 0 || r == -1 {
+                            break;
+                        }
+                    }
+                    UnhookWindowsHookEx(hook);
+                }
+
+                eprintln!("[FamVoice] WH_MOUSE_LL message loop ended, restarting");
+            }
+        });
     }
 }
 
