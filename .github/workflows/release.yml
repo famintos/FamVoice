@@ -80,7 +80,13 @@ jobs:
             throw "Updater endpoint '$endpoint' returned HTTP $($response.StatusCode). End users need anonymous access to latest.json for Tauri auto-update to work."
           }
 
-          $latestJson = $response.Content | ConvertFrom-Json
+          $latestJsonContent = if ($response.Content -is [byte[]]) {
+            [System.Text.Encoding]::UTF8.GetString($response.Content)
+          } else {
+            [string]$response.Content
+          }
+
+          $latestJson = $latestJsonContent | ConvertFrom-Json
 
           if ($latestJson.version -ne $version) {
             throw "Updater endpoint '$endpoint' published version '$($latestJson.version)', expected '$version'."
