@@ -19,29 +19,35 @@ export function VoiceWave({
   const isRecording = mode === "recording";
   const isTranscribing = mode === "transcribing";
   const containerRef = useRef<HTMLDivElement>(null);
+  const micLevelGain = size === "widget" ? 1.35 : 1;
 
   useEffect(() => {
+    const setMicLevel = (nextLevel: number) => {
+      if (!containerRef.current) return;
+
+      const adjustedLevel = Math.min(1, nextLevel * micLevelGain);
+      containerRef.current.style.setProperty("--mic-level", adjustedLevel.toString());
+    };
+
     if (!isRecording) {
-      if (containerRef.current) {
-        containerRef.current.style.setProperty("--mic-level", "0");
-      }
+      setMicLevel(0);
       return;
     }
 
     const unlisten = listen<number>("mic-level", (event) => {
-      if (containerRef.current) {
-        containerRef.current.style.setProperty("--mic-level", event.payload.toString());
-      }
+      setMicLevel(event.payload);
     });
 
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [isRecording]);
+  }, [isRecording, micLevelGain]);
 
   const bars = useMemo(() => {
     const profiles = PROFILE_PRESETS[size];
     const centerIndex = (profiles.length - 1) / 2;
+    const recordingBaseHeight = size === "widget" ? 24 : 20;
+    const recordingRangeGain = size === "widget" ? 104 : 84;
 
     return profiles.map((profile, index) => {
       const distanceFromCenter = Math.abs(index - centerIndex);
@@ -52,6 +58,7 @@ export function VoiceWave({
         duration: `${1 + distanceFromCenter * 0.06}s`,
         restScale: 0.64 + profile * 0.14,
         activeScale: 0.9 + profile * 0.18,
+        recordingHeight: `calc(${recordingBaseHeight}% + (var(--mic-level) * ${profile * recordingRangeGain}%))`,
       };
     });
   }, [size]);
@@ -88,7 +95,7 @@ export function VoiceWave({
             height: isIdle
               ? `${32 + bar.profile * 16}%`
               : isRecording
-                ? `calc(20% + (var(--mic-level) * ${bar.profile * 84}%))`
+                ? bar.recordingHeight
                 : size === "widget"
                   ? `${44 + bar.profile * 30}%`
                   : `${40 + bar.profile * 42}%`,
