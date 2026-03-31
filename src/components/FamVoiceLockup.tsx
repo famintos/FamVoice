@@ -3,17 +3,20 @@ import { FamVoiceLogo } from "../FamVoiceLogo";
 
 export interface FamVoiceLockupProps extends HTMLAttributes<HTMLDivElement> {
   markSize?: number | string;
+  motion?: "none" | "fade-in";
   wordmarkClassName?: string;
 }
 
 export function FamVoiceLockup({
   markSize = 24,
   className = "",
+  motion = "none",
   wordmarkClassName = "",
   ...rest
 }: FamVoiceLockupProps) {
   const lockupClassName = [
     "inline-flex items-center gap-[var(--fam-lockup-gap)] whitespace-nowrap",
+    motion === "fade-in" ? "lockup-motion--fade-in" : "",
     className,
   ]
     .filter(Boolean)

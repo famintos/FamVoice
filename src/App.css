@@ -110,10 +110,24 @@ body {
   border-color: color-mix(in srgb, var(--app-accent) 22%, var(--app-border));
 }
 
+.lockup-motion--fade-in {
+  opacity: 0;
+  transform: scale(0.95);
+  transform-origin: left center;
+  animation: lockup-fade-in var(--fam-duration-deliberate) var(--fam-ease-enter) forwards;
+}
+
 .widget-wave-wrap {
   display: flex;
   align-items: center;
   transform-origin: left center;
+}
+
+@keyframes lockup-fade-in {
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes widget-finish-flare {
@@ -174,7 +188,6 @@ button, input, select, .no-drag {
   animation-iteration-count: infinite;
   animation-timing-function: cubic-bezier(0.42, 0, 0.24, 1);
   transform-origin: center;
-  will-change: transform, opacity;
 }
 
 @keyframes wave-shimmer {
@@ -201,7 +214,6 @@ button, input, select, .no-drag {
   animation-iteration-count: infinite;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: center;
-  will-change: transform, opacity;
 }
 
 .wave-pulse.wave-paused,
@@ -268,6 +280,7 @@ button, input, select, .no-drag {
 
   .wave-bar,
   .wave-processing,
+  .lockup-motion--fade-in,
   .widget-highlight,
   .widget-wave-wrap--finish,
   .animate-in,
@@ -276,6 +289,7 @@ button, input, select, .no-drag {
     animation: none !important;
   }
 
+  .lockup-motion--fade-in,
   .animate-in,
   .fade-in,
   .slide-in-from-bottom-2 {

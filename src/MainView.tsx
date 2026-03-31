@@ -365,7 +365,7 @@ export function MainView() {
       {/* Header */}
       <div data-tauri-drag-region className="relative z-10 flex items-center justify-between px-3 pt-2 pb-0.5">
         <div className="flex items-center gap-2 pointer-events-none select-none">
-          <FamVoiceLockup markSize={14} />
+          <FamVoiceLockup markSize={14} motion="fade-in" />
         </div>
 
         <div className="flex items-center gap-1.5 no-drag text-slate-500">

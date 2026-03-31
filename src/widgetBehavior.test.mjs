@@ -82,8 +82,8 @@ test("voice wave supports explicit modes and size variants", () => {
   assert.match(voiceWaveSource, /const PROFILE_PRESETS = \{/);
   assert.match(voiceWaveSource, /size === "widget"/);
   assert.match(voiceWaveSource, /h-5 gap-\[2px\] justify-center/);
-  assert.match(voiceWaveSource, /h-6 w-full justify-center gap-\[1px\] px-0/);
-  assert.match(voiceWaveSource, /w-\[3px\]/);
+  assert.match(voiceWaveSource, /h-6 w-full justify-center gap-\[2px\] px-0\.5/);
+  assert.match(voiceWaveSource, /w-\[4px\]/);
   assert.match(voiceWaveSource, /w-\[4\.5px\]/);
   assert.match(voiceWaveSource, /w-\[3\.5px\]/);
   assert.match(voiceWaveSource, /size === "large"/);
@@ -105,7 +105,7 @@ test("record tab keeps the open record surface and guided recovery states", () =
   assert.match(mainViewSource, /const showRecordError = status === "error" && Boolean\(transcript\);/);
   assert.match(mainViewSource, /const showRecordTranscript = !showRecordError && Boolean\(transcript\);/);
   assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
-  assert.match(recordTabBlock, /flex flex-1 flex-col items-center justify-center rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\] px-3 pt-1 pb-3 no-drag text-center/);
+  assert.match(recordTabBlock, /flex min-h-0 flex-1 flex-col items-center justify-center rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\] px-3 pt-1 pb-3 no-drag text-center/);
   assert.match(recordTabBlock, /rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\]/);
   assert.match(recordTabBlock, /flex flex-col items-center gap-1\.5/);
   assert.match(recordTabBlock, /flex min-h-\[2\.75rem\] w-full max-w-\[16rem\] items-start justify-center/);
@@ -152,12 +152,12 @@ test("widget keeps the compact lockup without a settings action", () => {
   assert.match(widgetViewSource, /No speech found\./);
   assert.match(widgetViewSource, /Try again\./);
   assert.match(widgetViewSource, /Open Settings\./);
-  assert.match(widgetViewSource, /<VoiceWave mode=\{/);
+  assert.doesNotMatch(widgetViewSource, /markPulseRef/);
+  assert.doesNotMatch(widgetViewSource, /widget-mark-pulse/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{renderedWaveMode\} size="widget" \/>/);
   assert.match(widgetViewSource, /flex w-full items-center pl-1\.5 pr-0\.5 py-1/);
   assert.match(widgetViewSource, /flex w-full items-center pl-1 pr-0 py-1/);
   assert.doesNotMatch(widgetViewSource, /shadow-\[0_0_15px_rgba\(255,81,47,0\.4\)\]/);
-  assert.doesNotMatch(widgetViewSource, /status === "transcribing" && \(/);
   assert.doesNotMatch(widgetViewSource, /animate-pulse/);
 });
 

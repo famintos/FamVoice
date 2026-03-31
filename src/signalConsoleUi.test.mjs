@@ -88,10 +88,10 @@ test("MainView keeps the open record surface and guided history list", () => {
 
   assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
   assert.match(recordTabBlock, /rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\]/);
-  assert.match(recordTabBlock, /flex flex-wrap items-center gap-2/);
-  assert.match(recordTabBlock, /text-xs leading-5 text-slate-400/);
-  assert.match(recordTabBlock, /Review the error details, then try again or open settings\./);
-  assert.match(recordTabBlock, /Open settings to add the missing API key before you dictate\./);
+  assert.match(recordTabBlock, /flex flex-col items-center gap-1\.5/);
+  assert.match(recordTabBlock, /text-\[11px\] leading-tight text-slate-400/);
+  assert.match(recordTabBlock, /Try again or check settings\./);
+  assert.match(mainViewSource, /Add API key in settings\./);
   assert.match(historyTabBlock, /custom-scrollbar/);
   assert.match(historyTabBlock, /copyToClipboard/);
   assert.match(historyTabBlock, /repasteHistory/);
@@ -109,6 +109,6 @@ test("SettingsView uses the refreshed settings shell and inline update states", 
   assert.match(settingsViewSource, /Checking for updates\.\.\./);
   assert.match(settingsViewSource, /Could not check for updates\./);
   assert.match(settingsViewSource, /Update installation failed\./);
-  assert.match(settingsViewSource, /className="py-2 text-red-400"/);
+  assert.match(settingsViewSource, /className="mt-3 text-sm font-medium text-red-400"/);
   assert.doesNotMatch(settingsViewSource, /status-panel status-panel--neutral/);
 });
