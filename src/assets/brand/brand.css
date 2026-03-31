@@ -1,0 +1,157 @@
+/*
+ * Local copy of the Faminto brand tokens required by FamVoice builds.
+ * Keep this in-repo so CI and release builds do not depend on a sibling checkout.
+ */
+
+:root {
+  --fam-font: "Space Grotesk", system-ui, sans-serif;
+  --fam-font-weight-regular: 400;
+  --fam-font-weight-medium: 500;
+  --fam-font-weight-semibold: 600;
+  --fam-font-weight-bold: 700;
+  --fam-letter-spacing: -0.025em;
+
+  --fam-type-xs: 12px;
+  --fam-type-xs-line: 16px;
+  --fam-type-sm: 14px;
+  --fam-type-sm-line: 20px;
+  --fam-type-base: 16px;
+  --fam-type-base-line: 24px;
+  --fam-type-lg: 18px;
+  --fam-type-lg-line: 28px;
+  --fam-type-xl: 20px;
+  --fam-type-xl-line: 28px;
+  --fam-type-2xl: 24px;
+  --fam-type-2xl-line: 32px;
+  --fam-type-3xl: 30px;
+  --fam-type-3xl-line: 36px;
+  --fam-type-4xl: 36px;
+  --fam-type-4xl-line: 40px;
+  --fam-type-display: 48px;
+  --fam-type-display-line: 1;
+
+  --fam-amber: #d17a28;
+  --fam-sporting: #00593e;
+  --fam-coral: #ff6b6b;
+  --fam-electric: #3b82f6;
+  --fam-white: #ffffff;
+  --fam-slate: #1e293b;
+  --fam-black: #0a0a0a;
+  --fam-indigo: #818cf8;
+  --fam-rose: #f43f5e;
+  --fam-cyan: #06b6d4;
+  --fam-emerald: #10b981;
+
+  --fam-bg-dark: #0a0a0a;
+  --fam-bg-surface: #161b26;
+  --fam-bg-slate: #1e293b;
+  --fam-bg-light: #ffffff;
+  --fam-bg-muted: #f8fafc;
+
+  --fam-space-0: 0px;
+  --fam-space-1: 4px;
+  --fam-space-2: 8px;
+  --fam-space-3: 12px;
+  --fam-space-4: 16px;
+  --fam-space-5: 20px;
+  --fam-space-6: 24px;
+  --fam-space-8: 32px;
+  --fam-space-10: 40px;
+  --fam-space-12: 48px;
+  --fam-space-16: 64px;
+  --fam-space-20: 80px;
+  --fam-space-24: 96px;
+
+  --fam-radius-none: 0px;
+  --fam-radius-sm: 4px;
+  --fam-radius-md: 8px;
+  --fam-radius-lg: 12px;
+  --fam-radius-xl: 16px;
+  --fam-radius-full: 9999px;
+
+  --fam-shadow-0: none;
+  --fam-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --fam-shadow-2: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --fam-shadow-3: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  --fam-duration-instant: 100ms;
+  --fam-duration-fast: 160ms;
+  --fam-duration-normal: 220ms;
+  --fam-duration-slow: 300ms;
+  --fam-duration-deliberate: 500ms;
+
+  --fam-ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --fam-ease-move: cubic-bezier(0.25, 1, 0.5, 1);
+  --fam-ease-ease: ease;
+
+  --fam-mark-path: "M 84 34 A 38 38 0 1 0 84 66 L 50 50 Z";
+  --fam-mark-stroke-width: 6.5;
+  --fam-mark-viewbox: 0 0 100 100;
+  --fam-lockup-gap: 8px;
+
+  --fam-bg: #0a0a0a;
+  --fam-surface: #161b26;
+  --fam-surface-elevated: #1e293b;
+  --fam-text-primary: #ffffff;
+  --fam-text-secondary: #94a3b8;
+  --fam-text-muted: #64748b;
+  --fam-border: #1e293b;
+  --fam-border-subtle: #161b26;
+  --fam-interactive: #d17a28;
+  --fam-interactive-hover: #e08a38;
+  --fam-error: #f43f5e;
+  --fam-success: #10b981;
+  --fam-warning: #d17a28;
+}
+
+[data-theme="dark"],
+.fam-dark {
+  --fam-bg: #0a0a0a;
+  --fam-surface: #161b26;
+  --fam-surface-elevated: #1e293b;
+  --fam-text-primary: #ffffff;
+  --fam-text-secondary: #94a3b8;
+  --fam-text-muted: #64748b;
+  --fam-border: #1e293b;
+  --fam-border-subtle: #161b26;
+  --fam-interactive: #d17a28;
+  --fam-interactive-hover: #e08a38;
+  --fam-error: #f43f5e;
+  --fam-success: #10b981;
+  --fam-warning: #d17a28;
+}
+
+[data-theme="light"],
+.fam-light {
+  --fam-bg: #ffffff;
+  --fam-surface: #f8fafc;
+  --fam-surface-elevated: #ffffff;
+  --fam-text-primary: #1e293b;
+  --fam-text-secondary: #64748b;
+  --fam-text-muted: #94a3b8;
+  --fam-border: #e2e8f0;
+  --fam-border-subtle: #f1f5f9;
+  --fam-interactive: #d17a28;
+  --fam-interactive-hover: #b8691f;
+  --fam-error: #f43f5e;
+  --fam-success: #10b981;
+  --fam-warning: #d17a28;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --fam-bg: #ffffff;
+    --fam-surface: #f8fafc;
+    --fam-surface-elevated: #ffffff;
+    --fam-text-primary: #1e293b;
+    --fam-text-secondary: #64748b;
+    --fam-text-muted: #94a3b8;
+    --fam-border: #e2e8f0;
+    --fam-border-subtle: #f1f5f9;
+    --fam-interactive: #d17a28;
+    --fam-interactive-hover: #b8691f;
+    --fam-error: #f43f5e;
+    --fam-success: #10b981;
+    --fam-warning: #d17a28;
+  }
+}

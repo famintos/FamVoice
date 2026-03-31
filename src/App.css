@@ -1,4 +1,4 @@
-@import "../../FamBrand/tokens/brand.css";
+@import "./assets/brand/brand.css";
 @import "tailwindcss";
 
 :root {
