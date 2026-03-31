@@ -20,6 +20,8 @@ test("App.css imports the official Faminto token stylesheet", () => {
 
 test("shared lockup helper composes the approved dark brand treatment", () => {
   assert.match(famVoiceLockup, /FamVoiceLogo/);
+  assert.match(famVoiceLockup, /motion\?: "none" \| "fade-in"/);
+  assert.match(famVoiceLockup, /motion === "fade-in" \? "lockup-motion--fade-in" : ""/);
   assert.match(famVoiceLockup, /text-\[var\(--fam-text-primary\)\]/);
   assert.match(famVoiceLockup, /text-\[var\(--fam-interactive\)\]/);
 });
@@ -28,6 +30,7 @@ test("main settings and widget use the shared lockup helper", () => {
   assert.match(mainView, /import \{ FamVoiceLockup \} from "\.\/components\/FamVoiceLockup";/);
   assert.match(settingsView, /import \{ FamVoiceLockup \} from "\.\/components\/FamVoiceLockup";/);
   assert.match(widgetView, /import \{ FamVoiceLockup \} from "\.\/components\/FamVoiceLockup";/);
+  assert.match(mainView, /<FamVoiceLockup markSize=\{14\} motion="fade-in" \/>/);
 
   assert.doesNotMatch(mainView, /FamVoice<span className="text-primary">/);
   assert.doesNotMatch(settingsView, /FamVoice<span className="text-primary">/);
@@ -45,9 +48,9 @@ test("main shell keeps drag behavior on the title bar only", () => {
 });
 
 test("main record and history copy uses the upgraded body scale", () => {
-  assert.match(mainView, /text-xs leading-5 text-slate-400/);
-  assert.match(mainView, /text-xs leading-5 text-red-100\/80/);
-  assert.match(mainView, /text-xs leading-5 text-amber-50/);
+  assert.match(mainView, /text-\[11px\] leading-tight text-slate-400/);
+  assert.match(mainView, /text-\[10px\] leading-tight text-red-100\/60/);
+  assert.match(mainView, /text-\[10px\] leading-tight text-amber-50/);
   assert.match(mainView, /text-xs leading-5 text-slate-200/);
 });
 
@@ -71,8 +74,8 @@ test("glossary rows keep persistent labels", () => {
 });
 
 test("settings helper copy and glossary content use the upgraded body scale", () => {
-  assert.match(settingsView, /max-w-\[42rem\] text-sm leading-6 text-slate-500/);
-  assert.match(settingsView, /text-sm leading-6 text-slate-400/);
+  assert.match(settingsView, /max-w-\[42rem\] text-xs leading-normal text-slate-400\/80/);
+  assert.match(settingsView, /text-xs leading-normal text-slate-500/);
   assert.match(settingsView, /const controlMotion = "transition-colors duration-\[var\(--fam-duration-fast\)\] ease-\[var\(--fam-ease-ease\)\]";/);
   assert.match(settingsView, /text-base text-white \$\{controlMotion\} focus-visible:border-primary/);
   assert.match(settingsView, /-&gt;<\/span>/);
@@ -86,8 +89,8 @@ test("select primitive is native and keeps visible focus semantics", () => {
 
 test("motion classes avoid perpetual idle animation and broad transitions", () => {
   assert.doesNotMatch(appCss, /transition-all/);
-  assert.doesNotMatch(appCss, /linear/);
-  assert.doesNotMatch(appCss, /will-change:/);
+  assert.doesNotMatch(appCss, /widget-mark-loader-spin/);
+  assert.doesNotMatch(appCss, /widget-mark-pulse--active/);
   assert.doesNotMatch(mainView, /transition-all/);
   assert.doesNotMatch(settingsView, /transition-all/);
   assert.doesNotMatch(voiceWave, /transition-all/);
@@ -119,13 +122,9 @@ test("settings helper copy and errors include recovery steps", () => {
   assert.match(settingsView, /try installing the update again/);
 });
 
-test("widget missing-key and error states expose a visible settings action", () => {
-  assert.match(widgetView, /Open settings/);
+test("widget keeps issues inline without a visible settings action", () => {
+  assert.match(widgetView, /Open Settings\./);
   assert.doesNotMatch(widgetView, /title=/);
-  assert.match(widgetView, /const settingsAction = \(\s*<button/);
-  assert.match(widgetView, /className="focus-ring [^"]*text-xs font-medium[^"]*"/);
-});
-
-test("widget normal states expose a visible settings action", () => {
-  assert.match(widgetView, /showIssue \?[^]*: \([^]*settingsAction/);
+  assert.doesNotMatch(widgetView, /const settingsAction = \(/);
+  assert.doesNotMatch(widgetView, /aria-label="Settings"/);
 });
