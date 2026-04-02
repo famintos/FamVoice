@@ -131,7 +131,11 @@ pub(crate) fn finalize_transcript(
         text = replace_whole_word_case_insensitive(&text, &rule.target, &rule.replacement);
     }
 
-    if text.ends_with('.') {
+    if text.ends_with("...") {
+        text.truncate(text.len() - 3);
+    } else if text.ends_with('\u{2026}') {
+        text.pop();
+    } else if text.ends_with('.') {
         text.pop();
     }
 
@@ -193,6 +197,18 @@ mod tests {
         );
 
         assert_eq!(transcript, "Oh my gosh hello");
+    }
+
+    #[test]
+    fn test_finalize_transcript_trims_trailing_ellipsis() {
+        let transcript = finalize_transcript("hello world...".to_string(), &[]);
+        assert_eq!(transcript, "hello world");
+    }
+
+    #[test]
+    fn test_finalize_transcript_trims_trailing_unicode_ellipsis() {
+        let transcript = finalize_transcript("hello world\u{2026}".to_string(), &[]);
+        assert_eq!(transcript, "hello world");
     }
 
     #[test]

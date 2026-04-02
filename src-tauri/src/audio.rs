@@ -345,6 +345,16 @@ impl Default for AudioState {
                                     continue;
                                 }
                             }
+                        } else if let Some(ref s) = stream {
+                            // Resume the paused stream
+                            if let Err(e) = s.play() {
+                                eprintln!("[FamVoice] Failed to resume stream: {}", e);
+                                // Rebuild on next attempt
+                                stream.take();
+                                needs_rebuild_clone.store(false, Ordering::SeqCst);
+                                let _ = reply.send(Err(format!("Failed to resume microphone: {}", e)));
+                                continue;
+                            }
                         }
 
                         {
@@ -363,6 +373,13 @@ impl Default for AudioState {
                         };
                         armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
+
+                        // Pause the stream to release the microphone (removes system tray icon)
+                        if let Some(ref s) = stream {
+                            if let Err(e) = s.pause() {
+                                eprintln!("[FamVoice] Failed to pause stream: {}", e);
+                            }
+                        }
 
                         if let Some(samples) = samples {
                             eprintln!(
