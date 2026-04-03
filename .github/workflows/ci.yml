@@ -44,5 +44,19 @@ jobs:
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
+      - name: Clippy lint
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+      - name: Security audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --manifest-path src-tauri/Cargo.toml
+
       - name: Run frontend tests
         run: npm run test
+
+      - name: Lint frontend
+        run: npm run lint
