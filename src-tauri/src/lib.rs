@@ -92,65 +92,185 @@ impl Drop for BackgroundTasksState {
 use input_hook::HotkeyConfigState;
 use std::sync::Mutex;
 
-fn register_hotkey(app: &AppHandle, hotkey: &str) {
+fn hotkey_is_disabled(hotkey: &str) -> bool {
+    hotkey.trim().is_empty()
+}
+
+fn handle_recording_shortcut_event(app: &AppHandle, event_state: ShortcutState) {
+    if event_state == ShortcutState::Pressed {
+        let state: State<AudioState> = app.state();
+        if state
+            .is_recording
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_ok()
+        {
+            let app_clone = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = start_recording_cmd(app_clone.clone()).await;
+            });
+        }
+    } else if event_state == ShortcutState::Released {
+        let state: State<AudioState> = app.state();
+        if state
+            .is_recording
+            .compare_exchange(
+                true,
+                false,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_ok()
+        {
+            let app_clone = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = stop_recording_cmd(app_clone.clone()).await;
+            });
+        }
+    }
+}
+
+fn register_hotkeys(app: &AppHandle, recording_hotkey: &str, repaste_hotkey: &str) {
     input_hook::reset_mouse_hotkey_state();
 
     if let Some(state) = app.try_state::<HotkeyConfigState>() {
         if let Ok(mut guard) = state.hotkey.lock() {
-            *guard = hotkey.to_string();
+            *guard = recording_hotkey.to_string();
         }
     }
 
     let _ = app.global_shortcut().unregister_all();
 
-    if input_hook::is_mouse_hotkey(hotkey) {
-        eprintln!("[FamVoice] Mouse hotkey registered globally: {}", hotkey);
+    if input_hook::is_mouse_hotkey(recording_hotkey) {
+        eprintln!(
+            "[FamVoice] Mouse hotkey registered globally: {}",
+            recording_hotkey
+        );
+    } else if let Ok(shortcut) = recording_hotkey.parse::<Shortcut>() {
+        let _ = app
+            .global_shortcut()
+            .on_shortcut(shortcut, move |app, _shortcut, event| {
+                handle_recording_shortcut_event(app, event.state());
+            });
+    } else {
+        eprintln!("[FamVoice] Failed to parse hotkey: {}", recording_hotkey);
+    }
+
+    if hotkey_is_disabled(repaste_hotkey) {
         return;
     }
 
-    if let Ok(shortcut) = hotkey.parse::<Shortcut>() {
+    if let Ok(shortcut) = repaste_hotkey.parse::<Shortcut>() {
         let _ = app
             .global_shortcut()
             .on_shortcut(shortcut, move |app, _shortcut, event| {
                 if event.state() == ShortcutState::Pressed {
-                    let state: State<AudioState> = app.state();
-                    if state
-                        .is_recording
-                        .compare_exchange(
-                            false,
-                            true,
-                            std::sync::atomic::Ordering::SeqCst,
-                            std::sync::atomic::Ordering::SeqCst,
-                        )
-                        .is_ok()
-                    {
-                        let app_clone = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = start_recording_cmd(app_clone.clone()).await;
-                        });
-                    }
-                } else if event.state() == ShortcutState::Released {
-                    let state: State<AudioState> = app.state();
-                    if state
-                        .is_recording
-                        .compare_exchange(
-                            true,
-                            false,
-                            std::sync::atomic::Ordering::SeqCst,
-                            std::sync::atomic::Ordering::SeqCst,
-                        )
-                        .is_ok()
-                    {
-                        let app_clone = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = stop_recording_cmd(app_clone.clone()).await;
-                        });
-                    }
+                    let app_clone = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) = repaste_last_history_item(app_clone.clone()).await {
+                            eprintln!("[FamVoice] Re-paste hotkey failed: {}", error);
+                        }
+                    });
                 }
             });
     } else {
-        eprintln!("[FamVoice] Failed to parse hotkey: {}", hotkey);
+        eprintln!(
+            "[FamVoice] Failed to parse re-paste hotkey: {}",
+            repaste_hotkey
+        );
     }
+}
+
+async fn paste_text_via_clipboard(
+    app: &AppHandle,
+    text: &str,
+    preserve_clipboard: bool,
+) -> Result<(), String> {
+    if text.len() > MAX_REPASTE_TEXT_BYTES {
+        return Err("History item is too large to repaste".to_string());
+    }
+
+    let clipboard_state: State<ClipboardState> = app.state();
+
+    if preserve_clipboard {
+        clipboard::save_clipboard(&*clipboard_state);
+    }
+
+    clipboard::set_clipboard(&*clipboard_state, text)
+        .map_err(|error| format!("Failed to set clipboard: {}", error))?;
+
+    tokio::time::sleep(paste_clipboard_settle_delay()).await;
+    let paste_result = tokio::task::spawn_blocking(injection::simulate_paste)
+        .await
+        .map_err(|error| format!("Paste task panicked: {}", error))?;
+
+    if preserve_clipboard {
+        let saved_clipboard = clipboard::saved_clipboard_text(&*clipboard_state);
+        let tasks_state: State<BackgroundTasksState> = app.state();
+        let app_handle = app.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(clipboard_restore_delay()).await;
+            if let Some(saved_text) = saved_clipboard {
+                let clipboard_state: State<ClipboardState> = app_handle.state();
+                if let Err(error) =
+                    clipboard::restore_clipboard_text(&*clipboard_state, &saved_text)
+                {
+                    eprintln!("[FamVoice] Failed to restore clipboard after repaste: {}", error);
+                }
+            }
+        });
+        tasks_state.spawn(handle);
+    }
+
+    paste_result.map_err(|error| format!("Failed to simulate paste: {}", error))
+}
+
+fn latest_history_text(history_state: &HistoryState) -> Result<String, String> {
+    let items = history_state
+        .items
+        .lock()
+        .map_err(|e| format!("Failed to acquire history lock: {}", e))?;
+    items
+        .first()
+        .map(|item| item.text.clone())
+        .ok_or_else(|| "No history item available to re-paste".to_string())
+}
+
+async fn repaste_last_history_item(app: AppHandle) -> Result<(), String> {
+    let history_state: State<HistoryState> = app.state();
+    let text = latest_history_text(&history_state)?;
+    let settings_state: State<SettingsState> = app.state();
+    let preserve_clipboard = settings_state
+        .settings
+        .lock()
+        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
+        .preserve_clipboard;
+
+    paste_text_via_clipboard(&app, &text, preserve_clipboard).await
+}
+
+fn normalize_frontend_settings(settings: &AppSettings) -> FrontendSettings {
+    let mut frontend = settings.to_frontend();
+
+    if !frontend.input_device_id.is_empty() {
+        match audio::list_input_devices() {
+            Ok(devices) => {
+                if !devices.iter().any(|device| device.id == frontend.input_device_id) {
+                    frontend.input_device_id.clear();
+                }
+            }
+            Err(error) => {
+                eprintln!("[FamVoice] Failed to validate selected microphone: {}", error);
+                frontend.input_device_id.clear();
+            }
+        }
+    }
+
+    frontend
 }
 
 #[tauri::command]
@@ -159,7 +279,7 @@ fn get_settings(state: State<'_, SettingsState>) -> Result<FrontendSettings, Str
         .settings
         .lock()
         .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
-    Ok(settings.to_frontend())
+    Ok(normalize_frontend_settings(&settings))
 }
 
 #[tauri::command]
@@ -174,14 +294,14 @@ async fn save_settings(
         .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
         .clone();
     let saved = state.save_request(new_settings)?;
-    let frontend = saved.to_frontend();
+    let frontend = normalize_frontend_settings(&saved);
 
     if previous.widget_mode != saved.widget_mode {
         window::apply_main_window_mode(&app, saved.widget_mode, true)?;
     }
 
-    if previous.hotkey != saved.hotkey {
-        register_hotkey(&app, &saved.hotkey);
+    if previous.hotkey != saved.hotkey || previous.repaste_hotkey != saved.repaste_hotkey {
+        register_hotkeys(&app, &saved.hotkey, &saved.repaste_hotkey);
     }
 
     let _ = app.emit("settings-updated", frontend.clone());
@@ -227,11 +347,6 @@ fn clear_history(app: AppHandle, state: State<'_, HistoryState>) {
 
 #[tauri::command]
 async fn repaste_history_item(app: AppHandle, text: String) -> Result<(), String> {
-    if text.len() > MAX_REPASTE_TEXT_BYTES {
-        return Err("History item is too large to repaste".to_string());
-    }
-
-    let clipboard_state: State<ClipboardState> = app.state();
     let settings_state: State<SettingsState> = app.state();
     let preserve_clipboard = settings_state
         .settings
@@ -239,40 +354,12 @@ async fn repaste_history_item(app: AppHandle, text: String) -> Result<(), String
         .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
         .preserve_clipboard;
 
-    if preserve_clipboard {
-        clipboard::save_clipboard(&*clipboard_state);
-    }
+    paste_text_via_clipboard(&app, &text, preserve_clipboard).await
+}
 
-    if let Err(error) = clipboard::set_clipboard(&*clipboard_state, &text) {
-        return Err(format!("Failed to set clipboard: {}", error));
-    }
-
-    tokio::time::sleep(paste_clipboard_settle_delay()).await;
-    let paste_result = injection::simulate_paste();
-
-    if preserve_clipboard {
-        let saved_clipboard = clipboard::saved_clipboard_text(&*clipboard_state);
-        let tasks_state: State<BackgroundTasksState> = app.state();
-        let app_handle = app.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::sleep(clipboard_restore_delay()).await;
-            if let Some(saved_text) = saved_clipboard {
-                let clipboard_state: State<ClipboardState> = app_handle.state();
-                if let Err(error) =
-                    clipboard::restore_clipboard_text(&*clipboard_state, &saved_text)
-                {
-                    eprintln!("[FamVoice] Failed to restore clipboard after repaste: {}", error);
-                }
-            }
-        });
-        tasks_state.spawn(handle);
-    }
-
-    if let Err(error) = paste_result {
-        return Err(format!("Failed to simulate paste: {}", error));
-    }
-
-    Ok(())
+#[tauri::command]
+fn list_input_devices() -> Result<Vec<audio::InputDeviceOption>, String> {
+    audio::list_input_devices()
 }
 
 #[tauri::command]
@@ -292,10 +379,10 @@ fn can_manage_autostart() -> bool {
 }
 
 fn transcription_language_override(language_preference: &str) -> Option<&str> {
-    match language_preference {
-        "pt" => Some("pt"),
-        "en" => Some("en"),
-        _ => None,
+    let trimmed = language_preference.trim();
+    match trimmed {
+        "" | "auto" => None,
+        _ => Some(trimmed),
     }
 }
 
@@ -303,9 +390,21 @@ fn transcription_language_override(language_preference: &str) -> Option<&str> {
 async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
     let audio_state: State<AudioState> = app.state();
     let tasks_state: State<BackgroundTasksState> = app.state();
+    let settings_state: State<SettingsState> = app.state();
     tasks_state.invalidate_status_reset();
+    let input_device_id = settings_state
+        .settings
+        .lock()
+        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
+        .input_device_id
+        .clone();
 
-    match audio::start_recording(app.clone(), &*audio_state).await {
+    match audio::start_recording(
+        app.clone(),
+        &*audio_state,
+        Some(input_device_id.as_str()),
+    )
+    .await {
         Ok(()) => {
             let _ = app.emit("status", "recording");
             Ok(())
@@ -450,9 +549,14 @@ fn status_reset_delay() -> std::time::Duration {
 }
 
 fn emit_history_updated(app: &AppHandle, history_state: &HistoryState) {
-    if let Ok(items) = history_state.items.lock() {
-        let _ = app.emit("history-updated", &*items);
-    }
+    let items = {
+        let guard = match history_state.items.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        guard.clone()
+    };
+    let _ = app.emit("history-updated", &items);
 }
 
 fn schedule_status_reset(app: AppHandle, tasks_state: &BackgroundTasksState) {
@@ -544,6 +648,24 @@ async fn capture_and_prepare_samples(
         );
     }
 
+    match audio::maybe_apply_noise_suppression(&mut samples, settings.noise_suppression_enabled) {
+        Ok(true) => {
+            let denoised_levels = mic_analysis::analyze(&samples);
+            let denoised_details = mic_analysis::level_details(denoised_levels);
+            eprintln!(
+                "[FamVoice] Applied noise suppression -> rms {:.2} ({:.1} dBFS), peak {:.0} ({:.1}%)",
+                denoised_levels.rms,
+                denoised_details.rms_dbfs,
+                denoised_levels.peak,
+                denoised_details.peak_percent
+            );
+        }
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("[FamVoice] Noise suppression skipped: {}", error);
+        }
+    }
+
     if settings.transcription_api_key().is_empty() {
         let provider_label = if settings.transcription_provider == "groq" {
             "Groq"
@@ -611,12 +733,14 @@ async fn transcribe_recording(
         settings.transcription_provider, settings.model, settings.language
     );
     let lang = transcription_language_override(&settings.language);
+    let transcription_prompt = glossary::transcription_prompt(&settings.replacements);
     let text = transcription::transcribe_audio(
         http_client,
         audio_bytes,
         settings.transcription_api_key(),
         &settings.model,
         lang,
+        transcription_prompt.as_deref(),
         &settings.transcription_provider,
         audio_mime,
         audio_ext,
@@ -677,10 +801,19 @@ async fn deliver_transcript(
 
     if settings.auto_paste {
         tokio::time::sleep(paste_clipboard_settle_delay()).await;
-        if let Err(error) = injection::simulate_paste() {
-            eprintln!("[FamVoice] Failed to simulate paste: {}", error);
-            paste_successful = false;
-            paste_error = Some(error);
+        match tokio::task::spawn_blocking(injection::simulate_paste).await {
+            Ok(Err(error)) => {
+                eprintln!("[FamVoice] Failed to simulate paste: {}", error);
+                paste_successful = false;
+                paste_error = Some(error);
+            }
+            Err(join_error) => {
+                let error = format!("Paste task panicked: {}", join_error);
+                eprintln!("[FamVoice] {}", error);
+                paste_successful = false;
+                paste_error = Some(error);
+            }
+            Ok(Ok(())) => {}
         }
     }
 
@@ -775,6 +908,7 @@ mod tests {
         assert_eq!(transcription_language_override("auto"), None);
         assert_eq!(transcription_language_override("pt"), Some("pt"));
         assert_eq!(transcription_language_override("en"), Some("en"));
+        assert_eq!(transcription_language_override("fr"), Some("fr"));
     }
 
     #[test]
@@ -1120,25 +1254,20 @@ pub fn run() {
                 hotkey: hotkey_shared.clone(),
             });
 
-            let hotkey = {
+            let (hotkey, repaste_hotkey, widget_mode) = {
                 let state: State<SettingsState> = app.state();
                 let settings = state
                     .settings
                     .lock()
                     .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
-                settings.hotkey.clone()
+                (
+                    settings.hotkey.clone(),
+                    settings.repaste_hotkey.clone(),
+                    settings.widget_mode,
+                )
             };
 
-            let widget_mode = {
-                let state: State<SettingsState> = app.state();
-                let settings = state
-                    .settings
-                    .lock()
-                    .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
-                settings.widget_mode
-            };
-
-            register_hotkey(app.handle(), &hotkey);
+            register_hotkeys(app.handle(), &hotkey, &repaste_hotkey);
             input_hook::start_mouse_listener(app.handle().clone(), hotkey_shared);
             window::apply_main_window_mode(app.handle(), widget_mode, false)?;
 
@@ -1147,6 +1276,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            list_input_devices,
             get_history,
             delete_history_item,
             clear_history,

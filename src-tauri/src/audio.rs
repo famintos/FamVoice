@@ -1,5 +1,12 @@
+mod noise;
+
+pub use noise::maybe_apply_noise_suppression;
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{Sample, SampleFormat};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
@@ -24,6 +31,13 @@ pub struct AudioState {
     pub cmd_tx: mpsc::Sender<AudioCommand>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InputDeviceOption {
+    pub id: String,
+    pub label: String,
+    pub is_default: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UploadAudioSelection<'a> {
     pub samples: Cow<'a, [i16]>,
@@ -31,8 +45,122 @@ pub struct UploadAudioSelection<'a> {
 }
 
 pub enum AudioCommand {
-    Start(tauri::AppHandle, tokio::sync::oneshot::Sender<Result<(), String>>),
+    Start(
+        tauri::AppHandle,
+        Option<String>,
+        tokio::sync::oneshot::Sender<Result<(), String>>,
+    ),
     Stop(tokio::sync::oneshot::Sender<Option<Vec<i16>>>),
+}
+
+pub fn list_input_devices() -> Result<Vec<InputDeviceOption>, String> {
+    let host = cpal::default_host();
+    list_input_devices_for_host(&host)
+}
+
+fn list_input_devices_for_host(host: &cpal::Host) -> Result<Vec<InputDeviceOption>, String> {
+    let default_device_id = host
+        .default_input_device()
+        .and_then(|device| device.id().ok())
+        .map(|id| id.to_string());
+
+    let mut devices = Vec::new();
+    let input_devices = host
+        .input_devices()
+        .map_err(|error| format!("Failed to enumerate input devices: {}", error))?;
+
+    for device in input_devices {
+        let id = match device.id() {
+            Ok(id) => id.to_string(),
+            Err(error) => {
+                #[cfg(debug_assertions)]
+                eprintln!("[FamVoice] Skipping input device without stable id: {}", error);
+                continue;
+            }
+        };
+
+        let label = input_device_label(&device);
+        let is_default = default_device_id
+            .as_ref()
+            .is_some_and(|default_id| default_id == &id);
+
+        devices.push(InputDeviceOption {
+            id,
+            label,
+            is_default,
+        });
+    }
+
+    devices.sort_by(|left, right| {
+        right
+            .is_default
+            .cmp(&left.is_default)
+            .then_with(|| left.label.to_lowercase().cmp(&right.label.to_lowercase()))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    Ok(devices)
+}
+
+fn input_device_candidates(
+    host: &cpal::Host,
+    selected_device_id: Option<&str>,
+) -> Result<Vec<cpal::Device>, String> {
+    let mut candidates = Vec::new();
+    let normalized_selection = selected_device_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+
+    if let Some(selection) = normalized_selection.as_deref() {
+        if let Ok(parsed_id) = cpal::DeviceId::from_str(selection) {
+            if let Some(device) = host.device_by_id(&parsed_id) {
+                candidates.push(device);
+            }
+        }
+    }
+
+    if let Some(default_device) = host.default_input_device() {
+        let default_device_id = default_device.id().ok().map(|id| id.to_string());
+        if normalized_selection.as_deref() != default_device_id.as_deref() {
+            candidates.push(default_device);
+        }
+    }
+
+    if candidates.is_empty() {
+        let mut fallback_devices = host
+            .input_devices()
+            .map_err(|error| format!("Failed to enumerate input devices: {}", error))?;
+        if let Some(device) = fallback_devices.next() {
+            candidates.push(device);
+        }
+    }
+
+    if candidates.is_empty() {
+        Err("No microphone found. Check your audio input device.".to_string())
+    } else {
+        Ok(candidates)
+    }
+}
+
+fn input_device_label(device: &cpal::Device) -> String {
+    match device.description() {
+        Ok(description) => {
+            let label = description.to_string();
+            if label.trim().is_empty() {
+                device
+                    .id()
+                    .map(|id| format!("Microphone {}", id))
+                    .unwrap_or_else(|_| "Unknown microphone".to_string())
+            } else {
+                label
+            }
+        }
+        Err(_) => device
+            .id()
+            .map(|id| format!("Microphone {}", id))
+            .unwrap_or_else(|_| "Unknown microphone".to_string()),
+    }
 }
 
 /// Single-pole IIR low-pass filter for anti-aliasing before downsampling.
@@ -93,26 +221,33 @@ fn finish_recording_cycle(
     take_recorded_samples(buffer)
 }
 
-fn mix_down_and_resample<T, Convert>(
+fn mix_down_and_resample<T>(
     data: &[T],
     capture_channels: usize,
     downsample_ratio: f64,
     filter: &mut LowPassFilter,
     mono_buf: &mut Vec<f64>,
     resampled_buf: &mut Vec<i16>,
-    convert_sample: Convert,
 ) where
-    T: Copy,
-    Convert: Fn(T) -> f64 + Copy,
+    T: Sample + Copy,
+    i16: cpal::FromSample<T>,
 {
     mono_buf.clear();
     resampled_buf.clear();
 
     if capture_channels == 1 {
-        mono_buf.extend(data.iter().copied().map(convert_sample));
+        mono_buf.extend(
+            data.iter()
+                .copied()
+                .map(|sample| sample.to_sample::<i16>() as f64),
+        );
     } else {
         for frame in data.chunks_exact(capture_channels) {
-            let sum: f64 = frame.iter().copied().map(convert_sample).sum();
+            let sum: f64 = frame
+                .iter()
+                .copied()
+                .map(|sample| sample.to_sample::<i16>() as f64)
+                .sum();
             mono_buf.push(sum / capture_channels as f64);
         }
     }
@@ -134,7 +269,7 @@ fn mix_down_and_resample<T, Convert>(
     }
 }
 
-fn build_mono_input_stream<T, Convert, ErrFn>(
+fn build_mono_input_stream<T, ErrFn>(
     device: &cpal::Device,
     stream_config: &cpal::StreamConfig,
     sample_buffer: Arc<Mutex<Vec<i16>>>,
@@ -145,12 +280,11 @@ fn build_mono_input_stream<T, Convert, ErrFn>(
     capture_rate: u32,
     downsample_ratio: f64,
     filter_cutoff: f64,
-    convert_sample: Convert,
     err_fn: ErrFn,
 ) -> Result<cpal::Stream, cpal::BuildStreamError>
 where
-    T: cpal::SizedSample,
-    Convert: Fn(T) -> f64 + Copy + Send + 'static,
+    T: Sample + cpal::SizedSample + Copy + Send + 'static,
+    i16: cpal::FromSample<T>,
     ErrFn: FnMut(cpal::StreamError) + Send + 'static,
 {
     let mut mono_buf: Vec<f64> = Vec::with_capacity(8192);
@@ -169,7 +303,6 @@ where
                 &mut filter,
                 &mut mono_buf,
                 &mut resampled_buf,
-                convert_sample,
             );
 
             let is_armed = armed.load(Ordering::Acquire);
@@ -216,18 +349,21 @@ where
     )
 }
 
-fn start_persistent_input_stream(
+fn start_persistent_input_stream_for_device(
+    device: cpal::Device,
     sample_buffer: Arc<Mutex<Vec<i16>>>,
     preroll_buffer: Arc<Mutex<Vec<i16>>>,
     armed: Arc<AtomicBool>,
     is_recording: Arc<AtomicBool>,
     needs_rebuild: Arc<AtomicBool>,
     app_handle: tauri::AppHandle,
-) -> Result<cpal::Stream, String> {
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| "No microphone found. Check your audio input device.".to_string())?;
+) -> Result<(cpal::Stream, String), String> {
+    let device_label = input_device_label(&device);
+    let device_id = device
+        .id()
+        .ok()
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
 
     let default_config = device
         .default_input_config()
@@ -240,8 +376,14 @@ fn start_persistent_input_stream(
     let downsample_ratio = capture_rate as f64 / TARGET_SAMPLE_RATE as f64;
 
     eprintln!(
-        "[FamVoice] Mic: {}Hz {}ch {:?} -> {}Hz mono (ratio {:.2})",
-        capture_rate, capture_channels, sample_format, TARGET_SAMPLE_RATE, downsample_ratio
+        "[FamVoice] Mic: {} [{}] {}Hz {}ch {:?} -> {}Hz mono (ratio {:.2})",
+        device_label,
+        device_id,
+        capture_rate,
+        capture_channels,
+        sample_format,
+        TARGET_SAMPLE_RATE,
+        downsample_ratio
     );
 
     let filter_cutoff = (TARGET_SAMPLE_RATE as f64 / 2.0) * 0.875;
@@ -260,7 +402,7 @@ fn start_persistent_input_stream(
     };
 
     let stream = match sample_format {
-        cpal::SampleFormat::I16 => build_mono_input_stream::<i16, _, _>(
+        SampleFormat::I8 => build_mono_input_stream::<i8, _>(
             &device,
             &stream_config,
             sample_buffer.clone(),
@@ -271,10 +413,9 @@ fn start_persistent_input_stream(
             capture_rate,
             downsample_ratio,
             filter_cutoff,
-            |sample| sample as f64,
             make_err_fn(),
         ),
-        cpal::SampleFormat::F32 => build_mono_input_stream::<f32, _, _>(
+        SampleFormat::I16 => build_mono_input_stream::<i16, _>(
             &device,
             &stream_config,
             sample_buffer.clone(),
@@ -285,7 +426,136 @@ fn start_persistent_input_stream(
             capture_rate,
             downsample_ratio,
             filter_cutoff,
-            |sample| sample.clamp(-1.0, 1.0) as f64 * i16::MAX as f64,
+            make_err_fn(),
+        ),
+        SampleFormat::I24 => build_mono_input_stream::<cpal::I24, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::I32 => build_mono_input_stream::<i32, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::I64 => build_mono_input_stream::<i64, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U8 => build_mono_input_stream::<u8, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U16 => build_mono_input_stream::<u16, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U24 => build_mono_input_stream::<cpal::U24, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U32 => build_mono_input_stream::<u32, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U64 => build_mono_input_stream::<u64, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::F32 => build_mono_input_stream::<f32, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::F64 => build_mono_input_stream::<f64, _>(
+            &device,
+            &stream_config,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            app_handle.clone(),
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
             make_err_fn(),
         ),
         other => {
@@ -298,7 +568,46 @@ fn start_persistent_input_stream(
         .play()
         .map_err(|e| format!("Failed to start recording: {}", e))?;
 
-    Ok(stream)
+    Ok((stream, device_id))
+}
+
+fn start_persistent_input_stream(
+    selected_device_id: Option<&str>,
+    sample_buffer: Arc<Mutex<Vec<i16>>>,
+    preroll_buffer: Arc<Mutex<Vec<i16>>>,
+    armed: Arc<AtomicBool>,
+    is_recording: Arc<AtomicBool>,
+    needs_rebuild: Arc<AtomicBool>,
+    app_handle: tauri::AppHandle,
+) -> Result<(cpal::Stream, String), String> {
+    let host = cpal::default_host();
+    let candidates = input_device_candidates(&host, selected_device_id)?;
+    let mut last_error = None;
+
+    for (index, device) in candidates.into_iter().enumerate() {
+        match start_persistent_input_stream_for_device(
+            device,
+            sample_buffer.clone(),
+            preroll_buffer.clone(),
+            armed.clone(),
+            is_recording.clone(),
+            needs_rebuild.clone(),
+            app_handle.clone(),
+        ) {
+            Ok((stream, device_id)) => return Ok((stream, device_id)),
+            Err(error) => {
+                if index == 0 && selected_device_id.is_some() {
+                    eprintln!(
+                        "[FamVoice] Selected microphone failed to open, falling back to default: {}",
+                        error
+                    );
+                }
+                last_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "No microphone found. Check your audio input device.".to_string()))
 }
 
 impl Default for AudioState {
@@ -320,16 +629,38 @@ impl Default for AudioState {
                 is_recording: false,
             };
             let mut stream: Option<cpal::Stream> = None;
+            let mut active_device_id: Option<String> = None;
+            let mut active_requested_device_id: Option<String> = None;
 
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
-                    AudioCommand::Start(app_handle, reply) => {
+                    AudioCommand::Start(app_handle, selected_device_id, reply) => {
+                        let normalized_selected_device_id = selected_device_id
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|id| !id.is_empty())
+                            .map(str::to_string);
+
+                        let requested_device_changed =
+                            normalized_selected_device_id != active_requested_device_id;
+                        let selected_device_not_active = normalized_selected_device_id
+                            .as_deref()
+                            .is_some_and(|selected_id| active_device_id.as_deref() != Some(selected_id));
+
+                        if requested_device_changed || selected_device_not_active {
+                            stream.take();
+                            active_device_id = None;
+                            active_requested_device_id = normalized_selected_device_id.clone();
+                        }
+
                         if needs_rebuild_clone.swap(false, Ordering::SeqCst) {
                             stream.take();
+                            active_device_id = None;
                         }
 
                         if stream.is_none() {
                             match start_persistent_input_stream(
+                                normalized_selected_device_id.as_deref(),
                                 sample_buffer.clone(),
                                 preroll_buffer.clone(),
                                 armed_clone.clone(),
@@ -337,8 +668,9 @@ impl Default for AudioState {
                                 needs_rebuild_clone.clone(),
                                 app_handle.clone(),
                             ) {
-                                Ok(new_stream) => {
+                                Ok((new_stream, device_id)) => {
                                     stream = Some(new_stream);
+                                    active_device_id = Some(device_id);
                                 }
                                 Err(error) => {
                                     let _ = reply.send(Err(error));
@@ -351,6 +683,7 @@ impl Default for AudioState {
                                 eprintln!("[FamVoice] Failed to resume stream: {}", e);
                                 // Rebuild on next attempt
                                 stream.take();
+                                active_device_id = None;
                                 needs_rebuild_clone.store(false, Ordering::SeqCst);
                                 let _ = reply.send(Err(format!("Failed to resume microphone: {}", e)));
                                 continue;
@@ -600,11 +933,19 @@ pub fn select_samples_for_upload<'a>(
     }
 }
 
-pub async fn start_recording(app_handle: tauri::AppHandle, state: &AudioState) -> Result<(), String> {
+pub async fn start_recording(
+    app_handle: tauri::AppHandle,
+    state: &AudioState,
+    selected_device_id: Option<&str>,
+) -> Result<(), String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     state
         .cmd_tx
-        .send(AudioCommand::Start(app_handle, tx))
+        .send(AudioCommand::Start(
+            app_handle,
+            selected_device_id.map(str::to_string),
+            tx,
+        ))
         .await
         .map_err(|e| e.to_string())?;
     rx.await

@@ -33,11 +33,11 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 - `gpt-4o-transcribe`
 - `whisper-1`
 - `whisper-large-v3-turbo` (Groq)
+- `whisper-large-v3` (Groq)
 
 ## Supported Prompt Optimization Models
 
 - `gpt-5.4-mini` (default)
-- `gpt-5.4-nano`
 
 ## Prerequisites
 
@@ -109,7 +109,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for more details.
 | Frontend | React 19, TypeScript, Tailwind CSS 4 |
 | Audio | cpal |
 | Transcription | OpenAI API (Whisper / GPT-4o) |
-| Prompt Optimization | OpenAI API (GPT-5.4 Mini / Nano) |
+| Prompt Optimization | OpenAI API (GPT-5.4 Mini) |
 | Clipboard | arboard |
 | Key Injection | enigo |
 | Icons | Lucide React |

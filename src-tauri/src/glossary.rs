@@ -1,5 +1,8 @@
 use crate::settings;
 
+const MAX_TRANSCRIPTION_HINT_ENTRIES: usize = 20;
+const MAX_TRANSCRIPTION_HINT_CHARS: usize = 800;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct GlossaryRule {
     target: String,
@@ -51,6 +54,58 @@ fn sorted_glossary_rules(
     sort_rules(&mut phrase_rules);
     sort_rules(&mut single_word_rules);
     (phrase_rules, single_word_rules)
+}
+
+fn sorted_transcription_hint_rules(replacements: &[settings::Replacement]) -> Vec<GlossaryRule> {
+    let mut rules = replacements
+        .iter()
+        .filter_map(|replacement| {
+            let target = replacement.target.trim();
+            let resolved = replacement.replacement.trim();
+            if target.is_empty() || resolved.is_empty() {
+                return None;
+            }
+
+            Some(GlossaryRule {
+                target: target.to_string(),
+                replacement: resolved.to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    rules.sort_by(|left, right| {
+        right
+            .target
+            .len()
+            .cmp(&left.target.len())
+            .then_with(|| left.target.cmp(&right.target))
+    });
+    rules
+}
+
+pub(crate) fn transcription_prompt(replacements: &[settings::Replacement]) -> Option<String> {
+    let rules = sorted_transcription_hint_rules(replacements);
+    if rules.is_empty() {
+        return None;
+    }
+
+    let mut prompt = String::from("Vocabulary hints:\n");
+    let mut added_entries = 0usize;
+
+    for rule in rules.into_iter().take(MAX_TRANSCRIPTION_HINT_ENTRIES) {
+        let next_line = format!("- If heard, write: {} -> {}\n", rule.target, rule.replacement);
+        if prompt.len() + next_line.len() > MAX_TRANSCRIPTION_HINT_CHARS {
+            break;
+        }
+        prompt.push_str(&next_line);
+        added_entries += 1;
+    }
+
+    if added_entries == 0 {
+        None
+    } else {
+        Some(prompt.trim_end().to_string())
+    }
 }
 
 fn replace_phrase_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
@@ -228,5 +283,45 @@ mod tests {
         );
 
         assert_eq!(transcript, "NYC is fresh");
+    }
+
+    #[test]
+    fn test_transcription_prompt_uses_non_empty_rules_sorted_longest_first() {
+        let prompt = transcription_prompt(&[
+            Replacement {
+                target: "api".to_string(),
+                replacement: "API".to_string(),
+            },
+            Replacement {
+                target: "new york".to_string(),
+                replacement: "New York".to_string(),
+            },
+            Replacement {
+                target: "blank".to_string(),
+                replacement: "   ".to_string(),
+            },
+        ])
+        .expect("expected prompt");
+
+        assert!(prompt.starts_with("Vocabulary hints:"));
+        let new_york_index = prompt.find("new york -> New York").unwrap();
+        let api_index = prompt.find("api -> API").unwrap();
+        assert!(new_york_index < api_index);
+        assert!(!prompt.contains("blank"));
+    }
+
+    #[test]
+    fn test_transcription_prompt_caps_output_size() {
+        let replacements = (0..40)
+            .map(|index| Replacement {
+                target: format!("very-long-target-term-{index:02}"),
+                replacement: format!("ResolvedTerm{index:02}"),
+            })
+            .collect::<Vec<_>>();
+
+        let prompt = transcription_prompt(&replacements).expect("expected prompt");
+
+        assert!(prompt.len() <= MAX_TRANSCRIPTION_HINT_CHARS);
+        assert!(prompt.lines().count() <= MAX_TRANSCRIPTION_HINT_ENTRIES + 1);
     }
 }

@@ -22,7 +22,12 @@ import {
 import { Select } from "./components/Select";
 import { FamVoiceLockup } from "./components/FamVoiceLockup";
 import { buildHotkeyString, formatHotkey } from "./appHelpers";
-import type { Replacement, SaveSettingsPayload, SettingsViewModel } from "./appTypes";
+import {
+  type InputDeviceOption,
+  type Replacement,
+  type SaveSettingsPayload,
+  type SettingsViewModel,
+} from "./appTypes";
 
 const controlMotion = "transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)]";
 
@@ -32,6 +37,12 @@ interface ReplacementDraft extends Replacement {
 
 type SettingsDraft = Omit<SettingsViewModel, "replacements"> & {
   replacements: ReplacementDraft[];
+};
+
+const DEFAULT_INPUT_DEVICE_OPTION: InputDeviceOption = {
+  id: "",
+  label: "System default microphone",
+  is_default: true,
 };
 
 let replacementDraftCounter = 0;
@@ -73,6 +84,23 @@ function toSavePayload(
     groq_api_key: groqApiKeyInput.trim() ? groqApiKeyInput.trim() : null,
     replacements: settings.replacements.map(({ id: _id, ...replacement }) => replacement),
   };
+}
+
+function formatHotkeyValue(value: string): string {
+  return value.trim() ? formatHotkey(value) : "Disabled";
+}
+
+async function loadInputDevices(): Promise<InputDeviceOption[]> {
+  try {
+    const devices = await invoke<InputDeviceOption[]>("list_input_devices");
+    return [
+      DEFAULT_INPUT_DEVICE_OPTION,
+      ...devices.filter((device) => device.id.trim()),
+    ];
+  } catch (error) {
+    console.error("Failed to enumerate microphone devices:", error);
+    return [DEFAULT_INPUT_DEVICE_OPTION];
+  }
 }
 
 function SettingsShell({
@@ -142,9 +170,11 @@ export function SettingsView() {
   const [settings, setSettings] = useState<SettingsDraft | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [groqApiKeyInput, setGroqApiKeyInput] = useState("");
+  const [inputDevices, setInputDevices] = useState<InputDeviceOption[]>([DEFAULT_INPUT_DEVICE_OPTION]);
   const [autostart, setAutostart] = useState(false);
   const [autostartAvailable, setAutostartAvailable] = useState(true);
   const [isListening, setIsListening] = useState(false);
+  const [isRepasteListening, setIsRepasteListening] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
@@ -196,6 +226,7 @@ export function SettingsView() {
 
   useEffect(() => {
     void loadSettings();
+    void loadInputDevices().then(setInputDevices);
 
     isEnabled()
       .then(setAutostart)
@@ -236,13 +267,21 @@ export function SettingsView() {
   const saveSettings = async (newSettings: SettingsDraft) => {
     try {
       setErrorMessage(null);
+      if (
+        newSettings.repaste_hotkey.trim() &&
+        newSettings.repaste_hotkey.trim() === newSettings.hotkey.trim()
+      ) {
+        setErrorMessage("Re-paste hotkey must be different from the recording hotkey.");
+        return;
+      }
       const payload = toSavePayload(
         newSettings,
         apiKeyInput,
         groqApiKeyInput,
       );
       const savedSettings = await invoke<SettingsViewModel>("save_settings", { newSettings: payload });
-      setSettings(toSettingsDraft(savedSettings));
+      const nextSettings = toSettingsDraft(savedSettings);
+      setSettings(nextSettings);
       setApiKeyInput("");
       setGroqApiKeyInput("");
       try {
@@ -341,6 +380,23 @@ export function SettingsView() {
       <span className="text-slate-400">{appVersion ? `v${appVersion}` : "Loading..."}</span>
     </div>
   );
+  const microphoneOptions = settings
+    ? (() => {
+        const selectedDeviceId = settings.input_device_id.trim();
+        if (!selectedDeviceId || inputDevices.some((option) => option.id === selectedDeviceId)) {
+          return inputDevices;
+        }
+
+        return [
+          {
+            id: selectedDeviceId,
+            label: "Previously selected microphone (unavailable)",
+            is_default: false,
+          },
+          ...inputDevices,
+        ];
+      })()
+    : inputDevices;
 
   if (!settings) {
     return (
@@ -501,6 +557,23 @@ export function SettingsView() {
           </p>
           </ControlSection>
 
+          <ControlSection
+            eyebrow="Input"
+            description="Choose which microphone FamVoice should open for recording. System default follows the OS input device."
+          >
+            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-200">
+              Microphone
+              <Select
+                value={settings.input_device_id}
+                onChange={(value) => setSettings({ ...settings, input_device_id: value })}
+                options={microphoneOptions.map((option) => ({
+                  value: option.id,
+                  label: option.label,
+                }))}
+              />
+            </label>
+          </ControlSection>
+
           <ControlSection eyebrow="Behavior">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5 text-sm">
@@ -527,6 +600,46 @@ export function SettingsView() {
                 </button>
               </div>
             </div>
+            <div className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-slate-200">Re-paste Last Transcript</span>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  readOnly
+                  value={isRepasteListening ? "Press keys..." : formatHotkeyValue(settings.repaste_hotkey)}
+                  onFocus={() => setIsRepasteListening(true)}
+                  onBlur={() => setIsRepasteListening(false)}
+                  onKeyDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const combo = buildHotkeyString(e);
+                    if (combo && settings) {
+                      setSettings({ ...settings, repaste_hotkey: combo });
+                      setIsRepasteListening(false);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  className={`focus-ring flex-1 w-full cursor-pointer border-b bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary ${isRepasteListening ? "border-primary text-primary" : "border-white/10"}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setSettings({ ...settings, repaste_hotkey: "" })}
+                  aria-label="Disable re-paste hotkey"
+                  className={`focus-ring cursor-pointer rounded border border-white/10 bg-black/40 p-2 text-gray-400 ${controlMotion} hover:border-primary/50 hover:text-primary`}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+              <span className="text-[11px] leading-relaxed text-slate-500">
+                Leave this disabled if you do not want a second global shortcut. It only works with keyboard combinations.
+              </span>
+              {settings.repaste_hotkey &&
+                settings.repaste_hotkey.trim() === settings.hotkey.trim() && (
+                  <span className="text-[11px] leading-relaxed text-red-400">
+                    Re-paste hotkey must be different from the recording hotkey.
+                  </span>
+                )}
+            </div>
             <label className="flex flex-col gap-1.5 text-sm">
               <span className="font-medium text-slate-200">Language Preference</span>
               <Select
@@ -535,7 +648,7 @@ export function SettingsView() {
                 options={LANGUAGES}
               />
               <span className="text-[11px] leading-relaxed text-slate-500">
-                Auto Detect handles mixed dictation. Choose Portuguese or English only if you want to bias transcription toward one language.
+                Auto Detect handles mixed dictation. Choose a specific language only when you want to bias transcription toward it.
               </span>
             </label>
 
@@ -561,6 +674,23 @@ export function SettingsView() {
               <span className="text-[11px] leading-relaxed text-slate-500">
                 Higher sensitivity helps softer speech, but can pick up more background noise.
               </span>
+            </label>
+
+            <label className={`flex items-start gap-3 text-sm cursor-pointer ${controlMotion}`}>
+              <div className="pt-1">
+                <input
+                  type="checkbox"
+                  checked={settings.noise_suppression_enabled}
+                  onChange={(e) => setSettings({ ...settings, noise_suppression_enabled: e.target.checked })}
+                  className="w-4 h-4 rounded border-white/10 bg-black/40 accent-primary cursor-pointer"
+                />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium text-slate-200">Noise Suppression</span>
+                <span className="text-xs leading-normal text-slate-500">
+                  Smooths steady background noise before transcription.
+                </span>
+              </div>
             </label>
           </div>
 
@@ -647,7 +777,7 @@ export function SettingsView() {
                   </p>
                 </div>
               ) : updateCheckError ? (
-                <div className="py-2">
+                <div className="py-2 text-red-400">
                   {currentVersionRow}
                   <p className="mt-3 text-sm font-medium text-red-400">
                     Could not check for updates.
@@ -687,7 +817,7 @@ export function SettingsView() {
               )}
 
               {updateInstallError && (
-                <div className="py-2">
+                <div className="py-2 text-red-400">
                   <p className="text-sm font-medium text-red-400">
                     Update installation failed.
                   </p>
@@ -704,6 +834,7 @@ export function SettingsView() {
 
           <ControlSection
             eyebrow="Glossary"
+            description="Glossary entries are applied after transcription and also fed back as hints so custom spelling can stay consistent."
             action={
               <button
                 type="button"

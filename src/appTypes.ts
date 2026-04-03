@@ -16,6 +16,9 @@ export interface SettingsViewModel {
   auto_paste: boolean;
   preserve_clipboard: boolean;
   hotkey: string;
+  input_device_id: string;
+  repaste_hotkey: string;
+  noise_suppression_enabled: boolean;
   widget_mode: boolean;
   mic_sensitivity: number;
   prompt_optimization_enabled: boolean;
@@ -32,11 +35,20 @@ export interface SaveSettingsPayload {
   auto_paste: boolean;
   preserve_clipboard: boolean;
   hotkey: string;
+  input_device_id: string;
+  repaste_hotkey: string;
+  noise_suppression_enabled: boolean;
   widget_mode: boolean;
   mic_sensitivity: number;
   prompt_optimization_enabled: boolean;
   prompt_optimizer_model: string;
   replacements: Replacement[];
+}
+
+export interface InputDeviceOption {
+  id: string;
+  label: string;
+  is_default: boolean;
 }
 
 export interface HistoryItem {

@@ -64,6 +64,7 @@ fn build_form(
     audio_bytes: &[u8],
     model: &str,
     language: Option<&str>,
+    prompt: Option<&str>,
     use_streaming: bool,
     mime_type: &str,
     file_name: &str,
@@ -88,6 +89,12 @@ fn build_form(
         }
     }
 
+    if let Some(prompt) = prompt {
+        if !prompt.trim().is_empty() {
+            form = form.text("prompt", prompt.trim().to_string());
+        }
+    }
+
     Ok(form)
 }
 
@@ -97,6 +104,7 @@ pub async fn transcribe_audio(
     api_key: &str,
     model: &str,
     language: Option<&str>,
+    prompt: Option<&str>,
     provider: &str,
     mime_type: &str,
     file_name: &str,
@@ -120,7 +128,15 @@ pub async fn transcribe_audio(
     // Send with a single retry for transient network errors (connection failures, timeouts).
     // HTTP-level errors (4xx, 5xx) are NOT retried — only connection-level failures.
     let mut res = {
-        let form = build_form(&audio_bytes, model, language, use_streaming, mime_type, file_name)?;
+        let form = build_form(
+            &audio_bytes,
+            model,
+            language,
+            prompt,
+            use_streaming,
+            mime_type,
+            file_name,
+        )?;
         let result = client
             .post(endpoint)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -139,7 +155,13 @@ pub async fn transcribe_audio(
                 tokio::time::sleep(Duration::from_millis(1500)).await;
 
                 let retry_form = build_form(
-                    &audio_bytes, model, language, use_streaming, mime_type, file_name,
+                    &audio_bytes,
+                    model,
+                    language,
+                    prompt,
+                    use_streaming,
+                    mime_type,
+                    file_name,
                 )?;
                 client
                     .post(endpoint)

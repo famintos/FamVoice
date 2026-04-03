@@ -10,7 +10,7 @@ FamVoice uses a standard Tauri architecture, combining a lightweight Rust backen
 
 ## Backend (`src-tauri/`)
 - **Tauri (v2):** Manages the system tray, window lifecycle, and global shortcuts.
-- **Audio (`audio.rs`):** Uses `cpal` to capture microphone input directly into a WAV file via `hound`.
+- **Audio (`audio.rs`):** Uses `cpal` to capture microphone input and encodes WAV in-memory without external crate dependencies.
 - **Transcription (`transcription.rs`):** Posts the WAV file to the selected provider's audio transcription endpoint (OpenAI or Groq) using `reqwest`.
 - **Clipboard (`clipboard.rs`):** Interacts with the system clipboard using `arboard` to safely read, store, and write text.
 - **Injection (`injection.rs`):** Uses `enigo` to simulate the `Ctrl+V` (or `Cmd+V`) keystrokes, pasting the transcribed text directly into the user's active window.
@@ -22,5 +22,9 @@ The frontend invokes various Rust commands registered in `lib.rs`:
 - `get_settings` / `save_settings`
 - `get_history` / `clear_history` / `delete_history_item` / `repaste_history_item`
 - `start_recording_cmd` / `stop_recording_cmd`
+- `resize_main_window` — resizes the main window (used for widget mode transitions)
+- `open_settings_window` — opens the settings window positioned alongside the main window
+- `close_settings_window` — closes the settings window
+- `can_manage_autostart` — checks if autostart management is available (blocked in dev builds)
 
 Event-driven architecture is used to stream statuses (`recording`, `transcribing`, `success`, `error`) and the final `transcript` back to the frontend.

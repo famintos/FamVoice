@@ -5,9 +5,11 @@ import { cursorPosition, getCurrentWindow } from "@tauri-apps/api/window";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
   AlertCircle,
+  CheckCircle2,
   Copy,
   History as HistoryIcon,
   Minus,
+  Info,
   RefreshCw,
   Settings as SettingsIcon,
   Trash2,
@@ -30,6 +32,157 @@ import {
 } from "./widgetSizing.js";
 
 const appWindow = getCurrentWindow();
+const HISTORY_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "short",
+  timeStyle: "short",
+});
+
+const TOAST_AUTO_DISMISS_MS = 2800;
+
+type ToastVariant = "success" | "error" | "neutral";
+
+interface ToastEntry {
+  id: number;
+  title: string;
+  description?: string;
+  variant: ToastVariant;
+}
+
+function formatHistoryTimestamp(timestamp: number): string {
+  return HISTORY_TIMESTAMP_FORMATTER.format(new Date(timestamp));
+}
+
+function ToastIcon({ variant }: { variant: ToastVariant }) {
+  if (variant === "success") {
+    return <CheckCircle2 size={14} className="shrink-0 text-green-400" />;
+  }
+
+  if (variant === "error") {
+    return <AlertCircle size={14} className="shrink-0 text-red-400" />;
+  }
+
+  return <Info size={14} className="shrink-0 text-slate-300" />;
+}
+
+function ToastStack({
+  toasts,
+  onDismiss,
+}: {
+  toasts: ToastEntry[];
+  onDismiss: (id: number) => void;
+}) {
+  if (toasts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="absolute inset-x-3 top-10 z-30 flex flex-col gap-2 no-drag pointer-events-none">
+      {toasts.map((toast) => {
+        const toneClassName = toast.variant === "success"
+          ? "border-green-500/20 bg-green-500/10 text-green-50"
+          : toast.variant === "error"
+            ? "border-red-500/20 bg-red-500/10 text-red-50"
+            : "border-white/10 bg-black/45 text-slate-100";
+
+        return (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto rounded-xl border px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.35)] backdrop-blur-sm ${toneClassName}`}
+          >
+            <div className="flex items-start gap-2">
+              <ToastIcon variant={toast.variant} />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold leading-tight">
+                  {toast.title}
+                </p>
+                {toast.description ? (
+                  <p className="mt-1 text-[11px] leading-snug text-white/70">
+                    {toast.description}
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => onDismiss(toast.id)}
+                className="focus-ring -mr-1 rounded p-0.5 text-white/40 transition-colors hover:text-white"
+                aria-label="Dismiss notification"
+              >
+                <X size={11} />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ClearHistoryDialog({
+  open,
+  count,
+  isSubmitting,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  count: number;
+  isSubmitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div
+      className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-4 py-4 backdrop-blur-sm no-drag"
+      role="presentation"
+      onMouseDown={onCancel}
+    >
+      <div
+        className="w-full max-w-[18rem] rounded-2xl border border-white/10 bg-[#111723] p-4 text-left shadow-[0_22px_60px_rgba(0,0,0,0.45)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clear-history-dialog-title"
+        aria-describedby="clear-history-dialog-description"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 rounded-full border border-red-500/20 bg-red-500/10 p-2 text-red-400">
+            <Trash2 size={14} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 id="clear-history-dialog-title" className="text-sm font-semibold text-white">
+              Clear history?
+            </h3>
+            <p id="clear-history-dialog-description" className="mt-1 text-xs leading-5 text-slate-400">
+              This will delete {count} {count === 1 ? "entry" : "entries"} from your local history. This cannot be undone.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="focus-ring rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-white/20 hover:text-white"
+            disabled={isSubmitting}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="focus-ring rounded-full border border-red-500/20 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-50 transition-colors hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Clearing..." : "Clear history"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function MainView() {
   const controlMotion = "transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)]";
@@ -41,6 +194,9 @@ export function MainView() {
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const [isUpdateNoticeOpen, setIsUpdateNoticeOpen] = useState(false);
   const [highlightKey, setHighlightKey] = useState(0);
+  const [toasts, setToasts] = useState<ToastEntry[]>([]);
+  const [isClearHistoryOpen, setIsClearHistoryOpen] = useState(false);
+  const [isClearingHistory, setIsClearingHistory] = useState(false);
   const widgetContainerRef = useRef<HTMLElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
   const ignoreCursorEventsRef = useRef<boolean | null>(null);
@@ -48,6 +204,8 @@ export function MainView() {
   const widgetWindowMetricsRef = useRef<WidgetWindowMetrics | null>(null);
   const lastCursorPositionRef = useRef<{ x: number; y: number } | null>(null);
   const hasDismissedUpdateNoticeRef = useRef(false);
+  const toastIdRef = useRef(0);
+  const toastTimeoutsRef = useRef<number[]>([]);
 
   useEffect(() => {
     invoke<SettingsViewModel>("get_settings").then(setSettings);
@@ -239,9 +397,100 @@ export function MainView() {
       });
   }, []);
 
+  useEffect(() => {
+    if (!isClearHistoryOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isClearingHistory) {
+        event.preventDefault();
+        setIsClearHistoryOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isClearHistoryOpen, isClearingHistory]);
+
+  useEffect(() => {
+    return () => {
+      toastTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      toastTimeoutsRef.current = [];
+    };
+  }, []);
+
   const loadHistory = async () => {
     const items = await invoke<HistoryItem[]>("get_history");
     setHistory(items);
+  };
+
+  const dismissToast = (id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  };
+
+  const showToast = (
+    variant: ToastVariant,
+    title: string,
+    description?: string,
+  ) => {
+    const id = toastIdRef.current + 1;
+    toastIdRef.current = id;
+    setToasts((current) => [...current, { id, variant, title, description }]);
+
+    const timeoutId = window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+      toastTimeoutsRef.current = toastTimeoutsRef.current.filter((currentId) => currentId !== timeoutId);
+    }, TOAST_AUTO_DISMISS_MS);
+    toastTimeoutsRef.current.push(timeoutId);
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("success", "Copied transcript", "The selected history item is now on your clipboard.");
+    } catch (error) {
+      console.error("Failed to copy transcript:", error);
+      showToast("error", "Could not copy transcript", String(error));
+    }
+  };
+
+  const repasteHistory = async (text: string) => {
+    try {
+      await invoke("repaste_history_item", { text });
+      showToast("success", "Re-pasted transcript", "The transcript was pasted into the active app.");
+    } catch (error) {
+      console.error("Failed to re-paste history item:", error);
+      showToast("error", "Could not re-paste transcript", String(error));
+    }
+  };
+
+  const openClearHistoryConfirm = () => {
+    setIsClearHistoryOpen(true);
+  };
+
+  const closeClearHistoryConfirm = () => {
+    if (isClearingHistory) return;
+    setIsClearHistoryOpen(false);
+  };
+
+  const confirmClearHistory = async () => {
+    if (isClearingHistory) return;
+
+    try {
+      setIsClearingHistory(true);
+      await invoke("clear_history");
+      setIsClearHistoryOpen(false);
+      showToast("success", "History cleared", "Your transcript history has been removed.");
+    } catch (error) {
+      console.error("Failed to clear history:", error);
+      showToast("error", "Could not clear history", String(error));
+    } finally {
+      setIsClearingHistory(false);
+    }
   };
 
   const dismissUpdateNotice = () => {
@@ -253,20 +502,8 @@ export function MainView() {
     await invoke("open_settings_window");
   };
 
-  const copyToClipboard = async (text: string) => {
-    await navigator.clipboard.writeText(text);
-  };
-
-  const repasteHistory = async (text: string) => {
-    await invoke("repaste_history_item", { text });
-  };
-
   const deleteHistory = async (id: number) => {
     await invoke("delete_history_item", { id });
-  };
-
-  const clearHistory = async () => {
-    await invoke("clear_history");
   };
 
   const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
@@ -333,6 +570,11 @@ export function MainView() {
     <main
       className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[16px] bg-[#161B26]"
     >
+      <ToastStack
+        toasts={toasts}
+        onDismiss={dismissToast}
+      />
+
       {pendingUpdate && isUpdateNoticeOpen && (
         <div className="absolute inset-x-1.5 top-1.5 z-20 no-drag rounded-lg bg-transparent p-2">
           <div className="flex items-start justify-between gap-3">
@@ -437,7 +679,7 @@ export function MainView() {
             {activeTab === "history" && history.length > 0 && (
               <button
                 type="button"
-                onClick={clearHistory}
+                onClick={openClearHistoryConfirm}
                 className={`focus-ring rounded-full px-2 py-1 text-[11px] font-medium tracking-tight text-slate-400 ${controlMotion} hover:text-red-400`}
               >
                 Clear history
@@ -523,7 +765,7 @@ export function MainView() {
                   <p className="pr-1 text-xs leading-5 text-slate-200">{item.text}</p>
                   <div className="mt-1.5 flex items-center justify-between">
                     <span className="text-[10px] text-slate-600 font-mono">
-                      {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {formatHistoryTimestamp(item.timestamp)}
                     </span>
                     <div className="flex items-center gap-1 text-slate-500">
                       <button
@@ -570,6 +812,13 @@ export function MainView() {
           </div>
         )}
       </div>
+      <ClearHistoryDialog
+        open={isClearHistoryOpen}
+        count={history.length}
+        isSubmitting={isClearingHistory}
+        onCancel={closeClearHistoryConfirm}
+        onConfirm={() => void confirmClearHistory()}
+      />
     </main>
   );
 }

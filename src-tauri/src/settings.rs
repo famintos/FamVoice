@@ -8,11 +8,13 @@ const SETTINGS_SERVICE_NAME: &str = "com.famvoice.app";
 const OPENAI_API_KEY_ACCOUNT: &str = "openai_api_key";
 const GROQ_API_KEY_ACCOUNT: &str = "groq_api_key";
 const MAX_API_KEY_LEN: usize = 200;
+const MAX_HOTKEY_LEN: usize = 100;
+const MAX_INPUT_DEVICE_ID_LEN: usize = 512;
 pub const SUPPORTED_PROVIDERS: [&str; 2] = ["openai", "groq"];
 pub const OPENAI_MODELS: [&str; 3] =
     ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"];
-pub const GROQ_MODELS: [&str; 1] = ["whisper-large-v3-turbo"];
-pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 3] = ["auto", "pt", "en"];
+pub const GROQ_MODELS: [&str; 2] = ["whisper-large-v3-turbo", "whisper-large-v3"];
+pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 17] = ["auto", "ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "uk", "zh"];
 pub const MIN_MIC_SENSITIVITY: u8 = 0;
 pub const MAX_MIC_SENSITIVITY: u8 = 100;
 pub const DEFAULT_MIC_SENSITIVITY: u8 = 60;
@@ -54,12 +56,24 @@ fn default_hotkey() -> String {
     "CommandOrControl+Shift+Space".to_string()
 }
 
+fn default_repaste_hotkey() -> String {
+    String::new()
+}
+
 fn default_widget_mode() -> bool {
     false
 }
 
+fn default_input_device_id() -> String {
+    String::new()
+}
+
 fn default_mic_sensitivity() -> u8 {
     DEFAULT_MIC_SENSITIVITY
+}
+
+fn default_noise_suppression_enabled() -> bool {
+    false
 }
 
 fn default_prompt_optimization_enabled() -> bool {
@@ -79,16 +93,38 @@ fn normalize_prompt_optimizer_model(model: &str) -> String {
 }
 
 fn normalize_language_preference(language: &str) -> String {
-    match language {
-        "auto" => "auto".to_string(),
-        "pt" | "pt-first" => "pt".to_string(),
-        "en" | "en-first" => "en".to_string(),
-        _ => "auto".to_string(),
+    let resolved = match language {
+        "pt-first" => "pt",
+        "en-first" => "en",
+        other => other,
+    };
+    if SUPPORTED_LANGUAGE_PREFERENCES.contains(&resolved) {
+        resolved.to_string()
+    } else {
+        "auto".to_string()
     }
 }
 
 fn default_replacements() -> Vec<Replacement> {
     Vec::new()
+}
+
+fn normalize_input_device_id(input_device_id: &str) -> String {
+    let trimmed = input_device_id.trim();
+    if trimmed.is_empty() {
+        default_input_device_id()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn normalize_repaste_hotkey(hotkey: &str) -> String {
+    let trimmed = hotkey.trim();
+    if trimmed.is_empty() {
+        default_repaste_hotkey()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn mask_secret(secret: &str) -> Option<String> {
@@ -120,8 +156,11 @@ pub struct AppSettings {
     pub auto_paste: bool,
     pub preserve_clipboard: bool,
     pub hotkey: String,
+    pub repaste_hotkey: String,
     pub widget_mode: bool,
+    pub input_device_id: String,
     pub mic_sensitivity: u8,
+    pub noise_suppression_enabled: bool,
     pub prompt_optimization_enabled: bool,
     pub prompt_optimizer_model: String,
     pub replacements: Vec<Replacement>,
@@ -138,8 +177,11 @@ impl Default for AppSettings {
             auto_paste: default_auto_paste(),
             preserve_clipboard: default_preserve_clipboard(),
             hotkey: default_hotkey(),
+            repaste_hotkey: default_repaste_hotkey(),
             widget_mode: default_widget_mode(),
+            input_device_id: default_input_device_id(),
             mic_sensitivity: default_mic_sensitivity(),
+            noise_suppression_enabled: default_noise_suppression_enabled(),
             prompt_optimization_enabled: default_prompt_optimization_enabled(),
             prompt_optimizer_model: default_prompt_optimizer_model(),
             replacements: default_replacements(),
@@ -160,8 +202,11 @@ impl AppSettings {
             auto_paste: self.auto_paste,
             preserve_clipboard: self.preserve_clipboard,
             hotkey: self.hotkey.clone(),
+            repaste_hotkey: self.repaste_hotkey.clone(),
             widget_mode: self.widget_mode,
+            input_device_id: self.input_device_id.clone(),
             mic_sensitivity: self.mic_sensitivity,
+            noise_suppression_enabled: self.noise_suppression_enabled,
             prompt_optimization_enabled: self.prompt_optimization_enabled,
             prompt_optimizer_model: self.prompt_optimizer_model.clone(),
             replacements: self.replacements.clone(),
@@ -188,8 +233,11 @@ pub struct FrontendSettings {
     pub auto_paste: bool,
     pub preserve_clipboard: bool,
     pub hotkey: String,
+    pub repaste_hotkey: String,
     pub widget_mode: bool,
+    pub input_device_id: String,
     pub mic_sensitivity: u8,
+    pub noise_suppression_enabled: bool,
     pub prompt_optimization_enabled: bool,
     pub prompt_optimizer_model: String,
     pub replacements: Vec<Replacement>,
@@ -207,8 +255,11 @@ pub struct SaveSettingsRequest {
     pub auto_paste: bool,
     pub preserve_clipboard: bool,
     pub hotkey: String,
+    pub repaste_hotkey: String,
     pub widget_mode: bool,
+    pub input_device_id: String,
     pub mic_sensitivity: u8,
+    pub noise_suppression_enabled: bool,
     pub prompt_optimization_enabled: bool,
     pub prompt_optimizer_model: String,
     pub replacements: Vec<Replacement>,
@@ -233,8 +284,11 @@ impl SaveSettingsRequest {
             auto_paste: self.auto_paste,
             preserve_clipboard: self.preserve_clipboard,
             hotkey: self.hotkey,
+            repaste_hotkey: normalize_repaste_hotkey(&self.repaste_hotkey),
             widget_mode: self.widget_mode,
+            input_device_id: normalize_input_device_id(&self.input_device_id),
             mic_sensitivity: self.mic_sensitivity,
+            noise_suppression_enabled: self.noise_suppression_enabled,
             prompt_optimization_enabled: self.prompt_optimization_enabled,
             prompt_optimizer_model: self.prompt_optimizer_model,
             replacements: self.replacements,
@@ -263,10 +317,16 @@ struct DiskSettings {
     preserve_clipboard: bool,
     #[serde(default = "default_hotkey")]
     hotkey: String,
+    #[serde(default = "default_repaste_hotkey")]
+    repaste_hotkey: String,
     #[serde(default = "default_widget_mode")]
     widget_mode: bool,
+    #[serde(default = "default_input_device_id")]
+    input_device_id: String,
     #[serde(default = "default_mic_sensitivity")]
     mic_sensitivity: u8,
+    #[serde(default = "default_noise_suppression_enabled")]
+    noise_suppression_enabled: bool,
     #[serde(default = "default_prompt_optimization_enabled")]
     prompt_optimization_enabled: bool,
     #[serde(default = "default_prompt_optimizer_model")]
@@ -289,8 +349,11 @@ impl Default for DiskSettings {
             auto_paste: default_auto_paste(),
             preserve_clipboard: default_preserve_clipboard(),
             hotkey: default_hotkey(),
+            repaste_hotkey: default_repaste_hotkey(),
             widget_mode: default_widget_mode(),
+            input_device_id: default_input_device_id(),
             mic_sensitivity: default_mic_sensitivity(),
+            noise_suppression_enabled: default_noise_suppression_enabled(),
             prompt_optimization_enabled: default_prompt_optimization_enabled(),
             prompt_optimizer_model: default_prompt_optimizer_model(),
             legacy_anthropic_api_key: None,
@@ -310,8 +373,11 @@ impl From<&AppSettings> for DiskSettings {
             auto_paste: settings.auto_paste,
             preserve_clipboard: settings.preserve_clipboard,
             hotkey: settings.hotkey.clone(),
+            repaste_hotkey: settings.repaste_hotkey.clone(),
             widget_mode: settings.widget_mode,
+            input_device_id: settings.input_device_id.clone(),
             mic_sensitivity: settings.mic_sensitivity,
+            noise_suppression_enabled: settings.noise_suppression_enabled,
             prompt_optimization_enabled: settings.prompt_optimization_enabled,
             prompt_optimizer_model: settings.prompt_optimizer_model.clone(),
             legacy_anthropic_api_key: None,
@@ -384,8 +450,11 @@ impl SettingsState {
             auto_paste: disk_settings.auto_paste,
             preserve_clipboard: disk_settings.preserve_clipboard,
             hotkey: disk_settings.hotkey.clone(),
+            repaste_hotkey: normalize_repaste_hotkey(&disk_settings.repaste_hotkey),
             widget_mode: disk_settings.widget_mode,
+            input_device_id: normalize_input_device_id(&disk_settings.input_device_id),
             mic_sensitivity: disk_settings.mic_sensitivity,
+            noise_suppression_enabled: disk_settings.noise_suppression_enabled,
             prompt_optimization_enabled: disk_settings.prompt_optimization_enabled,
             prompt_optimizer_model: normalize_prompt_optimizer_model(
                 &disk_settings.prompt_optimizer_model,
@@ -395,6 +464,8 @@ impl SettingsState {
         };
 
         let mut needs_resave = settings.language != disk_settings.language
+            || settings.repaste_hotkey != disk_settings.repaste_hotkey
+            || settings.input_device_id != disk_settings.input_device_id
             || settings.prompt_optimizer_model != disk_settings.prompt_optimizer_model
             || disk_settings.api_key.is_some()
             || disk_settings.groq_api_key.is_some()
@@ -598,8 +669,24 @@ pub fn validate_settings(settings: &AppSettings) -> Result<(), Vec<String>> {
         ));
     }
 
-    if settings.hotkey.len() > 100 {
+    if settings.hotkey.len() > MAX_HOTKEY_LEN {
         errors.push("Hotkey is too long".to_string());
+    }
+
+    if settings.repaste_hotkey.len() > MAX_HOTKEY_LEN {
+        errors.push("Re-paste hotkey is too long".to_string());
+    }
+
+    if !settings.repaste_hotkey.is_empty() && settings.repaste_hotkey.starts_with("Mouse") {
+        errors.push("Re-paste hotkey must use a keyboard shortcut".to_string());
+    }
+
+    if !settings.repaste_hotkey.is_empty() && settings.repaste_hotkey == settings.hotkey {
+        errors.push("Re-paste hotkey must be different from the recording hotkey".to_string());
+    }
+
+    if settings.input_device_id.len() > MAX_INPUT_DEVICE_ID_LEN {
+        errors.push("Input device id is too long".to_string());
     }
 
     if !(MIN_MIC_SENSITIVITY..=MAX_MIC_SENSITIVITY).contains(&settings.mic_sensitivity) {
@@ -653,8 +740,11 @@ mod tests {
             auto_paste: true,
             preserve_clipboard: false,
             hotkey: "CommandOrControl+Shift+Space".to_string(),
+            repaste_hotkey: String::new(),
             widget_mode: false,
+            input_device_id: String::new(),
             mic_sensitivity: DEFAULT_MIC_SENSITIVITY,
+            noise_suppression_enabled: false,
             prompt_optimization_enabled: false,
             prompt_optimizer_model: "gpt-5.4-mini".to_string(),
             replacements: vec![],
@@ -671,8 +761,11 @@ mod tests {
             auto_paste: true,
             preserve_clipboard: false,
             hotkey: "CommandOrControl+Shift+Space".to_string(),
+            repaste_hotkey: String::new(),
             widget_mode: false,
+            input_device_id: String::new(),
             mic_sensitivity: DEFAULT_MIC_SENSITIVITY,
+            noise_suppression_enabled: false,
             prompt_optimization_enabled: false,
             prompt_optimizer_model: "gpt-5.4-mini".to_string(),
             replacements: vec![],
@@ -927,5 +1020,68 @@ mod tests {
             .unwrap_err()
             .iter()
             .any(|error| error.contains("Mic sensitivity")));
+    }
+
+    #[test]
+    fn test_load_normalizes_blank_repaste_hotkey_and_input_device_id() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{
+  "model": "gpt-4o-mini-transcribe",
+  "language": "auto",
+  "auto_paste": true,
+  "preserve_clipboard": false,
+  "hotkey": "CommandOrControl+Shift+Space",
+  "repaste_hotkey": "   ",
+  "widget_mode": false,
+  "input_device_id": "   ",
+  "mic_sensitivity": 60,
+  "noise_suppression_enabled": false,
+  "prompt_optimization_enabled": false,
+  "prompt_optimizer_model": "gpt-5.4-mini",
+  "replacements": []
+}"#,
+        )
+        .unwrap();
+
+        let state = test_state(&dir);
+        let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
+
+        assert!(settings.repaste_hotkey.is_empty());
+        assert!(settings.input_device_id.is_empty());
+    }
+
+    #[test]
+    fn test_validate_settings_rejects_mouse_repaste_hotkey() {
+        let settings = AppSettings {
+            repaste_hotkey: "Mouse4".to_string(),
+            ..sample_settings()
+        };
+
+        let result = validate_settings(&settings);
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .iter()
+            .any(|error| error.contains("keyboard shortcut")));
+    }
+
+    #[test]
+    fn test_validate_settings_rejects_duplicate_hotkeys() {
+        let settings = AppSettings {
+            repaste_hotkey: "CommandOrControl+Shift+Space".to_string(),
+            ..sample_settings()
+        };
+
+        let result = validate_settings(&settings);
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .iter()
+            .any(|error| error.contains("different from the recording hotkey")));
     }
 }
