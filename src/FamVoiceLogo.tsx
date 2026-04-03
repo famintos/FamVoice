@@ -1,5 +1,5 @@
 import type { ImgHTMLAttributes } from "react";
-import famintoMarkAmber from "./assets/faminto-mark-amber.svg";
+import famintoMarkAmber from "./assets/brand/faminto-mark-amber.svg";
 
 export interface FamVoiceLogoProps
   extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "width" | "height" | "alt"> {

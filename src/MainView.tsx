@@ -532,7 +532,9 @@ export function MainView() {
     : status === "transcribing"
       ? "Processing..."
       : status === "success"
-        ? "Ready for paste-back."
+        ? settings?.auto_paste
+          ? "Pasted to your app."
+          : "Ready for paste-back."
         : status === "error"
           ? "Review the message below, then try again."
           : "Hold hotkey to dictate.";

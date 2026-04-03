@@ -178,13 +178,12 @@ pub async fn transcribe_audio(
 
     if !res.status().is_success() {
         let status = res.status();
-        let _err_text = res.text().await.unwrap_or_default();
-        #[cfg(debug_assertions)]
+        let err_text = res.text().await.unwrap_or_default();
         eprintln!(
             "[FamVoice] {} API error {}: {}",
             provider_label(provider),
             status,
-            _err_text
+            err_text
         );
         return Err(user_facing_api_error(status, provider));
     }

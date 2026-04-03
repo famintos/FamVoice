@@ -71,31 +71,10 @@ body {
   border: 1px solid var(--app-border);
 }
 
-.signal-stage {
-  /* flat surface */
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
+.signal-shell--settings {
+  /* settings window shell variant */
 }
 
-.signal-readout {
-  /* transcript/error output panel */
-  background: var(--app-surface);
-  color: var(--app-text);
-  border: 1px solid var(--app-border);
-  font-family: var(--app-font-sans);
-}
-
-.status-panel {
-  background: var(--app-surface);
-  color: var(--app-text);
-  border: 1px solid var(--app-border);
-}
-
-.utility-log-row {
-  background: var(--app-surface);
-  color: var(--app-text);
-  border: 1px solid var(--app-border);
-}
 
 .widget-shell {
   background: var(--app-surface);
