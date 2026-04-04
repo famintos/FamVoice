@@ -65,9 +65,17 @@ function normalizePromptOptimizerModel(model: string): string {
     : PROMPT_OPTIMIZER_MODELS[0].value;
 }
 
+function normalizeTranscriptionModel(provider: string, model: string): string {
+  const models = MODELS_BY_PROVIDER[provider] ?? [];
+  return models.some((option) => option.value === model)
+    ? model
+    : (models[0]?.value ?? model);
+}
+
 function toSettingsDraft(settings: SettingsViewModel): SettingsDraft {
   return {
     ...settings,
+    model: normalizeTranscriptionModel(settings.transcription_provider, settings.model),
     prompt_optimizer_model: normalizePromptOptimizerModel(settings.prompt_optimizer_model),
     replacements: settings.replacements.map(toReplacementDraft),
   };
@@ -648,7 +656,7 @@ export function SettingsView() {
                 options={LANGUAGES}
               />
               <span className="text-[11px] leading-relaxed text-slate-500">
-                Auto Detect handles mixed dictation. Choose a specific language only when you want to bias transcription toward it.
+                Auto Detect handles mixed dictation. Choose a specific language when you want to bias transcription or avoid unwanted translation.
               </span>
             </label>
 

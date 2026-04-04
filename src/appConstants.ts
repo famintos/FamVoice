@@ -13,7 +13,6 @@ export const OPENAI_MODELS = [
 
 export const GROQ_MODELS = [
   { value: "whisper-large-v3-turbo", label: "whisper-large-v3-turbo (Fast)" },
-  { value: "whisper-large-v3", label: "whisper-large-v3 (Precise)" },
 ];
 
 export const MODELS_BY_PROVIDER: Record<string, typeof OPENAI_MODELS> = {

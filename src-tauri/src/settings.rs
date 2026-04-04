@@ -13,7 +13,7 @@ const MAX_INPUT_DEVICE_ID_LEN: usize = 512;
 pub const SUPPORTED_PROVIDERS: [&str; 2] = ["openai", "groq"];
 pub const OPENAI_MODELS: [&str; 3] =
     ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"];
-pub const GROQ_MODELS: [&str; 2] = ["whisper-large-v3-turbo", "whisper-large-v3"];
+pub const GROQ_MODELS: [&str; 1] = ["whisper-large-v3-turbo"];
 pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 17] = ["auto", "ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "uk", "zh"];
 pub const MIN_MIC_SENSITIVITY: u8 = 0;
 pub const MAX_MIC_SENSITIVITY: u8 = 100;
@@ -37,6 +37,14 @@ fn models_for_provider(provider: &str) -> &'static [&'static str] {
     match provider {
         "groq" => &GROQ_MODELS,
         _ => &OPENAI_MODELS,
+    }
+}
+
+fn normalize_transcription_model(provider: &str, model: &str) -> String {
+    match (provider, model) {
+        ("groq", "whisper-large-v3") => GROQ_MODELS[0].to_string(),
+        _ if models_for_provider(provider).contains(&model) => model.to_string(),
+        _ => models_for_provider(provider)[0].to_string(),
     }
 }
 
@@ -445,7 +453,10 @@ impl SettingsState {
 
         let mut settings = AppSettings {
             transcription_provider: disk_settings.transcription_provider.clone(),
-            model: disk_settings.model.clone(),
+            model: normalize_transcription_model(
+                &disk_settings.transcription_provider,
+                &disk_settings.model,
+            ),
             language: normalize_language_preference(&disk_settings.language),
             auto_paste: disk_settings.auto_paste,
             preserve_clipboard: disk_settings.preserve_clipboard,
@@ -464,6 +475,7 @@ impl SettingsState {
         };
 
         let mut needs_resave = settings.language != disk_settings.language
+            || settings.model != disk_settings.model
             || settings.repaste_hotkey != disk_settings.repaste_hotkey
             || settings.input_device_id != disk_settings.input_device_id
             || settings.prompt_optimizer_model != disk_settings.prompt_optimizer_model
@@ -988,6 +1000,38 @@ mod tests {
             .unwrap_err()
             .iter()
             .any(|error| error.contains("Unsupported model")));
+    }
+
+    #[test]
+    fn test_load_migrates_removed_groq_model_to_turbo() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{
+  "transcription_provider": "groq",
+  "model": "whisper-large-v3",
+  "language": "pt",
+  "auto_paste": true,
+  "preserve_clipboard": false,
+  "hotkey": "CommandOrControl+Shift+Space",
+  "widget_mode": false,
+  "prompt_optimization_enabled": false,
+  "prompt_optimizer_model": "gpt-5.4-mini",
+  "replacements": []
+}"#,
+        )
+        .unwrap();
+
+        let state = test_state(&dir);
+        let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
+
+        assert_eq!(settings.transcription_provider, "groq");
+        assert_eq!(settings.model, "whisper-large-v3-turbo");
+
+        let migrated_json = fs::read_to_string(path).unwrap();
+        assert!(migrated_json.contains(r#""model": "whisper-large-v3-turbo""#));
+        assert!(!migrated_json.contains(r#""model": "whisper-large-v3""#));
     }
 
     #[test]
