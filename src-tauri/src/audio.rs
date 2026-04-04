@@ -26,6 +26,7 @@ const SPEECH_WINDOW_MIN_CLIP_SAMPLES: usize = TARGET_SAMPLE_RATE as usize;
 const SPEECH_WINDOW_MIN_TRIMMED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize / 4;
 const SPEECH_WINDOW_MIN_SAVED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize / 10;
 
+#[derive(Clone)]
 pub struct AudioState {
     pub is_recording: Arc<AtomicBool>,
     pub cmd_tx: mpsc::Sender<AudioCommand>,
@@ -45,6 +46,11 @@ pub struct UploadAudioSelection<'a> {
 }
 
 pub enum AudioCommand {
+    Prime(
+        tauri::AppHandle,
+        Option<String>,
+        tokio::sync::oneshot::Sender<Result<(), String>>,
+    ),
     Start(
         tauri::AppHandle,
         Option<String>,
@@ -74,7 +80,10 @@ fn list_input_devices_for_host(host: &cpal::Host) -> Result<Vec<InputDeviceOptio
             Ok(id) => id.to_string(),
             Err(error) => {
                 #[cfg(debug_assertions)]
-                eprintln!("[FamVoice] Skipping input device without stable id: {}", error);
+                eprintln!(
+                    "[FamVoice] Skipping input device without stable id: {}",
+                    error
+                );
                 continue;
             }
         };
@@ -187,18 +196,20 @@ impl LowPassFilter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RecordingCycleState {
+    pending_start: bool,
     armed: bool,
     is_recording: bool,
 }
 
-fn begin_recording_cycle(
+fn prepare_recording_cycle(
     state: &mut RecordingCycleState,
     buffer: &mut Vec<i16>,
     preroll: &mut Vec<i16>,
 ) {
     buffer.clear();
-    buffer.append(preroll);
-    state.armed = true;
+    preroll.clear();
+    state.pending_start = true;
+    state.armed = false;
     state.is_recording = true;
 }
 
@@ -212,10 +223,42 @@ fn append_samples_capped(buffer: &mut Vec<i16>, new_samples: &[i16]) {
     buffer.extend_from_slice(&new_samples[..samples_to_append]);
 }
 
+fn append_preroll_samples_capped(preroll: &mut Vec<i16>, new_samples: &[i16]) {
+    preroll.extend_from_slice(new_samples);
+    if preroll.len() > PREROLL_SAMPLES {
+        let excess = preroll.len() - PREROLL_SAMPLES;
+        preroll.drain(..excess);
+    }
+}
+
+fn promote_preroll_to_recording_buffer(
+    buffer: &mut Vec<i16>,
+    preroll: &mut Vec<i16>,
+    warmup_samples: &[i16],
+) {
+    append_preroll_samples_capped(preroll, warmup_samples);
+    buffer.clear();
+    buffer.append(preroll);
+}
+
+#[cfg(test)]
+fn activate_recording_cycle(
+    state: &mut RecordingCycleState,
+    buffer: &mut Vec<i16>,
+    preroll: &mut Vec<i16>,
+    warmup_samples: &[i16],
+) {
+    promote_preroll_to_recording_buffer(buffer, preroll, warmup_samples);
+    state.pending_start = false;
+    state.armed = true;
+    state.is_recording = true;
+}
+
 fn finish_recording_cycle(
     state: &mut RecordingCycleState,
     buffer: &mut Vec<i16>,
 ) -> Option<Vec<i16>> {
+    state.pending_start = false;
     state.armed = false;
     state.is_recording = false;
     take_recorded_samples(buffer)
@@ -274,7 +317,9 @@ fn build_mono_input_stream<T, ErrFn>(
     stream_config: &cpal::StreamConfig,
     sample_buffer: Arc<Mutex<Vec<i16>>>,
     preroll_buffer: Arc<Mutex<Vec<i16>>>,
+    pending_start: Arc<AtomicBool>,
     armed: Arc<AtomicBool>,
+    is_recording: Arc<AtomicBool>,
     app_handle: tauri::AppHandle,
     capture_channels: usize,
     capture_rate: u32,
@@ -308,12 +353,21 @@ where
             let is_armed = armed.load(Ordering::Acquire);
 
             if !is_armed {
-                if let Ok(mut buf) = preroll_buffer.lock() {
-                    buf.extend_from_slice(&resampled_buf);
-                    if buf.len() > PREROLL_SAMPLES {
-                        let excess = buf.len() - PREROLL_SAMPLES;
-                        buf.drain(..excess);
+                if pending_start.load(Ordering::Acquire) {
+                    if let Ok(mut buf) = sample_buffer.lock() {
+                        if let Ok(mut preroll) = preroll_buffer.lock() {
+                            promote_preroll_to_recording_buffer(
+                                &mut buf,
+                                &mut preroll,
+                                &resampled_buf,
+                            );
+                            pending_start.store(false, Ordering::Release);
+                            armed.store(true, Ordering::Release);
+                            is_recording.store(true, Ordering::SeqCst);
+                        }
                     }
+                } else if let Ok(mut buf) = preroll_buffer.lock() {
+                    append_preroll_samples_capped(&mut buf, &resampled_buf);
                 }
                 return;
             }
@@ -340,7 +394,7 @@ where
                     let _ = app_handle.emit("mic-level", 0.0);
                     smoothed_level = 0.0;
                 }
-                
+
                 last_emit = std::time::Instant::now();
             }
         },
@@ -349,10 +403,11 @@ where
     )
 }
 
-fn start_persistent_input_stream_for_device(
+fn build_persistent_input_stream_for_device(
     device: cpal::Device,
     sample_buffer: Arc<Mutex<Vec<i16>>>,
     preroll_buffer: Arc<Mutex<Vec<i16>>>,
+    pending_start: Arc<AtomicBool>,
     armed: Arc<AtomicBool>,
     is_recording: Arc<AtomicBool>,
     needs_rebuild: Arc<AtomicBool>,
@@ -389,12 +444,14 @@ fn start_persistent_input_stream_for_device(
     let filter_cutoff = (TARGET_SAMPLE_RATE as f64 / 2.0) * 0.875;
 
     let make_err_fn = || {
+        let err_pending_start = pending_start.clone();
         let err_armed = armed.clone();
         let err_recording = is_recording.clone();
         let err_rebuild = needs_rebuild.clone();
 
         move |err| {
             eprintln!("[FamVoice] Audio stream error: {}", err);
+            err_pending_start.store(false, Ordering::Release);
             err_armed.store(false, Ordering::Release);
             err_recording.store(false, Ordering::SeqCst);
             err_rebuild.store(true, Ordering::SeqCst);
@@ -407,7 +464,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -420,7 +479,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -433,7 +494,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -446,7 +509,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -459,7 +524,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -472,7 +539,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -485,7 +554,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -498,7 +569,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -511,7 +584,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -524,7 +599,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -537,7 +614,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -550,7 +629,9 @@ fn start_persistent_input_stream_for_device(
             &stream_config,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
+            is_recording.clone(),
             app_handle.clone(),
             capture_channels,
             capture_rate,
@@ -564,17 +645,14 @@ fn start_persistent_input_stream_for_device(
     }
     .map_err(|e| format!("Failed to open microphone: {}", e))?;
 
-    stream
-        .play()
-        .map_err(|e| format!("Failed to start recording: {}", e))?;
-
     Ok((stream, device_id))
 }
 
-fn start_persistent_input_stream(
+fn build_persistent_input_stream(
     selected_device_id: Option<&str>,
     sample_buffer: Arc<Mutex<Vec<i16>>>,
     preroll_buffer: Arc<Mutex<Vec<i16>>>,
+    pending_start: Arc<AtomicBool>,
     armed: Arc<AtomicBool>,
     is_recording: Arc<AtomicBool>,
     needs_rebuild: Arc<AtomicBool>,
@@ -585,10 +663,11 @@ fn start_persistent_input_stream(
     let mut last_error = None;
 
     for (index, device) in candidates.into_iter().enumerate() {
-        match start_persistent_input_stream_for_device(
+        match build_persistent_input_stream_for_device(
             device,
             sample_buffer.clone(),
             preroll_buffer.clone(),
+            pending_start.clone(),
             armed.clone(),
             is_recording.clone(),
             needs_rebuild.clone(),
@@ -607,7 +686,8 @@ fn start_persistent_input_stream(
         }
     }
 
-    Err(last_error.unwrap_or_else(|| "No microphone found. Check your audio input device.".to_string()))
+    Err(last_error
+        .unwrap_or_else(|| "No microphone found. Check your audio input device.".to_string()))
 }
 
 impl Default for AudioState {
@@ -615,16 +695,18 @@ impl Default for AudioState {
         let (tx, mut rx) = mpsc::channel::<AudioCommand>(10);
         let is_recording = Arc::new(AtomicBool::new(false));
         let is_recording_clone = is_recording.clone();
+        let pending_start = Arc::new(AtomicBool::new(false));
+        let pending_start_clone = pending_start.clone();
         let armed = Arc::new(AtomicBool::new(false));
         let armed_clone = armed.clone();
         let needs_rebuild = Arc::new(AtomicBool::new(false));
         let needs_rebuild_clone = needs_rebuild.clone();
         std::thread::spawn(move || {
-            let sample_buffer: Arc<Mutex<Vec<i16>>> =
-                Arc::new(Mutex::new(Vec::new()));
+            let sample_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
             let preroll_buffer: Arc<Mutex<Vec<i16>>> =
                 Arc::new(Mutex::new(Vec::with_capacity(PREROLL_SAMPLES)));
             let mut recording_state = RecordingCycleState {
+                pending_start: false,
                 armed: false,
                 is_recording: false,
             };
@@ -634,7 +716,7 @@ impl Default for AudioState {
 
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
-                    AudioCommand::Start(app_handle, selected_device_id, reply) => {
+                    AudioCommand::Prime(app_handle, selected_device_id, reply) => {
                         let normalized_selected_device_id = selected_device_id
                             .as_deref()
                             .map(str::trim)
@@ -645,7 +727,9 @@ impl Default for AudioState {
                             normalized_selected_device_id != active_requested_device_id;
                         let selected_device_not_active = normalized_selected_device_id
                             .as_deref()
-                            .is_some_and(|selected_id| active_device_id.as_deref() != Some(selected_id));
+                            .is_some_and(|selected_id| {
+                                active_device_id.as_deref() != Some(selected_id)
+                            });
 
                         if requested_device_changed || selected_device_not_active {
                             stream.take();
@@ -659,10 +743,11 @@ impl Default for AudioState {
                         }
 
                         if stream.is_none() {
-                            match start_persistent_input_stream(
+                            match build_persistent_input_stream(
                                 normalized_selected_device_id.as_deref(),
                                 sample_buffer.clone(),
                                 preroll_buffer.clone(),
+                                pending_start_clone.clone(),
                                 armed_clone.clone(),
                                 is_recording_clone.clone(),
                                 needs_rebuild_clone.clone(),
@@ -677,33 +762,98 @@ impl Default for AudioState {
                                     continue;
                                 }
                             }
-                        } else if let Some(ref s) = stream {
-                            // Resume the paused stream
-                            if let Err(e) = s.play() {
-                                eprintln!("[FamVoice] Failed to resume stream: {}", e);
-                                // Rebuild on next attempt
-                                stream.take();
-                                active_device_id = None;
-                                needs_rebuild_clone.store(false, Ordering::SeqCst);
-                                let _ = reply.send(Err(format!("Failed to resume microphone: {}", e)));
-                                continue;
+                        }
+
+                        let _ = reply.send(Ok(()));
+                    }
+                    AudioCommand::Start(app_handle, selected_device_id, reply) => {
+                        let normalized_selected_device_id = selected_device_id
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|id| !id.is_empty())
+                            .map(str::to_string);
+
+                        let requested_device_changed =
+                            normalized_selected_device_id != active_requested_device_id;
+                        let selected_device_not_active = normalized_selected_device_id
+                            .as_deref()
+                            .is_some_and(|selected_id| {
+                                active_device_id.as_deref() != Some(selected_id)
+                            });
+
+                        if requested_device_changed || selected_device_not_active {
+                            stream.take();
+                            active_device_id = None;
+                            active_requested_device_id = normalized_selected_device_id.clone();
+                        }
+
+                        if needs_rebuild_clone.swap(false, Ordering::SeqCst) {
+                            stream.take();
+                            active_device_id = None;
+                        }
+
+                        if stream.is_none() {
+                            match build_persistent_input_stream(
+                                normalized_selected_device_id.as_deref(),
+                                sample_buffer.clone(),
+                                preroll_buffer.clone(),
+                                pending_start_clone.clone(),
+                                armed_clone.clone(),
+                                is_recording_clone.clone(),
+                                needs_rebuild_clone.clone(),
+                                app_handle.clone(),
+                            ) {
+                                Ok((new_stream, device_id)) => {
+                                    stream = Some(new_stream);
+                                    active_device_id = Some(device_id);
+                                }
+                                Err(error) => {
+                                    let _ = reply.send(Err(error));
+                                    continue;
+                                }
                             }
                         }
 
                         {
                             let mut buffer = sample_buffer.lock().unwrap();
                             let mut preroll = preroll_buffer.lock().unwrap();
-                            begin_recording_cycle(&mut recording_state, &mut buffer, &mut preroll);
+                            prepare_recording_cycle(
+                                &mut recording_state,
+                                &mut buffer,
+                                &mut preroll,
+                            );
                         }
+                        pending_start_clone.store(recording_state.pending_start, Ordering::Release);
                         armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
+
+                        if let Some(ref s) = stream {
+                            if let Err(e) = s.play() {
+                                eprintln!("[FamVoice] Failed to resume stream: {}", e);
+                                stream.take();
+                                active_device_id = None;
+                                recording_state.pending_start = false;
+                                recording_state.armed = false;
+                                recording_state.is_recording = false;
+                                pending_start_clone.store(false, Ordering::Release);
+                                armed_clone.store(false, Ordering::Release);
+                                is_recording_clone.store(false, Ordering::SeqCst);
+                                needs_rebuild_clone.store(false, Ordering::SeqCst);
+                                let _ =
+                                    reply.send(Err(format!("Failed to resume microphone: {}", e)));
+                                continue;
+                            }
+                        }
+
                         let _ = reply.send(Ok(()));
                     }
                     AudioCommand::Stop(reply) => {
+                        pending_start_clone.store(false, Ordering::Release);
                         let samples = {
                             let mut buffer = sample_buffer.lock().unwrap();
                             finish_recording_cycle(&mut recording_state, &mut buffer)
                         };
+                        pending_start_clone.store(recording_state.pending_start, Ordering::Release);
                         armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
 
@@ -796,9 +946,8 @@ pub fn encode_flac_in_memory(samples: &[i16]) -> Result<Vec<u8>, String> {
     let source =
         flacenc::source::MemSource::from_samples(&samples_i32, 1, 16, TARGET_SAMPLE_RATE as usize);
 
-    let flac_stream =
-        flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
-            .map_err(|e| format!("FLAC encode failed: {:?}", e))?;
+    let flac_stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+        .map_err(|e| format!("FLAC encode failed: {:?}", e))?;
 
     let mut sink = flacenc::bitsink::ByteSink::new();
     flac_stream
@@ -952,6 +1101,25 @@ pub async fn start_recording(
         .map_err(|e| format!("Recording channel error: {}", e))?
 }
 
+pub async fn prime_input_stream(
+    app_handle: tauri::AppHandle,
+    state: &AudioState,
+    selected_device_id: Option<&str>,
+) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state
+        .cmd_tx
+        .send(AudioCommand::Prime(
+            app_handle,
+            selected_device_id.map(str::to_string),
+            tx,
+        ))
+        .await
+        .map_err(|e| e.to_string())?;
+    rx.await
+        .map_err(|e| format!("Prime channel error: {}", e))?
+}
+
 pub async fn stop_recording(state: &AudioState) -> Option<Vec<i16>> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     if state.cmd_tx.send(AudioCommand::Stop(tx)).await.is_err() {
@@ -972,20 +1140,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recording_cycle_start_clears_stale_samples_and_arms_capture() {
+    fn recording_cycle_prepare_clears_stale_audio_and_marks_pending() {
         let mut samples = vec![7, 8, 9];
-        let mut preroll = Vec::new();
+        let mut preroll = vec![4, 5, 6];
         let mut state = RecordingCycleState {
+            pending_start: false,
             armed: false,
             is_recording: false,
         };
 
-        begin_recording_cycle(&mut state, &mut samples, &mut preroll);
+        prepare_recording_cycle(&mut state, &mut samples, &mut preroll);
 
         assert!(samples.is_empty());
+        assert!(preroll.is_empty());
         assert_eq!(
             state,
             RecordingCycleState {
+                pending_start: true,
+                armed: false,
+                is_recording: true,
+            }
+        );
+    }
+
+    #[test]
+    fn recording_cycle_activation_moves_warmup_audio_into_recording_buffer() {
+        let mut samples = Vec::new();
+        let mut preroll = vec![10, 20, 30];
+        let warmup = vec![40, 50];
+        let mut state = RecordingCycleState {
+            pending_start: true,
+            armed: false,
+            is_recording: false,
+        };
+
+        activate_recording_cycle(&mut state, &mut samples, &mut preroll, &warmup);
+
+        assert_eq!(samples, vec![10, 20, 30, 40, 50]);
+        assert!(preroll.is_empty());
+        assert_eq!(
+            state,
+            RecordingCycleState {
+                pending_start: false,
                 armed: true,
                 is_recording: true,
             }
@@ -993,24 +1189,21 @@ mod tests {
     }
 
     #[test]
-    fn recording_cycle_start_prepends_preroll_samples() {
-        let mut samples = Vec::new();
-        let mut preroll = vec![10, 20, 30];
-        let mut state = RecordingCycleState {
-            armed: false,
-            is_recording: false,
-        };
+    fn preroll_buffer_keeps_most_recent_samples() {
+        let mut preroll = vec![1; PREROLL_SAMPLES - 2];
 
-        begin_recording_cycle(&mut state, &mut samples, &mut preroll);
+        append_preroll_samples_capped(&mut preroll, &[2, 3, 4, 5]);
 
-        assert_eq!(samples, vec![10, 20, 30]);
-        assert!(preroll.is_empty());
+        assert_eq!(preroll.len(), PREROLL_SAMPLES);
+        assert_eq!(preroll[0], 1);
+        assert_eq!(&preroll[preroll.len() - 4..], &[2, 3, 4, 5]);
     }
 
     #[test]
     fn recording_cycle_stop_disarms_capture_and_returns_buffered_samples() {
         let mut samples = vec![1, 2, 3];
         let mut state = RecordingCycleState {
+            pending_start: false,
             armed: true,
             is_recording: true,
         };
@@ -1022,6 +1215,7 @@ mod tests {
         assert_eq!(
             state,
             RecordingCycleState {
+                pending_start: false,
                 armed: false,
                 is_recording: false,
             }

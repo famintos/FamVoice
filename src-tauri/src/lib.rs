@@ -219,7 +219,10 @@ async fn paste_text_via_clipboard(
                 if let Err(error) =
                     clipboard::restore_clipboard_text(&*clipboard_state, &saved_text)
                 {
-                    eprintln!("[FamVoice] Failed to restore clipboard after repaste: {}", error);
+                    eprintln!(
+                        "[FamVoice] Failed to restore clipboard after repaste: {}",
+                        error
+                    );
                 }
             }
         });
@@ -259,12 +262,18 @@ fn normalize_frontend_settings(settings: &AppSettings) -> FrontendSettings {
     if !frontend.input_device_id.is_empty() {
         match audio::list_input_devices() {
             Ok(devices) => {
-                if !devices.iter().any(|device| device.id == frontend.input_device_id) {
+                if !devices
+                    .iter()
+                    .any(|device| device.id == frontend.input_device_id)
+                {
                     frontend.input_device_id.clear();
                 }
             }
             Err(error) => {
-                eprintln!("[FamVoice] Failed to validate selected microphone: {}", error);
+                eprintln!(
+                    "[FamVoice] Failed to validate selected microphone: {}",
+                    error
+                );
                 frontend.input_device_id.clear();
             }
         }
@@ -302,6 +311,22 @@ async fn save_settings(
 
     if previous.hotkey != saved.hotkey || previous.repaste_hotkey != saved.repaste_hotkey {
         register_hotkeys(&app, &saved.hotkey, &saved.repaste_hotkey);
+    }
+
+    if previous.input_device_id != saved.input_device_id {
+        let audio_state = {
+            let state: State<AudioState> = app.state();
+            (*state).clone()
+        };
+        if let Err(error) = audio::prime_input_stream(
+            app.clone(),
+            &audio_state,
+            Some(saved.input_device_id.as_str()),
+        )
+        .await
+        {
+            eprintln!("[FamVoice] Failed to prime selected microphone: {}", error);
+        }
     }
 
     let _ = app.emit("settings-updated", frontend.clone());
@@ -399,12 +424,7 @@ async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
         .input_device_id
         .clone();
 
-    match audio::start_recording(
-        app.clone(),
-        &*audio_state,
-        Some(input_device_id.as_str()),
-    )
-    .await {
+    match audio::start_recording(app.clone(), &*audio_state, Some(input_device_id.as_str())).await {
         Ok(()) => {
             let _ = app.emit("status", "recording");
             Ok(())
@@ -674,10 +694,7 @@ async fn capture_and_prepare_samples(
         };
         eprintln!("[FamVoice] {} API key is empty!", provider_label);
         let _ = app.emit("status", "error");
-        let _ = app.emit(
-            "transcript",
-            format!("{} API key missing", provider_label),
-        );
+        let _ = app.emit("transcript", format!("{} API key missing", provider_label));
         return Err("API key is empty".into());
     }
 
@@ -713,7 +730,10 @@ async fn transcribe_recording(
         match audio::encode_flac_in_memory(upload_audio.samples.as_ref()) {
             Ok(flac_bytes) => (flac_bytes, "audio/flac", "audio.flac", "FLAC"),
             Err(flac_err) => {
-                eprintln!("[FamVoice] FLAC encode failed, falling back to WAV: {}", flac_err);
+                eprintln!(
+                    "[FamVoice] FLAC encode failed, falling back to WAV: {}",
+                    flac_err
+                );
                 let wav = audio::encode_wav_in_memory(upload_audio.samples.as_ref());
                 (wav, "audio/wav", "audio.wav", "WAV")
             }
@@ -753,13 +773,7 @@ async fn transcribe_recording(
         settings,
         finalized_text,
         prompt_optimizer_timeout(&settings.prompt_optimizer_model),
-        |request| {
-            prompt_optimizer::optimize_prompt(
-                http_client,
-                settings.api_key.trim(),
-                request,
-            )
-        },
+        |request| prompt_optimizer::optimize_prompt(http_client, settings.api_key.trim(), request),
     )
     .await;
     eprintln!(
@@ -1091,10 +1105,7 @@ mod tests {
 
     #[test]
     fn test_prompt_optimizer_timeout_keeps_gpt_5_4_mini_fast() {
-        assert_eq!(
-            prompt_optimizer_timeout("gpt-5.4-mini").as_millis(),
-            10_000
-        );
+        assert_eq!(prompt_optimizer_timeout("gpt-5.4-mini").as_millis(), 10_000);
     }
 
     #[test]
@@ -1194,7 +1205,10 @@ pub fn run() {
                     .timeout(Duration::from_secs(5))
                     .send()
                     .await;
-                eprintln!("[FamVoice] HTTPS connection to {} pre-warmed", warmup_provider);
+                eprintln!(
+                    "[FamVoice] HTTPS connection to {} pre-warmed",
+                    warmup_provider
+                );
             });
 
             app.manage(HttpClientState {
@@ -1267,10 +1281,38 @@ pub fn run() {
                     settings.widget_mode,
                 )
             };
+            let input_device_id = {
+                let state: State<SettingsState> = app.state();
+                let settings = state
+                    .settings
+                    .lock()
+                    .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
+                settings.input_device_id.clone()
+            };
 
             register_hotkeys(app.handle(), &hotkey, &repaste_hotkey);
             input_hook::start_mouse_listener(app.handle().clone(), hotkey_shared);
             window::apply_main_window_mode(app.handle(), widget_mode, false)?;
+
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let audio_state = {
+                    let state: State<AudioState> = app_handle.state();
+                    (*state).clone()
+                };
+                if let Err(error) = audio::prime_input_stream(
+                    app_handle.clone(),
+                    &audio_state,
+                    Some(input_device_id.as_str()),
+                )
+                .await
+                {
+                    eprintln!(
+                        "[FamVoice] Failed to prime microphone on startup: {}",
+                        error
+                    );
+                }
+            });
 
             Ok(())
         })
