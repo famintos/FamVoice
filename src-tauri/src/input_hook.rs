@@ -112,7 +112,6 @@ pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
         // with software like DeskFlow/Synergy that injects keyboard events from another PC.
         // Using only WH_MOUSE_LL avoids this conflict entirely.
         win_mouse_hook::start(app, hotkey_shared);
-        return;
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -219,11 +218,7 @@ fn process_event(
 }
 
 #[cfg(target_os = "windows")]
-fn handle_event_windows(
-    app: &AppHandle,
-    hotkey_shared: &Arc<Mutex<String>>,
-    event: Event,
-) {
+fn handle_event_windows(app: &AppHandle, hotkey_shared: &Arc<Mutex<String>>, event: Event) {
     let _ = process_event(app, hotkey_shared, &event);
 }
 
@@ -257,9 +252,8 @@ mod win_mouse_hook {
     use std::time::SystemTime;
     use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx, MSG,
-        MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_XBUTTONDOWN,
-        WM_XBUTTONUP,
+        CallNextHookEx, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT,
+        WH_MOUSE_LL, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
     };
 
     struct HookCtx {
@@ -318,8 +312,9 @@ mod win_mouse_hook {
             let mut retry_delay = Duration::from_millis(MOUSE_GRAB_RETRY_INITIAL_DELAY_MS);
 
             loop {
-                let hook =
-                    unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(hook_proc), std::ptr::null_mut(), 0) };
+                let hook = unsafe {
+                    SetWindowsHookExW(WH_MOUSE_LL, Some(hook_proc), std::ptr::null_mut(), 0)
+                };
 
                 if hook.is_null() {
                     eprintln!(

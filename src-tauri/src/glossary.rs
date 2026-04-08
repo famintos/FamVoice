@@ -146,9 +146,7 @@ pub(crate) fn finalize_transcript(
 
     if text.ends_with("...") {
         text.truncate(text.len() - 3);
-    } else if text.ends_with('\u{2026}') {
-        text.pop();
-    } else if text.ends_with('.') {
+    } else if text.ends_with('\u{2026}') || text.ends_with('.') {
         text.pop();
     }
 

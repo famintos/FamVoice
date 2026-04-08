@@ -80,6 +80,6 @@ test("tray wiring in lib.rs uses the monochrome icon instead of the default wind
   const trayBuilderBlock = getTrayBuilderBlock();
 
   assert.match(trayBuilderBlock, /\.icon\(/);
-  assert.match(trayBuilderBlock, /tray-icon-(?:dark|light)\.png/);
+  assert.match(trayBuilderBlock, /tray-icon-(?:amber|dark|light)\.png/);
   assert.doesNotMatch(trayBuilderBlock, /app\.default_window_icon\(\)\.unwrap\(\)\.clone\(\)/);
 });

@@ -1,7 +1,7 @@
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const SETTINGS_SERVICE_NAME: &str = "com.famvoice.app";
@@ -13,7 +13,10 @@ const MAX_INPUT_DEVICE_ID_LEN: usize = 512;
 pub const SUPPORTED_PROVIDERS: [&str; 2] = ["openai", "groq"];
 pub const OPENAI_MODELS: [&str; 1] = ["whisper-1"];
 pub const GROQ_MODELS: [&str; 2] = ["whisper-large-v3-turbo", "whisper-large-v3"];
-pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 17] = ["auto", "ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "uk", "zh"];
+pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 17] = [
+    "auto", "ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr",
+    "uk", "zh",
+];
 pub const MIN_MIC_SENSITIVITY: u8 = 0;
 pub const MAX_MIC_SENSITIVITY: u8 = 100;
 pub const DEFAULT_MIC_SENSITIVITY: u8 = 60;
@@ -41,9 +44,7 @@ fn models_for_provider(provider: &str) -> &'static [&'static str] {
 
 fn normalize_transcription_model(provider: &str, model: &str) -> String {
     match (provider, model) {
-        ("openai", "gpt-4o-mini-transcribe" | "gpt-4o-transcribe") => {
-            OPENAI_MODELS[0].to_string()
-        }
+        ("openai", "gpt-4o-mini-transcribe" | "gpt-4o-transcribe") => OPENAI_MODELS[0].to_string(),
         _ if models_for_provider(provider).contains(&model) => model.to_string(),
         _ => models_for_provider(provider)[0].to_string(),
     }
@@ -485,15 +486,26 @@ impl SettingsState {
             || disk_settings.legacy_anthropic_api_key.is_some();
 
         let secret_accounts: [(&str, &mut String, Option<String>); 2] = [
-            (OPENAI_API_KEY_ACCOUNT, &mut settings.api_key, disk_settings.api_key.clone()),
-            (GROQ_API_KEY_ACCOUNT, &mut settings.groq_api_key, disk_settings.groq_api_key.clone()),
+            (
+                OPENAI_API_KEY_ACCOUNT,
+                &mut settings.api_key,
+                disk_settings.api_key.clone(),
+            ),
+            (
+                GROQ_API_KEY_ACCOUNT,
+                &mut settings.groq_api_key,
+                disk_settings.groq_api_key.clone(),
+            ),
         ];
 
         for (account, field, disk_fallback) in secret_accounts {
             match secret_store.get_secret(account) {
                 Ok(Some(secret)) => {
                     #[cfg(debug_assertions)]
-                    eprintln!("[FamVoice] Keyring {account}: loaded ({} chars)", secret.len());
+                    eprintln!(
+                        "[FamVoice] Keyring {account}: loaded ({} chars)",
+                        secret.len()
+                    );
                     *field = secret;
                 }
                 Ok(None) => {
@@ -527,7 +539,9 @@ impl SettingsState {
                     drop(guard);
                     if let Err(_error) = state.persist(&snapshot, None) {
                         #[cfg(debug_assertions)]
-                        eprintln!("[FamVoice] Failed to migrate settings into secure storage: {_error}");
+                        eprintln!(
+                            "[FamVoice] Failed to migrate settings into secure storage: {_error}"
+                        );
                     }
                 }
                 Err(_error) => {
@@ -545,8 +559,14 @@ impl SettingsState {
         eprintln!(
             "[FamVoice] save_request: provider={}, openai={}, groq={}",
             request.transcription_provider,
-            request.api_key.as_deref().map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
-            request.groq_api_key.as_deref().map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
+            request
+                .api_key
+                .as_deref()
+                .map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
+            request
+                .groq_api_key
+                .as_deref()
+                .map_or("(keep)", |k| if k.is_empty() { "(empty)" } else { "(new)" }),
         );
         let mut settings = self
             .settings
@@ -558,7 +578,8 @@ impl SettingsState {
         #[cfg(debug_assertions)]
         eprintln!(
             "[FamVoice] after merge: openai={} chars, groq={} chars",
-            next.api_key.len(), next.groq_api_key.len()
+            next.api_key.len(),
+            next.groq_api_key.len()
         );
 
         if let Err(errors) = validate_settings(&next) {
@@ -575,10 +596,7 @@ impl SettingsState {
         settings: &AppSettings,
         previous: Option<&AppSettings>,
     ) -> Result<(), String> {
-        if let Err(error) = self.write_secrets(settings) {
-            return Err(error);
-        }
-
+        self.write_secrets(settings)?;
         if let Err(error) = self.write_disk_settings(settings) {
             if let Some(previous_settings) = previous {
                 let _ = self.write_secrets(previous_settings);
@@ -603,7 +621,7 @@ impl SettingsState {
     }
 }
 
-fn load_disk_settings(app_dir: &PathBuf, path: &PathBuf) -> DiskSettings {
+fn load_disk_settings(app_dir: &Path, path: &Path) -> DiskSettings {
     if !path.exists() {
         return DiskSettings::default();
     }
@@ -815,7 +833,10 @@ mod tests {
         let state = test_state(&dir);
 
         {
-            let mut settings = state.settings.lock().expect("Failed to acquire settings lock");
+            let mut settings = state
+                .settings
+                .lock()
+                .expect("Failed to acquire settings lock");
             settings.api_key = "sk-existing".to_string();
             settings.groq_api_key = "gsk-existing".to_string();
         }
@@ -843,7 +864,10 @@ mod tests {
         let state = test_state(&dir);
 
         {
-            let mut settings = state.settings.lock().expect("Failed to acquire settings lock");
+            let mut settings = state
+                .settings
+                .lock()
+                .expect("Failed to acquire settings lock");
             settings.api_key = "sk-existing".to_string();
             settings.groq_api_key = "gsk-existing".to_string();
         }
@@ -940,7 +964,11 @@ mod tests {
         .unwrap();
 
         let state = test_state(&dir);
-        let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
+        let settings = state
+            .settings
+            .lock()
+            .expect("Failed to acquire settings lock")
+            .clone();
         let migrated_json = fs::read_to_string(path).unwrap();
 
         assert_eq!(settings.api_key, "sk-test");
@@ -976,7 +1004,11 @@ mod tests {
         .unwrap();
 
         let state = test_state(&dir);
-        let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
+        let settings = state
+            .settings
+            .lock()
+            .expect("Failed to acquire settings lock")
+            .clone();
 
         assert_eq!(settings.model, "whisper-1");
         assert_eq!(settings.prompt_optimizer_model, "gpt-5.4-mini");
@@ -1031,7 +1063,11 @@ mod tests {
         .unwrap();
 
         let state = test_state(&dir);
-        let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
+        let settings = state
+            .settings
+            .lock()
+            .expect("Failed to acquire settings lock")
+            .clone();
 
         assert_eq!(settings.transcription_provider, "groq");
         assert_eq!(settings.model, "whisper-large-v3");
@@ -1098,7 +1134,11 @@ mod tests {
         .unwrap();
 
         let state = test_state(&dir);
-        let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
+        let settings = state
+            .settings
+            .lock()
+            .expect("Failed to acquire settings lock")
+            .clone();
 
         assert_eq!(settings.model, "whisper-1");
         assert!(settings.repaste_hotkey.is_empty());

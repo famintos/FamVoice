@@ -52,11 +52,11 @@ test("App.css defines the refreshed shell token set", () => {
   assert.match(cssSource, /--color-success:\s*#/);
   assert.match(cssSource, /--color-danger:\s*#/);
   assert.match(cssSource, /\.signal-shell/);
-  assert.match(cssSource, /\.signal-stage/);
-  assert.match(cssSource, /\.signal-readout/);
-  assert.match(cssSource, /\.status-panel/);
-  assert.match(cssSource, /\.utility-log-row/);
   assert.match(cssSource, /\.widget-shell/);
+  assert.match(cssSource, /\.widget-shell--compact/);
+  assert.match(cssSource, /\.widget-wave-wrap/);
+  assert.match(cssSource, /\.widget-highlight/);
+  assert.match(cssSource, /\.focus-ring/);
   assert.match(cssSource, /\.wave-processing/);
   assert.match(cssSource, /@media \(prefers-reduced-motion: reduce\)/);
 });

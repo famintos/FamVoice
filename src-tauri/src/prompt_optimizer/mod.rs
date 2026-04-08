@@ -1,5 +1,5 @@
-pub mod openai;
 mod metaprompt;
+pub mod openai;
 
 use std::fmt;
 
@@ -105,8 +105,9 @@ fn validate_optimized_prompt_text(optimized_prompt: &str) -> Result<(), PromptOp
 
     if has_speech_style_marker {
         return Err(PromptOptimizerError::UnusableOptimizedPrompt {
-            reason: "output still looks like conversational dictation instead of an execution prompt"
-                .to_string(),
+            reason:
+                "output still looks like conversational dictation instead of an execution prompt"
+                    .to_string(),
         });
     }
 
@@ -140,8 +141,7 @@ pub async fn optimize_prompt(
         let body = response.text().await.unwrap_or_default();
         return Err(PromptOptimizerError::Http(format!(
             "openai returned status {}: {}",
-            status,
-            body
+            status, body
         )));
     }
 

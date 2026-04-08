@@ -98,6 +98,7 @@ fn build_form(
     Ok(form)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn transcribe_audio(
     client: &reqwest::Client,
     audio_bytes: Vec<u8>,

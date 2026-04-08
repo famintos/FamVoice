@@ -92,9 +92,11 @@ pub(crate) fn open_settings_window(app: &AppHandle) -> Result<(), String> {
     .skip_taskbar(true);
 
     if let Some(main) = app.get_webview_window("main") {
-        if let (Ok(pos), Ok(size), Ok(factor)) =
-            (main.outer_position(), main.outer_size(), main.scale_factor())
-        {
+        if let (Ok(pos), Ok(size), Ok(factor)) = (
+            main.outer_position(),
+            main.outer_size(),
+            main.scale_factor(),
+        ) {
             let settings_width = 340.0 * factor;
             let settings_height = 520.0 * factor;
             let gap = 12.0 * factor;

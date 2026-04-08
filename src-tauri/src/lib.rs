@@ -197,10 +197,10 @@ async fn paste_text_via_clipboard(
     let clipboard_state: State<ClipboardState> = app.state();
 
     if preserve_clipboard {
-        clipboard::save_clipboard(&*clipboard_state);
+        clipboard::save_clipboard(&clipboard_state);
     }
 
-    clipboard::set_clipboard(&*clipboard_state, text)
+    clipboard::set_clipboard(&clipboard_state, text)
         .map_err(|error| format!("Failed to set clipboard: {}", error))?;
 
     tokio::time::sleep(paste_clipboard_settle_delay()).await;
@@ -209,15 +209,14 @@ async fn paste_text_via_clipboard(
         .map_err(|error| format!("Paste task panicked: {}", error))?;
 
     if preserve_clipboard {
-        let saved_clipboard = clipboard::saved_clipboard_text(&*clipboard_state);
+        let saved_clipboard = clipboard::saved_clipboard_text(&clipboard_state);
         let tasks_state: State<BackgroundTasksState> = app.state();
         let app_handle = app.clone();
         let handle = tokio::spawn(async move {
             tokio::time::sleep(clipboard_restore_delay()).await;
             if let Some(saved_text) = saved_clipboard {
                 let clipboard_state: State<ClipboardState> = app_handle.state();
-                if let Err(error) =
-                    clipboard::restore_clipboard_text(&*clipboard_state, &saved_text)
+                if let Err(error) = clipboard::restore_clipboard_text(&clipboard_state, &saved_text)
                 {
                     eprintln!(
                         "[FamVoice] Failed to restore clipboard after repaste: {}",
@@ -424,7 +423,7 @@ async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
         .input_device_id
         .clone();
 
-    match audio::start_recording(app.clone(), &*audio_state, Some(input_device_id.as_str())).await {
+    match audio::start_recording(app.clone(), &audio_state, Some(input_device_id.as_str())).await {
         Ok(()) => {
             let _ = app.emit("status", "recording");
             Ok(())
@@ -838,7 +837,7 @@ async fn deliver_transcript(
             tokio::time::sleep(clipboard_restore_delay()).await;
             if let Some(text) = saved_clipboard {
                 let clipboard_state: State<ClipboardState> = app_handle.state();
-                if let Err(error) = clipboard::restore_clipboard_text(&*clipboard_state, &text) {
+                if let Err(error) = clipboard::restore_clipboard_text(&clipboard_state, &text) {
                     eprintln!("[FamVoice] Failed to restore clipboard: {}", error);
                 }
             }

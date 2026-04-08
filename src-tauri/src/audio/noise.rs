@@ -102,10 +102,7 @@ fn upsample_to_48khz(samples: &[i16]) -> Vec<f32> {
     output
 }
 
-fn denoise_48khz(
-    denoiser: &mut DenoiseState<'static>,
-    samples: &[f32],
-) -> Vec<f32> {
+fn denoise_48khz(denoiser: &mut DenoiseState<'static>, samples: &[f32]) -> Vec<f32> {
     let mut output = Vec::with_capacity(samples.len() + FRAME_SIZE);
     let mut input_frame = [0.0f32; FRAME_SIZE];
     let mut output_frame = [0.0f32; FRAME_SIZE];

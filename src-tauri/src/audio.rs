@@ -47,6 +47,24 @@ pub struct UploadAudioSelection<'a> {
     pub was_trimmed: bool,
 }
 
+#[derive(Clone)]
+struct AudioStreamContext {
+    sample_buffer: Arc<Mutex<Vec<i16>>>,
+    preroll_buffer: Arc<Mutex<Vec<i16>>>,
+    pending_start: Arc<AtomicBool>,
+    armed: Arc<AtomicBool>,
+    is_recording: Arc<AtomicBool>,
+    needs_rebuild: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Copy)]
+struct CaptureConfig {
+    capture_channels: usize,
+    capture_rate: u32,
+    downsample_ratio: f64,
+    filter_cutoff: f64,
+}
+
 pub enum AudioCommand {
     Prime(
         tauri::AppHandle,
@@ -317,16 +335,9 @@ fn mix_down_and_resample<T>(
 fn build_mono_input_stream<T, ErrFn>(
     device: &cpal::Device,
     stream_config: &cpal::StreamConfig,
-    sample_buffer: Arc<Mutex<Vec<i16>>>,
-    preroll_buffer: Arc<Mutex<Vec<i16>>>,
-    pending_start: Arc<AtomicBool>,
-    armed: Arc<AtomicBool>,
-    is_recording: Arc<AtomicBool>,
+    context: AudioStreamContext,
     app_handle: tauri::AppHandle,
-    capture_channels: usize,
-    capture_rate: u32,
-    downsample_ratio: f64,
-    filter_cutoff: f64,
+    capture: CaptureConfig,
     err_fn: ErrFn,
 ) -> Result<cpal::Stream, cpal::BuildStreamError>
 where
@@ -334,6 +345,20 @@ where
     i16: cpal::FromSample<T>,
     ErrFn: FnMut(cpal::StreamError) + Send + 'static,
 {
+    let AudioStreamContext {
+        sample_buffer,
+        preroll_buffer,
+        pending_start,
+        armed,
+        is_recording,
+        ..
+    } = context;
+    let CaptureConfig {
+        capture_channels,
+        capture_rate,
+        downsample_ratio,
+        filter_cutoff,
+    } = capture;
     let mut mono_buf: Vec<f64> = Vec::with_capacity(8192);
     let mut resampled_buf: Vec<i16> = Vec::with_capacity((8192.0 / downsample_ratio) as usize + 16);
     let mut filter = LowPassFilter::new(filter_cutoff, capture_rate as f64);
@@ -405,14 +430,11 @@ where
     )
 }
 
-fn preferred_input_buffer_frames(
-    config: &cpal::SupportedStreamConfig,
-) -> Option<cpal::FrameCount> {
+fn preferred_input_buffer_frames(config: &cpal::SupportedStreamConfig) -> Option<cpal::FrameCount> {
     match config.buffer_size() {
         cpal::SupportedBufferSize::Range { min, max } => {
             let target_frames =
-                (u64::from(config.sample_rate()) * u64::from(LOW_LATENCY_TARGET_BUFFER_MS))
-                    / 1000;
+                (u64::from(config.sample_rate()) * u64::from(LOW_LATENCY_TARGET_BUFFER_MS)) / 1000;
             Some(target_frames.clamp(u64::from(*min), u64::from(*max)) as cpal::FrameCount)
         }
         cpal::SupportedBufferSize::Unknown => None,
@@ -423,197 +445,106 @@ fn build_stream_for_sample_format(
     device: &cpal::Device,
     sample_format: SampleFormat,
     stream_config: &cpal::StreamConfig,
-    sample_buffer: Arc<Mutex<Vec<i16>>>,
-    preroll_buffer: Arc<Mutex<Vec<i16>>>,
-    pending_start: Arc<AtomicBool>,
-    armed: Arc<AtomicBool>,
-    is_recording: Arc<AtomicBool>,
+    context: AudioStreamContext,
     app_handle: tauri::AppHandle,
-    capture_channels: usize,
-    capture_rate: u32,
-    downsample_ratio: f64,
-    filter_cutoff: f64,
+    capture: CaptureConfig,
     make_err_fn: impl Fn() -> Box<dyn FnMut(cpal::StreamError) + Send + 'static>,
 ) -> Result<cpal::Stream, cpal::BuildStreamError> {
     match sample_format {
         SampleFormat::I8 => build_mono_input_stream::<i8, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::I16 => build_mono_input_stream::<i16, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::I24 => build_mono_input_stream::<cpal::I24, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::I32 => build_mono_input_stream::<i32, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::I64 => build_mono_input_stream::<i64, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::U8 => build_mono_input_stream::<u8, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::U16 => build_mono_input_stream::<u16, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::U24 => build_mono_input_stream::<cpal::U24, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::U32 => build_mono_input_stream::<u32, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::U64 => build_mono_input_stream::<u64, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::F32 => build_mono_input_stream::<f32, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
-            app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            context.clone(),
+            app_handle.clone(),
+            capture,
             make_err_fn(),
         ),
         SampleFormat::F64 => build_mono_input_stream::<f64, _>(
             device,
             stream_config,
-            sample_buffer,
-            preroll_buffer,
-            pending_start,
-            armed,
-            is_recording,
+            context,
             app_handle,
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
+            capture,
             make_err_fn(),
         ),
         other => Err(cpal::BuildStreamError::StreamConfigNotSupported).map_err(|_| {
@@ -625,12 +556,7 @@ fn build_stream_for_sample_format(
 
 fn build_persistent_input_stream_for_device(
     device: cpal::Device,
-    sample_buffer: Arc<Mutex<Vec<i16>>>,
-    preroll_buffer: Arc<Mutex<Vec<i16>>>,
-    pending_start: Arc<AtomicBool>,
-    armed: Arc<AtomicBool>,
-    is_recording: Arc<AtomicBool>,
-    needs_rebuild: Arc<AtomicBool>,
+    context: AudioStreamContext,
     app_handle: tauri::AppHandle,
 ) -> Result<(cpal::Stream, String), String> {
     let device_label = input_device_label(&device);
@@ -651,6 +577,12 @@ fn build_persistent_input_stream_for_device(
     let capture_channels = stream_config.channels as usize;
     let downsample_ratio = capture_rate as f64 / TARGET_SAMPLE_RATE as f64;
     let requested_buffer_frames = preferred_input_buffer_frames(&default_config);
+    let capture = CaptureConfig {
+        capture_channels,
+        capture_rate,
+        downsample_ratio,
+        filter_cutoff: (TARGET_SAMPLE_RATE as f64 / 2.0) * 0.875,
+    };
 
     if let Some(buffer_frames) = requested_buffer_frames {
         stream_config.buffer_size = cpal::BufferSize::Fixed(buffer_frames);
@@ -681,13 +613,16 @@ fn build_persistent_input_stream_for_device(
         buffer_note
     );
 
-    let filter_cutoff = (TARGET_SAMPLE_RATE as f64 / 2.0) * 0.875;
+    let err_pending_start = context.pending_start.clone();
+    let err_armed = context.armed.clone();
+    let err_recording = context.is_recording.clone();
+    let err_rebuild = context.needs_rebuild.clone();
 
-    let make_err_fn = || {
-        let err_pending_start = pending_start.clone();
-        let err_armed = armed.clone();
-        let err_recording = is_recording.clone();
-        let err_rebuild = needs_rebuild.clone();
+    let make_err_fn = move || {
+        let err_pending_start = err_pending_start.clone();
+        let err_armed = err_armed.clone();
+        let err_recording = err_recording.clone();
+        let err_rebuild = err_rebuild.clone();
 
         move |err| {
             eprintln!("[FamVoice] Audio stream error: {}", err);
@@ -702,22 +637,13 @@ fn build_persistent_input_stream_for_device(
         &device,
         sample_format,
         &stream_config,
-        sample_buffer.clone(),
-        preroll_buffer.clone(),
-        pending_start.clone(),
-        armed.clone(),
-        is_recording.clone(),
+        context.clone(),
         app_handle.clone(),
-        capture_channels,
-        capture_rate,
-        downsample_ratio,
-        filter_cutoff,
+        capture,
         || Box::new(make_err_fn()),
     ) {
         Ok(stream) => stream,
-        Err(error)
-            if matches!(stream_config.buffer_size, cpal::BufferSize::Fixed(_)) =>
-        {
+        Err(error) if matches!(stream_config.buffer_size, cpal::BufferSize::Fixed(_)) => {
             eprintln!(
                 "[FamVoice] Falling back to host default microphone buffer after low-latency request failed: {}",
                 error
@@ -726,16 +652,9 @@ fn build_persistent_input_stream_for_device(
                 &device,
                 sample_format,
                 &default_stream_config,
-                sample_buffer.clone(),
-                preroll_buffer.clone(),
-                pending_start.clone(),
-                armed.clone(),
-                is_recording.clone(),
+                context,
                 app_handle.clone(),
-                capture_channels,
-                capture_rate,
-                downsample_ratio,
-                filter_cutoff,
+                capture,
                 || Box::new(make_err_fn()),
             )
             .map_err(|fallback_error| format!("Failed to open microphone: {}", fallback_error))?
@@ -750,12 +669,7 @@ fn build_persistent_input_stream_for_device(
 
 fn build_persistent_input_stream(
     selected_device_id: Option<&str>,
-    sample_buffer: Arc<Mutex<Vec<i16>>>,
-    preroll_buffer: Arc<Mutex<Vec<i16>>>,
-    pending_start: Arc<AtomicBool>,
-    armed: Arc<AtomicBool>,
-    is_recording: Arc<AtomicBool>,
-    needs_rebuild: Arc<AtomicBool>,
+    context: AudioStreamContext,
     app_handle: tauri::AppHandle,
 ) -> Result<(cpal::Stream, String), String> {
     let host = cpal::default_host();
@@ -763,16 +677,8 @@ fn build_persistent_input_stream(
     let mut last_error = None;
 
     for (index, device) in candidates.into_iter().enumerate() {
-        match build_persistent_input_stream_for_device(
-            device,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            needs_rebuild.clone(),
-            app_handle.clone(),
-        ) {
+        match build_persistent_input_stream_for_device(device, context.clone(), app_handle.clone())
+        {
             Ok((stream, device_id)) => return Ok((stream, device_id)),
             Err(error) => {
                 if index == 0 && selected_device_id.is_some() {
@@ -805,6 +711,14 @@ impl Default for AudioState {
             let sample_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
             let preroll_buffer: Arc<Mutex<Vec<i16>>> =
                 Arc::new(Mutex::new(Vec::with_capacity(PREROLL_SAMPLES)));
+            let stream_context = AudioStreamContext {
+                sample_buffer: sample_buffer.clone(),
+                preroll_buffer: preroll_buffer.clone(),
+                pending_start: pending_start_clone.clone(),
+                armed: armed_clone.clone(),
+                is_recording: is_recording_clone.clone(),
+                needs_rebuild: needs_rebuild_clone.clone(),
+            };
             let mut recording_state = RecordingCycleState {
                 pending_start: false,
                 armed: false,
@@ -837,7 +751,7 @@ impl Default for AudioState {
                             active_requested_device_id = normalized_selected_device_id.clone();
                         }
 
-                        if needs_rebuild_clone.swap(false, Ordering::SeqCst) {
+                        if stream_context.needs_rebuild.swap(false, Ordering::SeqCst) {
                             stream.take();
                             active_device_id = None;
                         }
@@ -845,12 +759,7 @@ impl Default for AudioState {
                         if stream.is_none() {
                             match build_persistent_input_stream(
                                 normalized_selected_device_id.as_deref(),
-                                sample_buffer.clone(),
-                                preroll_buffer.clone(),
-                                pending_start_clone.clone(),
-                                armed_clone.clone(),
-                                is_recording_clone.clone(),
-                                needs_rebuild_clone.clone(),
+                                stream_context.clone(),
                                 app_handle.clone(),
                             ) {
                                 Ok((new_stream, device_id)) => {
@@ -887,7 +796,7 @@ impl Default for AudioState {
                             active_requested_device_id = normalized_selected_device_id.clone();
                         }
 
-                        if needs_rebuild_clone.swap(false, Ordering::SeqCst) {
+                        if stream_context.needs_rebuild.swap(false, Ordering::SeqCst) {
                             stream.take();
                             active_device_id = None;
                         }
@@ -895,12 +804,7 @@ impl Default for AudioState {
                         if stream.is_none() {
                             match build_persistent_input_stream(
                                 normalized_selected_device_id.as_deref(),
-                                sample_buffer.clone(),
-                                preroll_buffer.clone(),
-                                pending_start_clone.clone(),
-                                armed_clone.clone(),
-                                is_recording_clone.clone(),
-                                needs_rebuild_clone.clone(),
+                                stream_context.clone(),
                                 app_handle.clone(),
                             ) {
                                 Ok((new_stream, device_id)) => {
@@ -938,7 +842,7 @@ impl Default for AudioState {
                                 pending_start_clone.store(false, Ordering::Release);
                                 armed_clone.store(false, Ordering::Release);
                                 is_recording_clone.store(false, Ordering::SeqCst);
-                                needs_rebuild_clone.store(false, Ordering::SeqCst);
+                                stream_context.needs_rebuild.store(false, Ordering::SeqCst);
                                 let _ =
                                     reply.send(Err(format!("Failed to resume microphone: {}", e)));
                                 continue;
@@ -1460,7 +1364,10 @@ mod tests {
         let selected = select_samples_for_upload(&samples, 100.0);
 
         assert!(selected.was_trimmed);
-        assert_eq!(selected.samples.len(), TARGET_SAMPLE_RATE as usize + SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES);
+        assert_eq!(
+            selected.samples.len(),
+            TARGET_SAMPLE_RATE as usize + SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES
+        );
         assert_eq!(
             &selected.samples[..SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES],
             silence_samples(SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES).as_slice()
