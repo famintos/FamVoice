@@ -1,8 +1,5 @@
 use crate::settings;
 
-const MAX_TRANSCRIPTION_HINT_ENTRIES: usize = 20;
-const MAX_TRANSCRIPTION_HINT_CHARS: usize = 800;
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct GlossaryRule {
     target: String,
@@ -56,89 +53,17 @@ fn sorted_glossary_rules(
     (phrase_rules, single_word_rules)
 }
 
-fn sorted_transcription_hint_rules(replacements: &[settings::Replacement]) -> Vec<GlossaryRule> {
-    let mut rules = replacements
-        .iter()
-        .filter_map(|replacement| {
-            let target = replacement.target.trim();
-            let resolved = replacement.replacement.trim();
-            if target.is_empty() || resolved.is_empty() {
-                return None;
-            }
-
-            Some(GlossaryRule {
-                target: target.to_string(),
-                replacement: resolved.to_string(),
-            })
-        })
-        .collect::<Vec<_>>();
-
-    rules.sort_by(|left, right| {
-        right
-            .target
-            .len()
-            .cmp(&left.target.len())
-            .then_with(|| left.target.cmp(&right.target))
-    });
-    rules
-}
-
 fn transcription_instruction(language: &str) -> Option<&'static str> {
     match language.trim() {
         "pt" => Some(
-            "Transcreve exatamente no idioma falado, em português correto. Usa acentos e cedilhas quando forem apropriados. Não traduzas para inglês. Mantém palavras em inglês apenas quando forem ditas em inglês.",
+            "Transcreve literalmente no idioma falado, em português europeu correto. Usa acentos e cedilhas quando forem apropriados. Não traduzas nem reformules. Mantém palavras em inglês apenas quando forem ditas em inglês. Mantém nomes próprios, marcas, comandos e termos técnicos exatamente como forem ditos.",
         ),
         _ => None,
     }
 }
 
-fn transcription_hint_heading(language: &str) -> &'static str {
-    match language.trim() {
-        "pt" => "Dicas de vocabulário:",
-        _ => "Vocabulary hints:",
-    }
-}
-
-fn transcription_hint_line(language: &str, rule: &GlossaryRule) -> String {
-    match language.trim() {
-        "pt" => format!("- Se ouvires, escreve: {} -> {}\n", rule.target, rule.replacement),
-        _ => format!("- If heard, write: {} -> {}\n", rule.target, rule.replacement),
-    }
-}
-
-pub(crate) fn transcription_prompt(
-    language: &str,
-    replacements: &[settings::Replacement],
-) -> Option<String> {
-    let rules = sorted_transcription_hint_rules(replacements);
-    let instruction = transcription_instruction(language);
-    if rules.is_empty() && instruction.is_none() {
-        return None;
-    }
-
-    let mut sections = Vec::new();
-
-    if let Some(instruction) = instruction {
-        sections.push(instruction.to_string());
-    }
-
-    let mut prompt = format!("{}\n", transcription_hint_heading(language));
-    let mut added_entries = 0usize;
-
-    for rule in rules.into_iter().take(MAX_TRANSCRIPTION_HINT_ENTRIES) {
-        let next_line = transcription_hint_line(language, &rule);
-        if prompt.len() + next_line.len() > MAX_TRANSCRIPTION_HINT_CHARS {
-            break;
-        }
-        prompt.push_str(&next_line);
-        added_entries += 1;
-    }
-
-    if added_entries > 0 {
-        sections.push(prompt.trim_end().to_string());
-    }
-
-    Some(sections.join("\n\n"))
+pub(crate) fn transcription_prompt(language: &str) -> Option<String> {
+    transcription_instruction(language).map(str::to_string)
 }
 
 fn replace_phrase_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
@@ -319,66 +244,26 @@ mod tests {
     }
 
     #[test]
-    fn test_transcription_prompt_uses_non_empty_rules_sorted_longest_first() {
-        let prompt = transcription_prompt("auto", &[
-            Replacement {
-                target: "api".to_string(),
-                replacement: "API".to_string(),
-            },
-            Replacement {
-                target: "new york".to_string(),
-                replacement: "New York".to_string(),
-            },
-            Replacement {
-                target: "blank".to_string(),
-                replacement: "   ".to_string(),
-            },
-        ])
-        .expect("expected prompt");
-
-        assert!(prompt.starts_with("Vocabulary hints:"));
-        let new_york_index = prompt.find("new york -> New York").unwrap();
-        let api_index = prompt.find("api -> API").unwrap();
-        assert!(new_york_index < api_index);
-        assert!(!prompt.contains("blank"));
-    }
-
-    #[test]
-    fn test_transcription_prompt_caps_output_size() {
-        let replacements = (0..40)
-            .map(|index| Replacement {
-                target: format!("very-long-target-term-{index:02}"),
-                replacement: format!("ResolvedTerm{index:02}"),
-            })
-            .collect::<Vec<_>>();
-
-        let prompt = transcription_prompt("auto", &replacements).expect("expected prompt");
-
-        assert!(prompt.len() <= MAX_TRANSCRIPTION_HINT_CHARS);
-        assert!(prompt.lines().count() <= MAX_TRANSCRIPTION_HINT_ENTRIES + 1);
+    fn test_transcription_prompt_is_absent_without_language_specific_instruction() {
+        assert_eq!(transcription_prompt("auto"), None);
     }
 
     #[test]
     fn test_transcription_prompt_in_portuguese_discourages_translation() {
-        let prompt = transcription_prompt("pt", &[]).expect("expected prompt");
+        let prompt = transcription_prompt("pt").expect("expected prompt");
 
-        assert!(prompt.contains("Não traduzas para inglês"));
+        assert!(prompt.contains("Não traduzas nem reformules"));
         assert!(prompt.contains("Mantém palavras em inglês"));
         assert!(prompt.contains("Usa acentos e cedilhas"));
+        assert!(prompt.contains("português europeu"));
     }
 
     #[test]
-    fn test_transcription_prompt_in_portuguese_localizes_vocabulary_hints() {
-        let prompt = transcription_prompt(
-            "pt",
-            &[Replacement {
-                target: "open ai".to_string(),
-                replacement: "OpenAI".to_string(),
-            }],
-        )
-        .expect("expected prompt");
+    fn test_transcription_prompt_in_portuguese_preserves_named_entities_and_commands() {
+        let prompt = transcription_prompt("pt").expect("expected prompt");
 
-        assert!(prompt.contains("Dicas de vocabulário:"));
-        assert!(prompt.contains("Se ouvires, escreve: open ai -> OpenAI"));
+        assert!(prompt.contains("Mantém nomes próprios"));
+        assert!(prompt.contains("comandos"));
+        assert!(prompt.contains("termos técnicos"));
     }
 }

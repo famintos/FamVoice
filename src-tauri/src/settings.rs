@@ -11,9 +11,8 @@ const MAX_API_KEY_LEN: usize = 200;
 const MAX_HOTKEY_LEN: usize = 100;
 const MAX_INPUT_DEVICE_ID_LEN: usize = 512;
 pub const SUPPORTED_PROVIDERS: [&str; 2] = ["openai", "groq"];
-pub const OPENAI_MODELS: [&str; 3] =
-    ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"];
-pub const GROQ_MODELS: [&str; 1] = ["whisper-large-v3-turbo"];
+pub const OPENAI_MODELS: [&str; 1] = ["whisper-1"];
+pub const GROQ_MODELS: [&str; 2] = ["whisper-large-v3-turbo", "whisper-large-v3"];
 pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 17] = ["auto", "ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "uk", "zh"];
 pub const MIN_MIC_SENSITIVITY: u8 = 0;
 pub const MAX_MIC_SENSITIVITY: u8 = 100;
@@ -42,7 +41,9 @@ fn models_for_provider(provider: &str) -> &'static [&'static str] {
 
 fn normalize_transcription_model(provider: &str, model: &str) -> String {
     match (provider, model) {
-        ("groq", "whisper-large-v3") => GROQ_MODELS[0].to_string(),
+        ("openai", "gpt-4o-mini-transcribe" | "gpt-4o-transcribe") => {
+            OPENAI_MODELS[0].to_string()
+        }
         _ if models_for_provider(provider).contains(&model) => model.to_string(),
         _ => models_for_provider(provider)[0].to_string(),
     }
@@ -747,7 +748,7 @@ mod tests {
             transcription_provider: "openai".to_string(),
             api_key: Some("sk-test".to_string()),
             groq_api_key: None,
-            model: "gpt-4o-mini-transcribe".to_string(),
+            model: "whisper-1".to_string(),
             language: "auto".to_string(),
             auto_paste: true,
             preserve_clipboard: false,
@@ -768,7 +769,7 @@ mod tests {
             transcription_provider: "openai".to_string(),
             api_key: "sk-test".to_string(),
             groq_api_key: String::new(),
-            model: "gpt-4o-mini-transcribe".to_string(),
+            model: "whisper-1".to_string(),
             language: "auto".to_string(),
             auto_paste: true,
             preserve_clipboard: false,
@@ -923,7 +924,7 @@ mod tests {
             &path,
             r#"{
   "api_key": "sk-test",
-  "model": "gpt-4o-mini-transcribe",
+  "model": "gpt-4o-transcribe",
   "language": "pt-first",
   "auto_paste": true,
   "preserve_clipboard": false,
@@ -944,10 +945,13 @@ mod tests {
 
         assert_eq!(settings.api_key, "sk-test");
         assert_eq!(settings.groq_api_key, "gsk-old");
+        assert_eq!(settings.model, "whisper-1");
         assert_eq!(settings.language, "pt");
         assert!(!migrated_json.contains("sk-test"));
         assert!(!migrated_json.contains("gsk-old"));
         assert!(!migrated_json.contains("sk-ant-old"));
+        assert!(migrated_json.contains(r#""model": "whisper-1""#));
+        assert!(!migrated_json.contains("gpt-4o-transcribe"));
         assert!(!migrated_json.contains("pt-first"));
     }
 
@@ -974,10 +978,13 @@ mod tests {
         let state = test_state(&dir);
         let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
 
+        assert_eq!(settings.model, "whisper-1");
         assert_eq!(settings.prompt_optimizer_model, "gpt-5.4-mini");
 
         let migrated_json = fs::read_to_string(path).unwrap();
+        assert!(migrated_json.contains(r#""model": "whisper-1""#));
         assert!(migrated_json.contains(r#""prompt_optimizer_model": "gpt-5.4-mini""#));
+        assert!(!migrated_json.contains("gpt-4o-mini-transcribe"));
         assert!(!migrated_json.contains("gpt-5.4-nano"));
     }
 
@@ -1003,7 +1010,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_migrates_removed_groq_model_to_turbo() {
+    fn test_load_preserves_whisper_large_v3_groq_model() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("settings.json");
         fs::write(
@@ -1027,11 +1034,11 @@ mod tests {
         let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
 
         assert_eq!(settings.transcription_provider, "groq");
-        assert_eq!(settings.model, "whisper-large-v3-turbo");
+        assert_eq!(settings.model, "whisper-large-v3");
 
         let migrated_json = fs::read_to_string(path).unwrap();
-        assert!(migrated_json.contains(r#""model": "whisper-large-v3-turbo""#));
-        assert!(!migrated_json.contains(r#""model": "whisper-large-v3""#));
+        assert!(migrated_json.contains(r#""model": "whisper-large-v3""#));
+        assert!(!migrated_json.contains(r#""model": "whisper-large-v3-turbo""#));
     }
 
     #[test]
@@ -1073,7 +1080,7 @@ mod tests {
         fs::write(
             &path,
             r#"{
-  "model": "gpt-4o-mini-transcribe",
+  "model": "gpt-4o-transcribe",
   "language": "auto",
   "auto_paste": true,
   "preserve_clipboard": false,
@@ -1093,6 +1100,7 @@ mod tests {
         let state = test_state(&dir);
         let settings = state.settings.lock().expect("Failed to acquire settings lock").clone();
 
+        assert_eq!(settings.model, "whisper-1");
         assert!(settings.repaste_hotkey.is_empty());
         assert!(settings.input_device_id.is_empty());
     }

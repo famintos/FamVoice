@@ -6,13 +6,12 @@ export const TRANSCRIPTION_PROVIDERS = [
 ];
 
 export const OPENAI_MODELS = [
-  { value: "gpt-4o-mini-transcribe", label: "gpt-4o-mini-transcribe" },
-  { value: "gpt-4o-transcribe", label: "gpt-4o-transcribe (High Accuracy)" },
   { value: "whisper-1", label: "whisper-1 (Legacy / Fallback)" },
 ];
 
 export const GROQ_MODELS = [
   { value: "whisper-large-v3-turbo", label: "whisper-large-v3-turbo (Fast)" },
+  { value: "whisper-large-v3", label: "whisper-large-v3 (Accuracy)" },
 ];
 
 export const MODELS_BY_PROVIDER: Record<string, typeof OPENAI_MODELS> = {

@@ -29,9 +29,7 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 
 ## Supported Transcription Models
 
-- `gpt-4o-mini-transcribe` (default)
-- `gpt-4o-transcribe`
-- `whisper-1`
+- `whisper-1` (OpenAI, legacy / fallback)
 - `whisper-large-v3-turbo` (Groq)
 - `whisper-large-v3` (Groq)
 

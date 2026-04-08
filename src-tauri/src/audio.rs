@@ -16,11 +16,13 @@ use tokio::sync::mpsc;
 const TARGET_SAMPLE_RATE: u32 = 16000;
 const MAX_RECORDING_DURATION_SECONDS: usize = 5 * 60;
 const MAX_RECORDED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * MAX_RECORDING_DURATION_SECONDS;
+const LOW_LATENCY_TARGET_BUFFER_MS: u32 = 10;
 
 const PREROLL_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 500) / 1000;
 
 const SPEECH_WINDOW_FRAME_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 20) / 1000;
 const SPEECH_WINDOW_MIN_SPEECH_FRAMES: usize = 3;
+const SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 200) / 1000;
 const SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 300) / 1000;
 const SPEECH_WINDOW_MIN_CLIP_SAMPLES: usize = TARGET_SAMPLE_RATE as usize;
 const SPEECH_WINDOW_MIN_TRIMMED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize / 4;
@@ -403,6 +405,224 @@ where
     )
 }
 
+fn preferred_input_buffer_frames(
+    config: &cpal::SupportedStreamConfig,
+) -> Option<cpal::FrameCount> {
+    match config.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } => {
+            let target_frames =
+                (u64::from(config.sample_rate()) * u64::from(LOW_LATENCY_TARGET_BUFFER_MS))
+                    / 1000;
+            Some(target_frames.clamp(u64::from(*min), u64::from(*max)) as cpal::FrameCount)
+        }
+        cpal::SupportedBufferSize::Unknown => None,
+    }
+}
+
+fn build_stream_for_sample_format(
+    device: &cpal::Device,
+    sample_format: SampleFormat,
+    stream_config: &cpal::StreamConfig,
+    sample_buffer: Arc<Mutex<Vec<i16>>>,
+    preroll_buffer: Arc<Mutex<Vec<i16>>>,
+    pending_start: Arc<AtomicBool>,
+    armed: Arc<AtomicBool>,
+    is_recording: Arc<AtomicBool>,
+    app_handle: tauri::AppHandle,
+    capture_channels: usize,
+    capture_rate: u32,
+    downsample_ratio: f64,
+    filter_cutoff: f64,
+    make_err_fn: impl Fn() -> Box<dyn FnMut(cpal::StreamError) + Send + 'static>,
+) -> Result<cpal::Stream, cpal::BuildStreamError> {
+    match sample_format {
+        SampleFormat::I8 => build_mono_input_stream::<i8, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::I16 => build_mono_input_stream::<i16, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::I24 => build_mono_input_stream::<cpal::I24, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::I32 => build_mono_input_stream::<i32, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::I64 => build_mono_input_stream::<i64, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U8 => build_mono_input_stream::<u8, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U16 => build_mono_input_stream::<u16, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U24 => build_mono_input_stream::<cpal::U24, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U32 => build_mono_input_stream::<u32, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::U64 => build_mono_input_stream::<u64, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::F32 => build_mono_input_stream::<f32, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        SampleFormat::F64 => build_mono_input_stream::<f64, _>(
+            device,
+            stream_config,
+            sample_buffer,
+            preroll_buffer,
+            pending_start,
+            armed,
+            is_recording,
+            app_handle,
+            capture_channels,
+            capture_rate,
+            downsample_ratio,
+            filter_cutoff,
+            make_err_fn(),
+        ),
+        other => Err(cpal::BuildStreamError::StreamConfigNotSupported).map_err(|_| {
+            let _ = other;
+            cpal::BuildStreamError::StreamConfigNotSupported
+        }),
+    }
+}
+
 fn build_persistent_input_stream_for_device(
     device: cpal::Device,
     sample_buffer: Arc<Mutex<Vec<i16>>>,
@@ -425,20 +645,40 @@ fn build_persistent_input_stream_for_device(
         .map_err(|e| format!("Microphone config error: {}", e))?;
 
     let sample_format = default_config.sample_format();
-    let stream_config: cpal::StreamConfig = default_config.into();
+    let default_stream_config = default_config.config();
+    let mut stream_config = default_stream_config.clone();
     let capture_rate = stream_config.sample_rate;
     let capture_channels = stream_config.channels as usize;
     let downsample_ratio = capture_rate as f64 / TARGET_SAMPLE_RATE as f64;
+    let requested_buffer_frames = preferred_input_buffer_frames(&default_config);
+
+    if let Some(buffer_frames) = requested_buffer_frames {
+        stream_config.buffer_size = cpal::BufferSize::Fixed(buffer_frames);
+    }
+
+    let buffer_note = match (default_config.buffer_size(), requested_buffer_frames) {
+        (cpal::SupportedBufferSize::Range { min, max }, Some(requested)) => {
+            format!("buffer {}-{} frames, request {}", min, max, requested)
+        }
+        (cpal::SupportedBufferSize::Range { min, max }, None) => {
+            format!("buffer {}-{} frames, host default", min, max)
+        }
+        (cpal::SupportedBufferSize::Unknown, Some(requested)) => {
+            format!("buffer unknown, request {}", requested)
+        }
+        (cpal::SupportedBufferSize::Unknown, None) => "buffer host default".to_string(),
+    };
 
     eprintln!(
-        "[FamVoice] Mic: {} [{}] {}Hz {}ch {:?} -> {}Hz mono (ratio {:.2})",
+        "[FamVoice] Mic: {} [{}] {}Hz {}ch {:?} -> {}Hz mono (ratio {:.2}, {})",
         device_label,
         device_id,
         capture_rate,
         capture_channels,
         sample_format,
         TARGET_SAMPLE_RATE,
-        downsample_ratio
+        downsample_ratio,
+        buffer_note
     );
 
     let filter_cutoff = (TARGET_SAMPLE_RATE as f64 / 2.0) * 0.875;
@@ -458,192 +698,52 @@ fn build_persistent_input_stream_for_device(
         }
     };
 
-    let stream = match sample_format {
-        SampleFormat::I8 => build_mono_input_stream::<i8, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::I16 => build_mono_input_stream::<i16, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::I24 => build_mono_input_stream::<cpal::I24, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::I32 => build_mono_input_stream::<i32, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::I64 => build_mono_input_stream::<i64, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::U8 => build_mono_input_stream::<u8, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::U16 => build_mono_input_stream::<u16, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::U24 => build_mono_input_stream::<cpal::U24, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::U32 => build_mono_input_stream::<u32, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::U64 => build_mono_input_stream::<u64, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::F32 => build_mono_input_stream::<f32, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        SampleFormat::F64 => build_mono_input_stream::<f64, _>(
-            &device,
-            &stream_config,
-            sample_buffer.clone(),
-            preroll_buffer.clone(),
-            pending_start.clone(),
-            armed.clone(),
-            is_recording.clone(),
-            app_handle.clone(),
-            capture_channels,
-            capture_rate,
-            downsample_ratio,
-            filter_cutoff,
-            make_err_fn(),
-        ),
-        other => {
-            return Err(format!("Unsupported audio format: {:?}", other));
+    let stream = match build_stream_for_sample_format(
+        &device,
+        sample_format,
+        &stream_config,
+        sample_buffer.clone(),
+        preroll_buffer.clone(),
+        pending_start.clone(),
+        armed.clone(),
+        is_recording.clone(),
+        app_handle.clone(),
+        capture_channels,
+        capture_rate,
+        downsample_ratio,
+        filter_cutoff,
+        || Box::new(make_err_fn()),
+    ) {
+        Ok(stream) => stream,
+        Err(error)
+            if matches!(stream_config.buffer_size, cpal::BufferSize::Fixed(_)) =>
+        {
+            eprintln!(
+                "[FamVoice] Falling back to host default microphone buffer after low-latency request failed: {}",
+                error
+            );
+            build_stream_for_sample_format(
+                &device,
+                sample_format,
+                &default_stream_config,
+                sample_buffer.clone(),
+                preroll_buffer.clone(),
+                pending_start.clone(),
+                armed.clone(),
+                is_recording.clone(),
+                app_handle.clone(),
+                capture_channels,
+                capture_rate,
+                downsample_ratio,
+                filter_cutoff,
+                || Box::new(make_err_fn()),
+            )
+            .map_err(|fallback_error| format!("Failed to open microphone: {}", fallback_error))?
         }
-    }
-    .map_err(|e| format!("Failed to open microphone: {}", e))?;
+        Err(error) => {
+            return Err(format!("Failed to open microphone: {}", error));
+        }
+    };
 
     Ok((stream, device_id))
 }
@@ -857,7 +957,7 @@ impl Default for AudioState {
                         armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
 
-                        // Pause the stream to release the microphone (removes system tray icon)
+                        // Pause the stream to release the microphone between recordings.
                         if let Some(ref s) = stream {
                             if let Err(e) = s.pause() {
                                 eprintln!("[FamVoice] Failed to pause stream: {}", e);
@@ -1051,7 +1151,8 @@ pub fn select_samples_for_upload<'a>(
         };
     };
 
-    let start_sample = start_frame * SPEECH_WINDOW_FRAME_SAMPLES;
+    let start_sample = (start_frame * SPEECH_WINDOW_FRAME_SAMPLES)
+        .saturating_sub(SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES);
     let end_sample = (((end_frame + 1) * SPEECH_WINDOW_FRAME_SAMPLES)
         + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES)
         .min(samples.len());
@@ -1272,7 +1373,11 @@ mod tests {
 
         assert!(selected.was_trimmed);
         assert!(selected.samples.len() < samples.len());
-        assert_eq!(selected.samples[0], 800);
+        assert_eq!(
+            &selected.samples[..SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES],
+            silence_samples(SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES).as_slice()
+        );
+        assert_eq!(selected.samples[SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES], 800);
     }
 
     #[test]
@@ -1284,10 +1389,14 @@ mod tests {
 
         assert!(selected.was_trimmed);
         assert!(selected.samples.len() < samples.len());
-        assert_eq!(selected.samples[0], 800);
+        assert_eq!(
+            &selected.samples[..SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES],
+            speech_samples(SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES, 800).as_slice()
+        );
         assert!(
             selected.samples.len()
                 <= TARGET_SAMPLE_RATE as usize
+                    + SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES
                     + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES
                     + SPEECH_WINDOW_FRAME_SAMPLES
         );
@@ -1303,10 +1412,15 @@ mod tests {
 
         assert!(selected.was_trimmed);
         assert!(selected.samples.len() < samples.len());
-        assert_eq!(selected.samples[0], 800);
+        assert_eq!(
+            &selected.samples[..SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES],
+            silence_samples(SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES).as_slice()
+        );
+        assert_eq!(selected.samples[SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES], 800);
         assert!(
             selected.samples.len()
                 <= TARGET_SAMPLE_RATE as usize
+                    + SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES
                     + SPEECH_WINDOW_TRAILING_CONTEXT_SAMPLES
                     + SPEECH_WINDOW_FRAME_SAMPLES
         );
@@ -1336,6 +1450,22 @@ mod tests {
         assert!(selected.was_trimmed);
         assert!(selected.samples.len() > SPEECH_WINDOW_FRAME_SAMPLES * 4);
         assert!(selected.samples.len() < samples.len());
+    }
+
+    #[test]
+    fn speech_window_keeps_leading_context_before_detected_speech() {
+        let mut samples = silence_samples(TARGET_SAMPLE_RATE as usize);
+        samples.extend(speech_samples(TARGET_SAMPLE_RATE as usize, 800));
+
+        let selected = select_samples_for_upload(&samples, 100.0);
+
+        assert!(selected.was_trimmed);
+        assert_eq!(selected.samples.len(), TARGET_SAMPLE_RATE as usize + SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES);
+        assert_eq!(
+            &selected.samples[..SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES],
+            silence_samples(SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES).as_slice()
+        );
+        assert_eq!(selected.samples[SPEECH_WINDOW_LEADING_CONTEXT_SAMPLES], 800);
     }
 
     #[test]
