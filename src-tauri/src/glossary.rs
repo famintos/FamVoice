@@ -66,7 +66,7 @@ pub(crate) fn transcription_prompt(language: &str) -> Option<String> {
     transcription_instruction(language).map(str::to_string)
 }
 
-fn replace_phrase_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
+fn replace_literal_phrase_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
     let target_lower = target.to_lowercase();
     let target_char_count = target_lower.chars().count();
 
@@ -97,6 +97,102 @@ fn replace_phrase_case_insensitive(text: &str, target: &str, replacement: &str) 
     }
 
     output
+}
+
+fn match_phrase_with_flexible_spacing_at(
+    chars: &[char],
+    start: usize,
+    segment_lowers: &[String],
+    starts_with_word_char: bool,
+    ends_with_word_char: bool,
+) -> Option<usize> {
+    if starts_with_word_char && start > 0 && is_word_char(chars[start - 1]) {
+        return None;
+    }
+
+    let mut cursor = start;
+
+    for (index, segment_lower) in segment_lowers.iter().enumerate() {
+        let segment_len = segment_lower.chars().count();
+        if cursor + segment_len > chars.len() {
+            return None;
+        }
+
+        let candidate: String = chars[cursor..cursor + segment_len].iter().collect();
+        if candidate.to_lowercase() != *segment_lower {
+            return None;
+        }
+
+        cursor += segment_len;
+
+        if index + 1 < segment_lowers.len() {
+            while cursor < chars.len() && chars[cursor].is_whitespace() {
+                cursor += 1;
+            }
+        }
+    }
+
+    if ends_with_word_char && cursor < chars.len() && is_word_char(chars[cursor]) {
+        return None;
+    }
+
+    Some(cursor)
+}
+
+fn replace_phrase_with_flexible_spacing_case_insensitive(
+    text: &str,
+    target: &str,
+    replacement: &str,
+) -> String {
+    let segments: Vec<&str> = target.split_whitespace().collect();
+    if segments.len() < 2 {
+        return replace_literal_phrase_case_insensitive(text, target, replacement);
+    }
+
+    let segment_lowers: Vec<String> = segments
+        .iter()
+        .map(|segment| segment.to_lowercase())
+        .collect();
+    let starts_with_word_char = segments
+        .first()
+        .and_then(|segment| segment.chars().next())
+        .map(is_word_char)
+        .unwrap_or(false);
+    let ends_with_word_char = segments
+        .last()
+        .and_then(|segment| segment.chars().last())
+        .map(is_word_char)
+        .unwrap_or(false);
+    let chars: Vec<char> = text.chars().collect();
+    let mut output = String::with_capacity(text.len());
+    let mut i = 0;
+
+    while i < chars.len() {
+        if let Some(end) = match_phrase_with_flexible_spacing_at(
+            &chars,
+            i,
+            &segment_lowers,
+            starts_with_word_char,
+            ends_with_word_char,
+        ) {
+            output.push_str(replacement);
+            i = end;
+            continue;
+        }
+
+        output.push(chars[i]);
+        i += 1;
+    }
+
+    output
+}
+
+fn replace_phrase_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
+    if target.split_whitespace().count() >= 2 {
+        return replace_phrase_with_flexible_spacing_case_insensitive(text, target, replacement);
+    }
+
+    replace_literal_phrase_case_insensitive(text, target, replacement)
 }
 
 fn replace_whole_word_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
@@ -239,6 +335,92 @@ mod tests {
         );
 
         assert_eq!(transcript, "NYC is fresh");
+    }
+
+    #[test]
+    fn test_finalize_transcript_replaces_multi_word_targets_when_dictated_without_spaces() {
+        let transcript = finalize_transcript(
+            "FemDesign rocks".to_string(),
+            &[Replacement {
+                target: "FEM Design".to_string(),
+                replacement: "FamDesign".to_string(),
+            }],
+        );
+
+        assert_eq!(transcript, "FamDesign rocks");
+    }
+
+    #[test]
+    fn test_finalize_transcript_replaces_multi_word_targets_with_different_case() {
+        let transcript = finalize_transcript(
+            "fem design rocks".to_string(),
+            &[Replacement {
+                target: "FEM Design".to_string(),
+                replacement: "FamDesign".to_string(),
+            }],
+        );
+
+        assert_eq!(transcript, "FamDesign rocks");
+    }
+
+    #[test]
+    fn test_finalize_transcript_replaces_multi_word_targets_when_dictated_all_caps_without_spaces()
+    {
+        let transcript = finalize_transcript(
+            "FEMDESIGN rocks".to_string(),
+            &[Replacement {
+                target: "FEM Design".to_string(),
+                replacement: "FamDesign".to_string(),
+            }],
+        );
+
+        assert_eq!(transcript, "FamDesign rocks");
+    }
+
+    #[test]
+    fn test_finalize_transcript_does_not_replace_multi_word_target_inside_larger_word() {
+        let transcript = finalize_transcript(
+            "SuperFemDesignTool".to_string(),
+            &[Replacement {
+                target: "FEM Design".to_string(),
+                replacement: "FamDesign".to_string(),
+            }],
+        );
+
+        assert_eq!(transcript, "SuperFemDesignTool");
+    }
+
+    #[test]
+    fn test_finalize_transcript_does_not_cross_punctuation_when_matching_space_insensitive_phrase()
+    {
+        let transcript = finalize_transcript(
+            "Fem-Design rocks".to_string(),
+            &[Replacement {
+                target: "FEM Design".to_string(),
+                replacement: "FamDesign".to_string(),
+            }],
+        );
+
+        assert_eq!(transcript, "Fem-Design rocks");
+    }
+
+    #[test]
+    fn test_finalize_transcript_prefers_longer_multi_word_phrase_with_space_insensitive_matching() {
+        let transcript = finalize_transcript(
+            "FemDesign System".to_string(),
+            &[
+                Replacement {
+                    target: "FEM Design".to_string(),
+                    replacement: "FamDesign".to_string(),
+                },
+                Replacement {
+                    target: "FEM Design System".to_string(),
+                    replacement: "FamDesignSystem".to_string(),
+                },
+            ],
+        );
+
+        assert_eq!(transcript, "FamDesignSystem");
     }
 
     #[test]

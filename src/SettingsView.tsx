@@ -842,7 +842,7 @@ export function SettingsView() {
 
           <ControlSection
             eyebrow="Glossary"
-            description="Glossary entries are applied after transcription and also fed back as hints so custom spelling can stay consistent."
+            description="Glossary entries are applied after transcription, matched case-insensitively, and can catch simple spaced or joined variants so custom spelling stays consistent."
             action={
               <button
                 type="button"

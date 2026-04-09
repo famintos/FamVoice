@@ -71,6 +71,7 @@ test("settings icon-only controls expose explicit aria labels", () => {
 test("glossary rows keep persistent labels", () => {
   assert.match(settingsView, /Spoken term/);
   assert.match(settingsView, /Replacement/);
+  assert.match(settingsView, /matched case-insensitively, and can catch simple spaced or joined variants/);
 });
 
 test("settings helper copy and glossary content use the upgraded body scale", () => {
