@@ -570,7 +570,7 @@ export function MainView() {
 
   return (
     <main
-      className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[16px] bg-[#161B26]"
+      className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[16px] bg-[#0F0F0F]"
     >
       <ToastStack
         toasts={toasts}

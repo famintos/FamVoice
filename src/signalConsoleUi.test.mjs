@@ -74,7 +74,7 @@ test("widget shell keeps the compact surface without an exterior shadow", () => 
 });
 
 test("MainView uses the refreshed shell with an inline update notice", () => {
-  assert.match(mainViewSource, /className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-\[16px\] bg-\[#161B26\]"/);
+  assert.match(mainViewSource, /className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-\[16px\] bg-\[#0F0F0F\]"/);
   assert.match(mainViewSource, /Update available/);
   assert.match(mainViewSource, /pendingUpdate\.version/);
   assert.match(mainViewSource, /dismissUpdateNotice/);

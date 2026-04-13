@@ -42,9 +42,9 @@
   --fam-cyan: #06b6d4;
   --fam-emerald: #10b981;
 
-  --fam-bg-dark: #0a0a0a;
-  --fam-bg-surface: #161b26;
-  --fam-bg-slate: #1e293b;
+  --fam-bg-dark: #070707;
+  --fam-bg-surface: #0f0f0f;
+  --fam-bg-slate: #181818;
   --fam-bg-light: #ffffff;
   --fam-bg-muted: #f8fafc;
 
@@ -89,14 +89,14 @@
   --fam-mark-viewbox: 0 0 100 100;
   --fam-lockup-gap: 8px;
 
-  --fam-bg: #0a0a0a;
-  --fam-surface: #161b26;
-  --fam-surface-elevated: #1e293b;
+  --fam-bg: #070707;
+  --fam-surface: #0f0f0f;
+  --fam-surface-elevated: #181818;
   --fam-text-primary: #ffffff;
-  --fam-text-secondary: #94a3b8;
-  --fam-text-muted: #64748b;
-  --fam-border: #1e293b;
-  --fam-border-subtle: #161b26;
+  --fam-text-secondary: #888888;
+  --fam-text-muted: #505050;
+  --fam-border: #242424;
+  --fam-border-subtle: #111111;
   --fam-interactive: #d17a28;
   --fam-interactive-hover: #e08a38;
   --fam-error: #f43f5e;
@@ -106,14 +106,14 @@
 
 [data-theme="dark"],
 .fam-dark {
-  --fam-bg: #0a0a0a;
-  --fam-surface: #161b26;
-  --fam-surface-elevated: #1e293b;
+  --fam-bg: #070707;
+  --fam-surface: #0f0f0f;
+  --fam-surface-elevated: #181818;
   --fam-text-primary: #ffffff;
-  --fam-text-secondary: #94a3b8;
-  --fam-text-muted: #64748b;
-  --fam-border: #1e293b;
-  --fam-border-subtle: #161b26;
+  --fam-text-secondary: #888888;
+  --fam-text-muted: #505050;
+  --fam-border: #242424;
+  --fam-border-subtle: #111111;
   --fam-interactive: #d17a28;
   --fam-interactive-hover: #e08a38;
   --fam-error: #f43f5e;
