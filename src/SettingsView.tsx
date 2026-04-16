@@ -39,6 +39,8 @@ type SettingsDraft = Omit<SettingsViewModel, "replacements"> & {
   replacements: ReplacementDraft[];
 };
 
+const appWindow = getCurrentWindow();
+
 const DEFAULT_INPUT_DEVICE_OPTION: InputDeviceOption = {
   id: "",
   label: "System default microphone",
@@ -190,7 +192,6 @@ export function SettingsView() {
   const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
   const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
-  const appWindow = getCurrentWindow();
   const updateCheckRequestIdRef = useRef(0);
 
   const loadSettings = async () => {

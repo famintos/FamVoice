@@ -7,6 +7,8 @@ use std::sync::Mutex;
 const SETTINGS_SERVICE_NAME: &str = "com.famvoice.app";
 const OPENAI_API_KEY_ACCOUNT: &str = "openai_api_key";
 const GROQ_API_KEY_ACCOUNT: &str = "groq_api_key";
+const OPENAI_API_KEY_CONTEXT: &str = "OpenAI API key";
+const GROQ_API_KEY_CONTEXT: &str = "Groq API key";
 const MAX_API_KEY_LEN: usize = 200;
 const MAX_HOTKEY_LEN: usize = 100;
 const MAX_INPUT_DEVICE_ID_LEN: usize = 512;
@@ -317,6 +319,12 @@ struct DiskSettings {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     groq_api_key: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_key_encrypted: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    groq_api_key_encrypted: Option<String>,
     #[serde(default = "default_model")]
     model: String,
     #[serde(default = "default_language")]
@@ -354,6 +362,8 @@ impl Default for DiskSettings {
             transcription_provider: default_provider(),
             api_key: None,
             groq_api_key: None,
+            api_key_encrypted: None,
+            groq_api_key_encrypted: None,
             model: default_model(),
             language: default_language(),
             auto_paste: default_auto_paste(),
@@ -372,12 +382,17 @@ impl Default for DiskSettings {
     }
 }
 
-impl From<&AppSettings> for DiskSettings {
-    fn from(settings: &AppSettings) -> Self {
-        Self {
+impl DiskSettings {
+    fn from_settings(settings: &AppSettings) -> Result<Self, String> {
+        Ok(Self {
             transcription_provider: settings.transcription_provider.clone(),
             api_key: None,
             groq_api_key: None,
+            api_key_encrypted: encrypt_optional_secret(&settings.api_key, OPENAI_API_KEY_CONTEXT)?,
+            groq_api_key_encrypted: encrypt_optional_secret(
+                &settings.groq_api_key,
+                GROQ_API_KEY_CONTEXT,
+            )?,
             model: settings.model.clone(),
             language: settings.language.clone(),
             auto_paste: settings.auto_paste,
@@ -392,7 +407,7 @@ impl From<&AppSettings> for DiskSettings {
             prompt_optimizer_model: settings.prompt_optimizer_model.clone(),
             legacy_anthropic_api_key: None,
             replacements: settings.replacements.clone(),
-        }
+        })
     }
 }
 
@@ -400,6 +415,14 @@ impl From<&AppSettings> for DiskSettings {
 struct SecretStore {
     service_name: String,
 }
+
+type SecretAccount<'a> = (
+    &'a str,
+    &'a str,
+    &'a mut String,
+    Option<String>,
+    Option<String>,
+);
 
 impl SecretStore {
     fn new(service_name: impl Into<String>) -> Self {
@@ -485,20 +508,24 @@ impl SettingsState {
             || disk_settings.groq_api_key.is_some()
             || disk_settings.legacy_anthropic_api_key.is_some();
 
-        let secret_accounts: [(&str, &mut String, Option<String>); 2] = [
+        let secret_accounts: [SecretAccount<'_>; 2] = [
             (
                 OPENAI_API_KEY_ACCOUNT,
+                OPENAI_API_KEY_CONTEXT,
                 &mut settings.api_key,
                 disk_settings.api_key.clone(),
+                disk_settings.api_key_encrypted.clone(),
             ),
             (
                 GROQ_API_KEY_ACCOUNT,
+                GROQ_API_KEY_CONTEXT,
                 &mut settings.groq_api_key,
                 disk_settings.groq_api_key.clone(),
+                disk_settings.groq_api_key_encrypted.clone(),
             ),
         ];
 
-        for (account, field, disk_fallback) in secret_accounts {
+        for (account, context, field, plaintext_fallback, encrypted_fallback) in secret_accounts {
             match secret_store.get_secret(account) {
                 Ok(Some(secret)) => {
                     #[cfg(debug_assertions)]
@@ -511,16 +538,43 @@ impl SettingsState {
                 Ok(None) => {
                     #[cfg(debug_assertions)]
                     eprintln!("[FamVoice] Keyring {account}: empty");
-                    if let Some(secret) = disk_fallback {
+                    let recovered_secret = match recover_disk_secret(
+                        encrypted_fallback.as_deref(),
+                        plaintext_fallback.as_deref(),
+                        context,
+                    ) {
+                        Ok(secret) => secret,
+                        Err(error) => {
+                            #[cfg(debug_assertions)]
+                            eprintln!("[FamVoice] Failed to recover {account} from disk: {error}");
+                            None
+                        }
+                    };
+                    if let Some(secret) = recovered_secret {
                         *field = secret;
                         needs_resave = true;
                     }
                 }
-                Err(_error) => {
+                Err(error) => {
                     #[cfg(debug_assertions)]
-                    eprintln!("[FamVoice] Keyring {account}: error — {_error}");
-                    if let Some(secret) = disk_fallback {
+                    eprintln!("[FamVoice] Keyring {account}: error — {error}");
+                    let recovered_secret = match recover_disk_secret(
+                        encrypted_fallback.as_deref(),
+                        plaintext_fallback.as_deref(),
+                        context,
+                    ) {
+                        Ok(secret) => secret,
+                        Err(recovery_error) => {
+                            #[cfg(debug_assertions)]
+                            eprintln!(
+                                "[FamVoice] Failed to recover {account} after keyring error: {recovery_error}"
+                            );
+                            None
+                        }
+                    };
+                    if let Some(secret) = recovered_secret {
                         *field = secret;
+                        needs_resave = true;
                     }
                 }
             }
@@ -596,12 +650,21 @@ impl SettingsState {
         settings: &AppSettings,
         previous: Option<&AppSettings>,
     ) -> Result<(), String> {
-        self.write_secrets(settings)?;
+        let secret_write_error = self.write_secrets(settings).err();
         if let Err(error) = self.write_disk_settings(settings) {
-            if let Some(previous_settings) = previous {
-                let _ = self.write_secrets(previous_settings);
+            if secret_write_error.is_none() {
+                if let Some(previous_settings) = previous {
+                    let _ = self.write_secrets(previous_settings);
+                }
             }
             return Err(error);
+        }
+
+        if let Some(error) = secret_write_error {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[FamVoice] Failed to write secrets to keyring, kept encrypted disk backup: {error}"
+            );
         }
 
         Ok(())
@@ -615,9 +678,55 @@ impl SettingsState {
     }
 
     fn write_disk_settings(&self, settings: &AppSettings) -> Result<(), String> {
-        let data = serde_json::to_string_pretty(&DiskSettings::from(settings))
+        let data = serde_json::to_string_pretty(&DiskSettings::from_settings(settings)?)
             .map_err(|_| "Failed to serialize settings".to_string())?;
         fs::write(&self.path, data).map_err(|error| format!("Failed to save settings: {error}"))
+    }
+}
+
+fn recover_disk_secret(
+    encrypted_secret: Option<&str>,
+    plaintext_secret: Option<&str>,
+    context: &str,
+) -> Result<Option<String>, String> {
+    if let Some(secret) = encrypted_secret.filter(|secret| !secret.trim().is_empty()) {
+        return decrypt_disk_secret(secret, context).map(Some);
+    }
+
+    Ok(plaintext_secret
+        .map(str::trim)
+        .filter(|secret| !secret.is_empty())
+        .map(str::to_string))
+}
+
+fn encrypt_optional_secret(secret: &str, context: &str) -> Result<Option<String>, String> {
+    let trimmed = secret.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    #[cfg(windows)]
+    {
+        crate::dpapi::protect_string(trimmed, context).map(Some)
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = context;
+        Ok(None)
+    }
+}
+
+fn decrypt_disk_secret(secret: &str, context: &str) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        crate::dpapi::unprotect_string(secret, context)
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = context;
+        Err("Encrypted disk secrets are only supported on Windows".to_string())
     }
 }
 

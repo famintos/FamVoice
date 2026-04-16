@@ -15,6 +15,22 @@ test("release workflow loads changelog-style notes from the versioned release no
   assert.match(workflowSource, /releaseBody:\s*\$\{\{\s*steps\.release_notes\.outputs\.body\s*\}\}/);
 });
 
+test("release workflow validates tag and metadata versions before publishing", () => {
+  assert.match(workflowSource, /name:\s*Validate release versions/);
+  assert.match(workflowSource, /\$packageVersion =/);
+  assert.match(workflowSource, /\$tauriVersion =/);
+  assert.match(workflowSource, /\$cargoVersion =/);
+  assert.match(workflowSource, /\$tagVersion =/);
+});
+
+test("release workflow reruns the quality gates before publishing", () => {
+  assert.match(workflowSource, /name:\s*Run frontend tests/);
+  assert.match(workflowSource, /name:\s*Lint frontend/);
+  assert.match(workflowSource, /name:\s*Run Rust tests/);
+  assert.match(workflowSource, /name:\s*Clippy lint/);
+  assert.match(workflowSource, /name:\s*Security audit/);
+});
+
 test("release workflow validates published updater metadata version and windows targets", () => {
   assert.match(workflowSource, /Invoke-WebRequest -Uri \$endpoint/);
   assert.match(workflowSource, /\$latestJson =/);

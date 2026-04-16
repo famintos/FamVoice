@@ -7,6 +7,14 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_HISTORY_ITEM_CHARS: usize = 10_000;
+const HISTORY_FILE_VERSION: u8 = 1;
+const HISTORY_DISK_CONTEXT: &str = "transcript history";
+
+#[derive(Serialize, Deserialize)]
+struct HistoryDiskEnvelope {
+    version: u8,
+    payload: String,
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct HistoryItem {
@@ -26,7 +34,7 @@ impl HistoryState {
         let path = app_dir.join("history.json");
         let items = if path.exists() {
             match fs::read_to_string(&path) {
-                Ok(data) => serde_json::from_str::<Vec<HistoryItem>>(&data).unwrap_or_else(|e| {
+                Ok(data) => parse_history_items(&data).unwrap_or_else(|e| {
                     eprintln!(
                         "[FamVoice] Failed to parse history.json: {}, creating backup",
                         e
@@ -122,11 +130,6 @@ impl HistoryState {
     fn write_to_disk(&self, serialized: Option<String>) {
         let Some(data) = serialized else { return };
 
-        // Use OpenOptions for explicit control over file creation and write mode.
-        // TODO: On Windows, restrict file permissions via platform-specific ACLs
-        // (e.g., SetSecurityInfo / SECURITY_ATTRIBUTES) so that only the current
-        // user can read history.json. Rust's std::fs permissions model maps to
-        // Unix chmod bits and has no effect on Windows NTFS ACLs.
         let result = fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -146,13 +149,55 @@ impl HistoryState {
 
 /// Serialize history items to a JSON string. Returns None on serialization failure.
 fn serialize_items(items: &[HistoryItem]) -> Option<String> {
-    match serde_json::to_string_pretty(items) {
+    match encode_history_items(items) {
         Ok(data) => Some(data),
         Err(error) => {
             eprintln!("[FamVoice] Failed to serialize history: {}", error);
             None
         }
     }
+}
+
+fn parse_history_items(data: &str) -> Result<Vec<HistoryItem>, String> {
+    if let Ok(items) = serde_json::from_str::<Vec<HistoryItem>>(data) {
+        return Ok(items);
+    }
+
+    let envelope = serde_json::from_str::<HistoryDiskEnvelope>(data)
+        .map_err(|error| format!("unknown history format: {error}"))?;
+
+    if envelope.version != HISTORY_FILE_VERSION {
+        return Err(format!(
+            "unsupported history file version {}",
+            envelope.version
+        ));
+    }
+
+    #[cfg(windows)]
+    let decrypted_json = crate::dpapi::unprotect_string(&envelope.payload, HISTORY_DISK_CONTEXT)?;
+
+    #[cfg(not(windows))]
+    let decrypted_json = envelope.payload;
+
+    serde_json::from_str::<Vec<HistoryItem>>(&decrypted_json)
+        .map_err(|error| format!("invalid history payload: {error}"))
+}
+
+fn encode_history_items(items: &[HistoryItem]) -> Result<String, String> {
+    let plaintext_json = serde_json::to_string_pretty(items)
+        .map_err(|error| format!("failed to serialize history items: {error}"))?;
+
+    #[cfg(windows)]
+    let payload = crate::dpapi::protect_string(&plaintext_json, HISTORY_DISK_CONTEXT)?;
+
+    #[cfg(not(windows))]
+    let payload = plaintext_json;
+
+    serde_json::to_string_pretty(&HistoryDiskEnvelope {
+        version: HISTORY_FILE_VERSION,
+        payload,
+    })
+    .map_err(|error| format!("failed to serialize encrypted history envelope: {error}"))
 }
 
 fn truncate_history_text(text: String) -> String {
@@ -215,5 +260,36 @@ mod tests {
 
         let items = state.items.lock().unwrap();
         assert_eq!(items[0].text.len(), MAX_HISTORY_ITEM_CHARS);
+    }
+
+    #[test]
+    fn test_history_reloads_from_disk_after_write() {
+        let dir = tempdir().unwrap();
+        let state = HistoryState::load(dir.path().to_path_buf());
+
+        state.add("Persisted item".to_string());
+
+        let reloaded = HistoryState::load(dir.path().to_path_buf());
+        let items = reloaded.items.lock().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text, "Persisted item");
+    }
+
+    #[test]
+    fn test_history_loads_legacy_plaintext_json() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("history.json");
+        fs::write(
+            &path,
+            r#"[
+  { "id": 1, "text": "Legacy item", "timestamp": 123 }
+]"#,
+        )
+        .unwrap();
+
+        let state = HistoryState::load(dir.path().to_path_buf());
+        let items = state.items.lock().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text, "Legacy item");
     }
 }

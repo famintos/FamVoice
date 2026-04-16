@@ -86,9 +86,10 @@ export function WidgetView({
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
+    let nextFinishingState: boolean | null = null;
 
     if (previousStatus === "recording" && (status === "transcribing" || status === "success")) {
-      setIsFinishing(true);
+      nextFinishingState = true;
 
       if (finishTimeoutRef.current !== null) {
         window.clearTimeout(finishTimeoutRef.current);
@@ -99,7 +100,7 @@ export function WidgetView({
         finishTimeoutRef.current = null;
       }, 360);
     } else if (status === "recording" || showIssue) {
-      setIsFinishing(false);
+      nextFinishingState = false;
 
       if (finishTimeoutRef.current !== null) {
         window.clearTimeout(finishTimeoutRef.current);
@@ -108,15 +109,27 @@ export function WidgetView({
     }
 
     previousStatusRef.current = status;
+
+    if (nextFinishingState !== null) {
+      queueMicrotask(() => {
+        setIsFinishing((current) => (
+          current === nextFinishingState ? current : nextFinishingState
+        ));
+      });
+    }
   }, [showIssue, status]);
 
   useEffect(() => {
     if (status !== "recording") {
-      setShowMicWarning(false);
+      queueMicrotask(() => {
+        setShowMicWarning(false);
+      });
       return;
     }
 
-    setShowMicWarning(false);
+    queueMicrotask(() => {
+      setShowMicWarning(false);
+    });
 
     let lastHeardAt = Date.now();
     let hasDetectedSpeech = false;

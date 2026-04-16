@@ -11,24 +11,68 @@ jobs:
       contents: write
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: 20.19.0
           cache: npm
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           workspaces: './src-tauri -> target'
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Validate release versions
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content 'package.json' | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content 'src-tauri/tauri.conf.json' | ConvertFrom-Json).version
+          $cargoVersionMatch = Select-String -Path 'src-tauri/Cargo.toml' -Pattern '^version = "([^"]+)"$'
+          if (-not $cargoVersionMatch) {
+            throw 'Could not read version from src-tauri/Cargo.toml'
+          }
+          $cargoVersion = $cargoVersionMatch.Matches[0].Groups[1].Value
+          $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+
+          $versions = @($packageVersion, $tauriVersion, $cargoVersion, $tagVersion) | Select-Object -Unique
+          if ($versions.Count -ne 1) {
+            throw "Release versions are misaligned. package.json=$packageVersion, tauri.conf.json=$tauriVersion, Cargo.toml=$cargoVersion, tag=$tagVersion"
+          }
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check Rust backend
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
+      - name: Clippy lint
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+      - name: Security audit
+        working-directory: src-tauri
+        run: |
+          cargo install cargo-audit --locked --version 0.22.1
+          cargo audit
+
+      - name: Run frontend tests
+        run: npm run test
+
+      - name: Lint frontend
+        run: npm run lint
 
       - name: Load release notes
         id: release_notes
@@ -47,7 +91,7 @@ jobs:
           "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Build and release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

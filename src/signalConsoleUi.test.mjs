@@ -40,8 +40,8 @@ test("app shell keeps fonts local and avoids remote font providers", () => {
   assert.match(mainSource, /@fontsource\/space-grotesk\/700\.css/);
   assert.match(mainSource, /@fontsource\/ibm-plex-mono\/400\.css/);
   assert.match(mainSource, /@fontsource\/ibm-plex-mono\/500\.css/);
-  assert.doesNotMatch(indexSource, /fonts\.googleapis\.com/);
-  assert.doesNotMatch(indexSource, /fonts\.gstatic\.com/);
+  assert.ok(!indexSource.includes("fonts.googleapis.com"), "indexSource should not contain fonts.googleapis.com");
+  assert.ok(!indexSource.includes("fonts.gstatic.com"), "indexSource should not contain fonts.gstatic.com");
 });
 
 test("App.css defines the refreshed shell token set", () => {

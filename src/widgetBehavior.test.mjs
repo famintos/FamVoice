@@ -91,8 +91,9 @@ test("voice wave supports explicit modes and size variants", () => {
   assert.match(voiceWaveSource, /bg-primary/);
   assert.doesNotMatch(voiceWaveSource, /bg-gradient-to-t/);
   assert.match(voiceWaveSource, /transition-\[opacity,height\]/);
-  assert.match(voiceWaveSource, /\["--bar-rest-scale" as any\]/);
-  assert.match(voiceWaveSource, /\["--bar-active-scale" as any\]/);
+  assert.match(voiceWaveSource, /type WaveBarStyle = React\.CSSProperties & \{/);
+  assert.match(voiceWaveSource, /"--bar-rest-scale": bar\.restScale/);
+  assert.match(voiceWaveSource, /"--bar-active-scale": bar\.activeScale/);
   assert.match(voiceWaveSource, /wave-bar/);
   assert.match(voiceWaveSource, /wave-processing wave-shimmer/);
 });

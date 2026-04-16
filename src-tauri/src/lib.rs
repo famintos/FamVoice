@@ -1,5 +1,6 @@
 mod audio;
 mod clipboard;
+mod dpapi;
 mod glossary;
 mod history;
 mod injection;

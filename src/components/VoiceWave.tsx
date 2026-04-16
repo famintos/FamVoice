@@ -8,6 +8,12 @@ const PROFILE_PRESETS = {
   large: [0.36, 0.48, 0.62, 0.78, 0.92, 1, 0.92, 0.78, 0.62, 0.48, 0.36],
 } satisfies Record<"default" | "widget" | "large", number[]>;
 
+type WaveBarStyle = React.CSSProperties & {
+  "--bar-profile": number;
+  "--bar-rest-scale": number;
+  "--bar-active-scale": number;
+};
+
 export function VoiceWave({
   mode = "idle",
   size = "default",
@@ -107,11 +113,11 @@ export function VoiceWave({
                 ? "1.35s"
                 : "0s",
             animationPlayState: isIdle ? "paused" : "running",
-            ["--bar-profile" as any]: bar.profile,
-            ["--bar-rest-scale" as any]: bar.restScale,
-            ["--bar-active-scale" as any]: bar.activeScale,
+            "--bar-profile": bar.profile,
+            "--bar-rest-scale": bar.restScale,
+            "--bar-active-scale": bar.activeScale,
             transformOrigin: "center",
-          } as React.CSSProperties}
+          } as WaveBarStyle}
         />
       ))}
     </div>

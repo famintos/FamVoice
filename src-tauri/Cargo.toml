@@ -1,6 +1,6 @@
 [package]
 name = "famvoice"
-version = "0.3.17"
+version = "0.3.23"
 description = "FamVoice Desktop App"
 authors = ["Faminto"]
 edition = "2021"
@@ -37,6 +37,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Console",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
+    "Win32_Security_Cryptography",
 ] }
 
 [profile.release]
