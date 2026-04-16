@@ -12,6 +12,13 @@ const widgetViewSource = readFileSync(new URL("./WidgetView.tsx", import.meta.ur
 const settingsViewSource = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8")
   .replace(/\r\n/g, "\n");
 
+function extractRemoteHosts(source) {
+  return source
+    .split(/[\s"'<>]+/)
+    .filter((token) => token.startsWith("https://") || token.startsWith("http://"))
+    .map((token) => new URL(token).hostname.toLowerCase());
+}
+
 function getWidgetShellCssBlock() {
   const widgetShellMatch = cssSource.match(/\.widget-shell\s*\{[\s\S]*?\n\}/);
   assert.ok(widgetShellMatch, "expected widget-shell block in App.css");
@@ -34,14 +41,16 @@ function getHistoryTabBlock() {
 }
 
 test("app shell keeps fonts local and avoids remote font providers", () => {
+  const remoteHosts = extractRemoteHosts(indexSource);
+
   assert.match(mainSource, /@fontsource\/space-grotesk\/400\.css/);
   assert.match(mainSource, /@fontsource\/space-grotesk\/500\.css/);
   assert.match(mainSource, /@fontsource\/space-grotesk\/600\.css/);
   assert.match(mainSource, /@fontsource\/space-grotesk\/700\.css/);
   assert.match(mainSource, /@fontsource\/ibm-plex-mono\/400\.css/);
   assert.match(mainSource, /@fontsource\/ibm-plex-mono\/500\.css/);
-  assert.ok(!indexSource.includes("fonts.googleapis.com"), "indexSource should not contain fonts.googleapis.com");
-  assert.ok(!indexSource.includes("fonts.gstatic.com"), "indexSource should not contain fonts.gstatic.com");
+  assert.ok(!remoteHosts.some((host) => host === "fonts.googleapis.com"));
+  assert.ok(!remoteHosts.some((host) => host === "fonts.gstatic.com"));
 });
 
 test("App.css defines the refreshed shell token set", () => {

@@ -23,7 +23,7 @@ cpal = "0.17"
 keyring = { version = "3", features = ["windows-native"] }
 
 flacenc = { version = "0.5", default-features = false }
-nnnoiseless = "0.5.2"
+nnnoiseless = { version = "0.5.2", default-features = false }
 enigo = "0.6.1"
 arboard = "3.4"
 tauri-plugin-global-shortcut = "2"

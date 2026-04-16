@@ -97,6 +97,10 @@ fn hotkey_is_disabled(hotkey: &str) -> bool {
     hotkey.trim().is_empty()
 }
 
+fn log_operation_error(operation: &str, error: &str) {
+    eprintln!("[FamVoice] {operation}: {error}");
+}
+
 fn handle_recording_shortcut_event(app: &AppHandle, event_state: ShortcutState) {
     if event_state == ShortcutState::Pressed {
         let state: State<AudioState> = app.state();
@@ -173,7 +177,7 @@ fn register_hotkeys(app: &AppHandle, recording_hotkey: &str, repaste_hotkey: &st
                     let app_clone = app.clone();
                     tauri::async_runtime::spawn(async move {
                         if let Err(error) = repaste_last_history_item(app_clone.clone()).await {
-                            eprintln!("[FamVoice] Re-paste hotkey failed: {}", error);
+                            log_operation_error("Re-paste hotkey failed", &error);
                         }
                     });
                 }
@@ -219,10 +223,7 @@ async fn paste_text_via_clipboard(
                 let clipboard_state: State<ClipboardState> = app_handle.state();
                 if let Err(error) = clipboard::restore_clipboard_text(&clipboard_state, &saved_text)
                 {
-                    eprintln!(
-                        "[FamVoice] Failed to restore clipboard after repaste: {}",
-                        error
-                    );
+                    log_operation_error("Failed to restore clipboard after repaste", &error);
                 }
             }
         });
@@ -839,7 +840,7 @@ async fn deliver_transcript(
             if let Some(text) = saved_clipboard {
                 let clipboard_state: State<ClipboardState> = app_handle.state();
                 if let Err(error) = clipboard::restore_clipboard_text(&clipboard_state, &text) {
-                    eprintln!("[FamVoice] Failed to restore clipboard: {}", error);
+                    log_operation_error("Failed to restore clipboard", &error);
                 }
             }
         });
@@ -1306,10 +1307,7 @@ pub fn run() {
                 )
                 .await
                 {
-                    eprintln!(
-                        "[FamVoice] Failed to prime microphone on startup: {}",
-                        error
-                    );
+                    log_operation_error("Failed to prime microphone on startup", &error);
                 }
             });
 
