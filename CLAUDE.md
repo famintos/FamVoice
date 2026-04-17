@@ -40,7 +40,7 @@ Tauri v2 app: Rust backend + React 19 frontend communicating via IPC.
 - `lib.rs` — app bootstrap, IPC command registration, hotkey handling, state management
 - `audio.rs` — microphone capture via cpal, resamples to 16kHz mono, VAD silence trimming
 - `transcription.rs` — OpenAI and Groq API integration (multipart form POST)
-- `clipboard.rs` / `injection.rs` — save/restore clipboard, simulate Ctrl+V paste
+- `clipboard.rs` / `injection.rs` — save/restore clipboard, simulate native paste keystrokes
 - `settings.rs` / `history.rs` — JSON file persistence in app data dir
 - `glossary.rs` — case-insensitive word/phrase replacement engine
 - `input_hook.rs` — global hotkey and mouse button event handling via rdev
@@ -52,7 +52,7 @@ Tauri v2 app: Rust backend + React 19 frontend communicating via IPC.
 
 ## Recording Pipeline
 
-Hold hotkey → cpal captures mic → resample to 16kHz + VAD trim → POST to transcription API → apply glossary replacements → optional prompt optimization → save clipboard → set clipboard to text → simulate Ctrl+V → restore clipboard.
+Hold hotkey → cpal captures mic → resample to 16kHz + VAD trim → POST to transcription API → apply glossary replacements → optional prompt optimization → save clipboard → set clipboard to text → simulate native paste → restore clipboard.
 
 ## Release Process
 

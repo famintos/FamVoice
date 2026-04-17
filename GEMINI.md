@@ -17,7 +17,7 @@ FamVoice is a lightweight global desktop application built with **Tauri v2**, **
 - **Audio Capture:** `cpal` to capture microphone input into a WAV file (via `hound`).
 - **Transcription API:** `reqwest` for making API calls to OpenAI's audio transcription endpoint.
 - **Clipboard Management:** `arboard` for safely reading, storing, and writing text to the system clipboard.
-- **Keystroke Injection:** `enigo` to simulate keystrokes (e.g., `Ctrl+V` or `Cmd+V`) to paste transcribed text.
+- **Keystroke Injection:** `enigo` to simulate native paste keystrokes (`Shift+Insert` on Windows, `Cmd+V` on macOS, `Ctrl+V` elsewhere) to paste transcribed text.
 - **System Integration:** Global shortcut support and autostart capabilities.
 
 ## Architecture Highlights

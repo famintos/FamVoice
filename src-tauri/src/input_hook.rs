@@ -104,6 +104,15 @@ fn decide_mouse_hotkey_action(
     }
 }
 
+fn should_swallow_mouse_event(action: MouseHotkeyAction) -> bool {
+    matches!(
+        action,
+        MouseHotkeyAction::StartRecording
+            | MouseHotkeyAction::StopRecording
+            | MouseHotkeyAction::Swallow
+    )
+}
+
 pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
     #[cfg(target_os = "windows")]
     {
@@ -218,8 +227,12 @@ fn process_event(
 }
 
 #[cfg(target_os = "windows")]
-fn handle_event_windows(app: &AppHandle, hotkey_shared: &Arc<Mutex<String>>, event: Event) {
-    let _ = process_event(app, hotkey_shared, &event);
+fn handle_event_windows(
+    app: &AppHandle,
+    hotkey_shared: &Arc<Mutex<String>>,
+    event: Event,
+) -> MouseHotkeyAction {
+    process_event(app, hotkey_shared, &event)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -228,11 +241,11 @@ fn handle_event(
     hotkey_shared: &Arc<Mutex<String>>,
     event: Event,
 ) -> Option<Event> {
-    match process_event(app, hotkey_shared, &event) {
-        MouseHotkeyAction::StartRecording
-        | MouseHotkeyAction::StopRecording
-        | MouseHotkeyAction::Swallow => None,
-        MouseHotkeyAction::PassThrough => Some(event),
+    let action = process_event(app, hotkey_shared, &event);
+    if should_swallow_mouse_event(action) {
+        None
+    } else {
+        Some(event)
     }
 }
 
@@ -244,8 +257,8 @@ fn handle_event(
 #[cfg(target_os = "windows")]
 mod win_mouse_hook {
     use super::{
-        handle_event_windows, AppHandle, Arc, Button, Duration, Event, EventType, Mutex,
-        MOUSE_GRAB_RETRY_INITIAL_DELAY_MS, MOUSE_GRAB_RETRY_MAX_DELAY_MS,
+        handle_event_windows, should_swallow_mouse_event, AppHandle, Arc, Button, Duration, Event,
+        EventType, Mutex, MOUSE_GRAB_RETRY_INITIAL_DELAY_MS, MOUSE_GRAB_RETRY_MAX_DELAY_MS,
     };
     use std::sync::OnceLock;
     use std::thread;
@@ -298,7 +311,10 @@ mod win_mouse_hook {
                     time: SystemTime::now(),
                     name: None,
                 };
-                handle_event_windows(&ctx.app, &ctx.hotkey, event);
+                let action = handle_event_windows(&ctx.app, &ctx.hotkey, event);
+                if should_swallow_mouse_event(action) {
+                    return 1;
+                }
             }
         }
 
@@ -387,5 +403,15 @@ mod tests {
 
         assert_eq!(next_state, MouseHotkeyState::Idle);
         assert_eq!(action, MouseHotkeyAction::PassThrough);
+    }
+
+    #[test]
+    fn test_recording_mouse_hotkey_actions_are_swallowed() {
+        assert!(should_swallow_mouse_event(
+            MouseHotkeyAction::StartRecording
+        ));
+        assert!(should_swallow_mouse_event(MouseHotkeyAction::StopRecording));
+        assert!(should_swallow_mouse_event(MouseHotkeyAction::Swallow));
+        assert!(!should_swallow_mouse_event(MouseHotkeyAction::PassThrough));
     }
 }
