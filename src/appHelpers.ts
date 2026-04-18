@@ -1,10 +1,5 @@
 import type { KeyboardEvent } from "react";
 
-export function isInteractiveDragTarget(target: EventTarget | null): boolean {
-  return target instanceof Element
-    && target.closest("button, input, select, textarea, a, [role='button'], [contenteditable='true'], .no-drag") !== null;
-}
-
 export function buildHotkeyString(e: KeyboardEvent<HTMLInputElement>): string | null {
   const key = e.key;
   if (["Control", "Shift", "Alt", "Meta"].includes(key)) return null;

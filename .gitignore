@@ -16,10 +16,10 @@ dist-ssr
 .env
 .env.*
 !.env.example
-history.json
-history.json.corrupt
-settings.json
-settings.json.corrupt
+/history.json
+/history.json.corrupt
+/settings.json
+/settings.json.corrupt
 *.corrupt
 *.key
 *.pem
@@ -36,10 +36,14 @@ settings.json.corrupt
 *.njsproj
 *.sln
 *.sw?
-settings.json
 *.bak
 
 # AI agent configs (local only)
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+CLOUD.md
+cloud.md
 .claude/
 .agent/
 .codex/

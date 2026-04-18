@@ -910,6 +910,7 @@ async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use crate::settings::AppSettings;
