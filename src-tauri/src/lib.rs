@@ -190,20 +190,34 @@ fn register_hotkeys(app: &AppHandle, recording_hotkey: &str, repaste_hotkey: &st
     }
 }
 
-async fn paste_text_via_clipboard(
+fn schedule_clipboard_restore(
     app: &AppHandle,
-    text: &str,
-    preserve_clipboard: bool,
-) -> Result<(), String> {
+    tasks_state: &BackgroundTasksState,
+    saved_clipboard: Option<String>,
+    error_context: &'static str,
+) {
+    let Some(saved_text) = saved_clipboard else {
+        return;
+    };
+
+    let app_handle = app.clone();
+    let handle = tokio::spawn(async move {
+        tokio::time::sleep(clipboard_restore_delay()).await;
+        let clipboard_state: State<ClipboardState> = app_handle.state();
+        if let Err(error) = clipboard::restore_clipboard_text(&clipboard_state, &saved_text) {
+            log_operation_error(error_context, &error);
+        }
+    });
+    tasks_state.spawn(handle);
+}
+
+async fn paste_text_via_clipboard(app: &AppHandle, text: &str) -> Result<(), String> {
     if text.len() > MAX_REPASTE_TEXT_BYTES {
         return Err("History item is too large to repaste".to_string());
     }
 
     let clipboard_state: State<ClipboardState> = app.state();
-
-    if preserve_clipboard {
-        clipboard::save_clipboard(&clipboard_state);
-    }
+    clipboard::save_clipboard(&clipboard_state);
 
     clipboard::set_clipboard(&clipboard_state, text)
         .map_err(|error| format!("Failed to set clipboard: {}", error))?;
@@ -213,22 +227,14 @@ async fn paste_text_via_clipboard(
         .await
         .map_err(|error| format!("Paste task panicked: {}", error))?;
 
-    if preserve_clipboard {
-        let saved_clipboard = clipboard::saved_clipboard_text(&clipboard_state);
-        let tasks_state: State<BackgroundTasksState> = app.state();
-        let app_handle = app.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::sleep(clipboard_restore_delay()).await;
-            if let Some(saved_text) = saved_clipboard {
-                let clipboard_state: State<ClipboardState> = app_handle.state();
-                if let Err(error) = clipboard::restore_clipboard_text(&clipboard_state, &saved_text)
-                {
-                    log_operation_error("Failed to restore clipboard after repaste", &error);
-                }
-            }
-        });
-        tasks_state.spawn(handle);
-    }
+    let saved_clipboard = clipboard::saved_clipboard_text(&clipboard_state);
+    let tasks_state: State<BackgroundTasksState> = app.state();
+    schedule_clipboard_restore(
+        app,
+        &tasks_state,
+        saved_clipboard,
+        "Failed to restore clipboard after repaste",
+    );
 
     paste_result.map_err(|error| format!("Failed to simulate paste: {}", error))
 }
@@ -247,14 +253,8 @@ fn latest_history_text(history_state: &HistoryState) -> Result<String, String> {
 async fn repaste_last_history_item(app: AppHandle) -> Result<(), String> {
     let history_state: State<HistoryState> = app.state();
     let text = latest_history_text(&history_state)?;
-    let settings_state: State<SettingsState> = app.state();
-    let preserve_clipboard = settings_state
-        .settings
-        .lock()
-        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
-        .preserve_clipboard;
 
-    paste_text_via_clipboard(&app, &text, preserve_clipboard).await
+    paste_text_via_clipboard(&app, &text).await
 }
 
 fn normalize_frontend_settings(settings: &AppSettings) -> FrontendSettings {
@@ -373,14 +373,7 @@ fn clear_history(app: AppHandle, state: State<'_, HistoryState>) {
 
 #[tauri::command]
 async fn repaste_history_item(app: AppHandle, text: String) -> Result<(), String> {
-    let settings_state: State<SettingsState> = app.state();
-    let preserve_clipboard = settings_state
-        .settings
-        .lock()
-        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
-        .preserve_clipboard;
-
-    paste_text_via_clipboard(&app, &text, preserve_clipboard).await
+    paste_text_via_clipboard(&app, &text).await
 }
 
 #[tauri::command]
@@ -544,17 +537,8 @@ where
 }
 
 #[cfg(test)]
-fn should_restore_clipboard(
-    auto_paste: bool,
-    preserve_clipboard: bool,
-    paste_successful: bool,
-) -> bool {
-    auto_paste && preserve_clipboard && paste_successful
-}
-
-#[cfg(test)]
-fn should_store_history(auto_paste: bool, paste_successful: bool) -> bool {
-    auto_paste && paste_successful
+fn should_restore_original_clipboard(auto_paste: bool, copy_transcript_to_clipboard: bool) -> bool {
+    auto_paste && !copy_transcript_to_clipboard
 }
 
 fn paste_clipboard_settle_delay() -> std::time::Duration {
@@ -803,12 +787,21 @@ async fn deliver_transcript(
     settings: &AppSettings,
     text: String,
 ) {
-    if settings.auto_paste && settings.preserve_clipboard {
+    let should_copy_transcript_to_clipboard = settings.preserve_clipboard;
+    let needs_clipboard_for_auto_paste = settings.auto_paste;
+    let should_touch_clipboard =
+        should_copy_transcript_to_clipboard || needs_clipboard_for_auto_paste;
+    let should_restore_original_clipboard =
+        needs_clipboard_for_auto_paste && !should_copy_transcript_to_clipboard;
+
+    if should_restore_original_clipboard {
         clipboard::save_clipboard(clipboard_state);
     }
 
-    if let Err(error) = clipboard::set_clipboard(clipboard_state, &text) {
-        eprintln!("[FamVoice] Failed to set clipboard: {}", error);
+    if should_touch_clipboard {
+        if let Err(error) = clipboard::set_clipboard(clipboard_state, &text) {
+            eprintln!("[FamVoice] Failed to set clipboard: {}", error);
+        }
     }
 
     let mut paste_successful = true;
@@ -832,19 +825,14 @@ async fn deliver_transcript(
         }
     }
 
-    if settings.auto_paste && settings.preserve_clipboard {
+    if should_restore_original_clipboard {
         let saved_clipboard = clipboard::saved_clipboard_text(clipboard_state);
-        let app_handle = app.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::sleep(clipboard_restore_delay()).await;
-            if let Some(text) = saved_clipboard {
-                let clipboard_state: State<ClipboardState> = app_handle.state();
-                if let Err(error) = clipboard::restore_clipboard_text(&clipboard_state, &text) {
-                    log_operation_error("Failed to restore clipboard", &error);
-                }
-            }
-        });
-        tasks_state.spawn(handle);
+        schedule_clipboard_restore(
+            app,
+            tasks_state,
+            saved_clipboard,
+            "Failed to restore clipboard",
+        );
     }
 
     history_state.add(text.clone());
@@ -852,10 +840,17 @@ async fn deliver_transcript(
 
     if !paste_successful {
         let _ = app.emit("status", "error");
-        let error_msg = format!(
-            "Paste failed: {}. Transcript is on clipboard.",
-            paste_error.unwrap_or_default()
-        );
+        let error_msg = if should_copy_transcript_to_clipboard {
+            format!(
+                "Paste failed: {}. Transcript is on clipboard.",
+                paste_error.unwrap_or_default()
+            )
+        } else {
+            format!(
+                "Paste failed: {}. Transcript is available in History.",
+                paste_error.unwrap_or_default()
+            )
+        };
         let _ = app.emit("transcript", error_msg);
         return;
     }
@@ -928,19 +923,11 @@ mod tests {
     }
 
     #[test]
-    fn test_should_restore_clipboard_only_after_successful_auto_paste_when_enabled() {
-        assert!(should_restore_clipboard(true, true, true));
-        assert!(!should_restore_clipboard(false, true, true));
-        assert!(!should_restore_clipboard(true, false, true));
-        assert!(!should_restore_clipboard(true, true, false));
-    }
-
-    #[test]
-    fn test_should_store_history_only_for_successful_auto_paste() {
-        assert!(should_store_history(true, true));
-        assert!(!should_store_history(false, true));
-        assert!(!should_store_history(true, false));
-        assert!(!should_store_history(false, false));
+    fn test_should_restore_original_clipboard_only_for_temporary_auto_paste() {
+        assert!(should_restore_original_clipboard(true, false));
+        assert!(!should_restore_original_clipboard(false, false));
+        assert!(!should_restore_original_clipboard(true, true));
+        assert!(!should_restore_original_clipboard(false, true));
     }
 
     #[test]

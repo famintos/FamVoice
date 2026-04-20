@@ -739,8 +739,8 @@ export function SettingsView() {
                 />
               </div>
               <div className="flex flex-col gap-0.5">
-                <span className="font-medium text-slate-200">Preserve Clipboard</span>
-                <span className="text-xs leading-normal text-slate-500">Restore the original clipboard after a successful auto-paste</span>
+                <span className="font-medium text-slate-200">Copy Transcript to Clipboard</span>
+                <span className="text-xs leading-normal text-slate-500">Save the final transcript to your clipboard when you finish speaking, even without auto-paste</span>
               </div>
             </label>
 

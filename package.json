@@ -1,7 +1,7 @@
 {
   "name": "famvoice",
   "private": true,
-  "version": "0.3.25",
+  "version": "0.3.26",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

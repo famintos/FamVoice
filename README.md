@@ -17,7 +17,7 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 
 - **Global Hotkey** - Works in any application, configurable shortcut
 - **Instant Paste** - Transcribed text is injected directly into the focused input field
-- **Clipboard Preservation** - Optionally restores your clipboard after pasting
+- **Clipboard Copy** - Optionally keeps the final transcript on your clipboard after you finish speaking
 - **Bring Your Own Keys** - FamVoice is a local desktop client; you provide your own OpenAI and Groq API keys
 - **Prompt Optimization** - Optional AI pass (OpenAI GPT-5.4 Mini) that rewrites your dictation into a polished implementation prompt for coding agents
 - **Glossary Replacements** - Auto-correct specific words or phrases (e.g. "omg" -> "Oh my gosh")
