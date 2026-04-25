@@ -738,7 +738,8 @@ async fn transcribe_recording(
         settings.transcription_provider, settings.model, settings.language
     );
     let lang = transcription_language_override(&settings.language);
-    let transcription_prompt = glossary::transcription_prompt(&settings.language);
+    let transcription_prompt =
+        glossary::transcription_prompt(&settings.language, &settings.replacements);
     let text = transcription::transcribe_audio(
         http_client,
         audio_bytes,

@@ -1,5 +1,45 @@
 use crate::settings;
 
+const MAX_TRANSCRIPTION_PROMPT_CHARS: usize = 800;
+const BUILT_IN_TRANSCRIPTION_TERMS: &[&str] = &[
+    "FamVoice",
+    "FamSpace",
+    "FamDesign",
+    "FamBrand",
+    "OpenAI",
+    "Groq",
+    "Tauri",
+    "React",
+    "Rust",
+    "TypeScript",
+    "JavaScript",
+    "Node.js",
+    "Vite",
+    "Tailwind CSS",
+    "PowerShell",
+    "GitHub",
+    "Git",
+    "Whisper Large V3",
+    "clipboard",
+    "hotkey",
+    "frontend",
+    "backend",
+    "worker",
+    "coordinator",
+    "Backend Reviewer",
+    "npm run build",
+    "npm test",
+    "npm install",
+    "cargo test",
+    "cargo check",
+    "JSON",
+    "API",
+    "package.json",
+    "tauri.conf.json",
+    "src-tauri",
+    "src-tauri/src/lib.rs",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct GlossaryRule {
     target: String,
@@ -56,14 +96,94 @@ fn sorted_glossary_rules(
 fn transcription_instruction(language: &str) -> Option<&'static str> {
     match language.trim() {
         "pt" => Some(
-            "Transcreve literalmente no idioma falado, em português europeu correto. Usa acentos e cedilhas quando forem apropriados. Não traduzas nem reformules. Mantém palavras em inglês apenas quando forem ditas em inglês. Mantém nomes próprios, marcas, comandos e termos técnicos exatamente como forem ditos.",
+            "Transcreve literalmente em português europeu. Não traduzas nem reformules. Mantém palavras em inglês, nomes, marcas, comandos e termos técnicos exatamente como forem ditos.",
         ),
         _ => None,
     }
 }
 
-pub(crate) fn transcription_prompt(language: &str) -> Option<String> {
-    transcription_instruction(language).map(str::to_string)
+fn normalized_prompt_term(term: &str) -> Option<String> {
+    let normalized = term.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() || normalized.chars().count() > 64 {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn push_unique_prompt_term(terms: &mut Vec<String>, term: &str) {
+    let Some(normalized) = normalized_prompt_term(term) else {
+        return;
+    };
+    if terms
+        .iter()
+        .any(|existing| existing.eq_ignore_ascii_case(&normalized))
+    {
+        return;
+    }
+    terms.push(normalized);
+}
+
+fn transcription_prompt_terms(replacements: &[settings::Replacement]) -> Vec<String> {
+    let mut terms = Vec::new();
+
+    for replacement in replacements {
+        let preferred = replacement.replacement.trim();
+        let fallback = replacement.target.trim();
+        push_unique_prompt_term(
+            &mut terms,
+            if preferred.is_empty() {
+                fallback
+            } else {
+                preferred
+            },
+        );
+        if terms.len() >= 20 {
+            break;
+        }
+    }
+
+    for term in BUILT_IN_TRANSCRIPTION_TERMS {
+        push_unique_prompt_term(&mut terms, term);
+    }
+
+    terms
+}
+
+pub(crate) fn transcription_prompt(
+    language: &str,
+    replacements: &[settings::Replacement],
+) -> Option<String> {
+    let instruction = transcription_instruction(language)?;
+    let mut prompt = instruction.to_string();
+    let terms = transcription_prompt_terms(replacements);
+
+    if terms.is_empty() {
+        return Some(prompt);
+    }
+
+    let prefix = " Vocabulário esperado: ";
+    let mut selected_terms = Vec::new();
+    let base_len = prompt.chars().count() + prefix.chars().count() + 1;
+    let mut projected_len = base_len;
+
+    for term in terms {
+        let separator_len = if selected_terms.is_empty() { 0 } else { 2 };
+        let next_len = projected_len + separator_len + term.chars().count();
+        if next_len > MAX_TRANSCRIPTION_PROMPT_CHARS {
+            break;
+        }
+        projected_len = next_len;
+        selected_terms.push(term);
+    }
+
+    if !selected_terms.is_empty() {
+        prompt.push_str(prefix);
+        prompt.push_str(&selected_terms.join(", "));
+        prompt.push('.');
+    }
+
+    Some(prompt)
 }
 
 fn replace_literal_phrase_case_insensitive(text: &str, target: &str, replacement: &str) -> String {
@@ -425,25 +545,49 @@ mod tests {
 
     #[test]
     fn test_transcription_prompt_is_absent_without_language_specific_instruction() {
-        assert_eq!(transcription_prompt("auto"), None);
+        assert_eq!(transcription_prompt("auto", &[]), None);
     }
 
     #[test]
     fn test_transcription_prompt_in_portuguese_discourages_translation() {
-        let prompt = transcription_prompt("pt").expect("expected prompt");
+        let prompt = transcription_prompt("pt", &[]).expect("expected prompt");
 
         assert!(prompt.contains("Não traduzas nem reformules"));
         assert!(prompt.contains("Mantém palavras em inglês"));
-        assert!(prompt.contains("Usa acentos e cedilhas"));
         assert!(prompt.contains("português europeu"));
     }
 
     #[test]
     fn test_transcription_prompt_in_portuguese_preserves_named_entities_and_commands() {
-        let prompt = transcription_prompt("pt").expect("expected prompt");
+        let prompt = transcription_prompt("pt", &[]).expect("expected prompt");
 
-        assert!(prompt.contains("Mantém nomes próprios"));
+        assert!(prompt.contains("nomes"));
         assert!(prompt.contains("comandos"));
         assert!(prompt.contains("termos técnicos"));
+    }
+
+    #[test]
+    fn test_transcription_prompt_includes_built_in_and_glossary_vocabulary() {
+        let prompt = transcription_prompt(
+            "pt",
+            &[
+                Replacement {
+                    target: "FemVoice".to_string(),
+                    replacement: "FamVoice".to_string(),
+                },
+                Replacement {
+                    target: "back end reviewer".to_string(),
+                    replacement: "Backend Reviewer".to_string(),
+                },
+            ],
+        )
+        .expect("expected prompt");
+
+        assert!(prompt.contains("Vocabulário esperado"));
+        assert!(prompt.contains("Groq"));
+        assert!(prompt.contains("npm run build"));
+        assert!(prompt.contains("src-tauri/src/lib.rs"));
+        assert!(prompt.contains("Backend Reviewer"));
+        assert_eq!(prompt.matches("FamVoice").count(), 1);
     }
 }
