@@ -292,4 +292,21 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "Legacy item");
     }
+
+    #[test]
+    fn test_history_loads_corrupted_file_as_empty_and_creates_backup() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("history.json");
+        let corrupted_contents = "this is not valid json";
+        fs::write(&path, corrupted_contents).unwrap();
+
+        let state = HistoryState::load(dir.path().to_path_buf());
+
+        let items = state.items.lock().unwrap();
+        assert!(items.is_empty());
+
+        let backup_path = dir.path().join("history.json.corrupt");
+        assert!(backup_path.exists());
+        assert_eq!(fs::read_to_string(backup_path).unwrap(), corrupted_contents);
+    }
 }

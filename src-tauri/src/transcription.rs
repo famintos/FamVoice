@@ -77,7 +77,8 @@ fn build_form(
     let mut form = multipart::Form::new()
         .part("file", file_part)
         .text("model", model.to_string())
-        .text("response_format", "text");
+        .text("response_format", "text")
+        .text("temperature", "0");
 
     if use_streaming {
         form = form.text("stream", "true");
