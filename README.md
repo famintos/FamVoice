@@ -39,7 +39,7 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (v20.19+ or v22.12+)
+- [Node.js](https://nodejs.org/) (v20.19+ on Node 20, v22.13+ on Node 22, or v24+)
 - [Rust](https://www.rust-lang.org/tools/install) (stable)
 - [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform
 - An OpenAI API key or Groq API key (for transcription)
