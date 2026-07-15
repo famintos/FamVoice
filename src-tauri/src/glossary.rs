@@ -90,9 +90,7 @@ fn transcription_prompt_terms(replacements: &[settings::Replacement]) -> Vec<Str
     for replacement in replacements {
         let replacement_value = replacement.replacement.trim();
         let fallback = replacement.target.trim();
-        let preferred = if replacement_value.starts_with('/') {
-            fallback
-        } else if replacement_value.is_empty() {
+        let preferred = if replacement_value.starts_with('/') || replacement_value.is_empty() {
             fallback
         } else {
             replacement_value
