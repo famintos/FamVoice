@@ -209,7 +209,7 @@ export function MainView() {
 
   useEffect(() => {
     invoke<SettingsViewModel>("get_settings").then(setSettings);
-    void loadHistory();
+    invoke<HistoryItem[]>("get_history").then(setHistory);
 
     const unlistenStatus = listen<Status>("status", (event) => {
       setStatus(event.payload);
@@ -422,11 +422,6 @@ export function MainView() {
       toastTimeoutsRef.current = [];
     };
   }, []);
-
-  const loadHistory = async () => {
-    const items = await invoke<HistoryItem[]>("get_history");
-    setHistory(items);
-  };
 
   const dismissToast = (id: number) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));

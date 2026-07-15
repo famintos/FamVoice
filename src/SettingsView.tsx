@@ -188,7 +188,7 @@ export function SettingsView() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
-  const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
+  const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(true);
   const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
   const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
@@ -234,7 +234,16 @@ export function SettingsView() {
   };
 
   useEffect(() => {
-    void loadSettings();
+    invoke<SettingsViewModel>("get_settings")
+      .then((loadedSettings) => {
+        setSettings(toSettingsDraft(loadedSettings));
+        setApiKeyInput("");
+        setGroqApiKeyInput("");
+      })
+      .catch((error) => {
+        console.error("Failed to load settings:", error);
+        setErrorMessage(String(error));
+      });
     void loadInputDevices().then(setInputDevices);
 
     isEnabled()
@@ -260,7 +269,28 @@ export function SettingsView() {
         console.error("Failed to load app version:", error);
       });
 
-    void refreshUpdate();
+    const initialUpdateRequestId = ++updateCheckRequestIdRef.current;
+    check()
+      .then((update) => {
+        if (initialUpdateRequestId !== updateCheckRequestIdRef.current) {
+          return;
+        }
+        setAvailableUpdate(update);
+        setUpdateCheckError(null);
+      })
+      .catch((error) => {
+        if (initialUpdateRequestId !== updateCheckRequestIdRef.current) {
+          return;
+        }
+        console.error("Update check failed:", error);
+        setAvailableUpdate(null);
+        setUpdateCheckError(String(error));
+      })
+      .finally(() => {
+        if (initialUpdateRequestId === updateCheckRequestIdRef.current) {
+          setIsCheckingForUpdates(false);
+        }
+      });
 
     const unlistenFocusChanged = appWindow.onFocusChanged(({ payload: focused }) => {
       if (focused) {
