@@ -50,9 +50,6 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Check Rust backend
-        run: cargo check --manifest-path src-tauri/Cargo.toml
-
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
@@ -62,11 +59,15 @@ jobs:
       - name: Clippy lint
         run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2.83.2
+        with:
+          tool: cargo-audit@0.22.1
+          fallback: none
+
       - name: Security audit
         working-directory: src-tauri
-        run: |
-          cargo install cargo-audit --locked --version 0.22.1
-          cargo audit
+        run: cargo audit
 
       - name: Run frontend tests
         run: npm run test

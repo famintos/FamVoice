@@ -31,6 +31,17 @@ test("release workflow reruns the quality gates before publishing", () => {
   assert.match(workflowSource, /name:\s*Security audit/);
 });
 
+test("release workflow avoids redundant checks and downloads cargo-audit", () => {
+  assert.doesNotMatch(workflowSource, /name:\s*Check Rust backend/);
+  assert.match(
+    workflowSource,
+    /uses:\s*taiki-e\/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853/,
+  );
+  assert.match(workflowSource, /tool:\s*cargo-audit@0\.22\.1/);
+  assert.match(workflowSource, /fallback:\s*none/);
+  assert.doesNotMatch(workflowSource, /cargo install cargo-audit/);
+});
+
 test("release workflow validates published updater metadata version and windows targets", () => {
   assert.match(workflowSource, /Invoke-WebRequest -Uri \$endpoint/);
   assert.match(workflowSource, /\$latestJson =/);
