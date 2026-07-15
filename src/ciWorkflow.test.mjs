@@ -13,11 +13,18 @@ test("ci workflow runs frontend tests through the project npm script", () => {
   assert.doesNotMatch(ciWorkflowSource, /run:\s*node --test src\/\*\.test\.mjs/);
 });
 
-test("ci workflow runs cargo audit from src-tauri without the removed manifest flag", () => {
+test("ci workflow installs a pinned cargo-audit binary and audits from src-tauri", () => {
+  assert.match(ciWorkflowSource, /name:\s*Install cargo-audit/);
+  assert.match(
+    ciWorkflowSource,
+    /uses:\s*taiki-e\/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853/,
+  );
+  assert.match(ciWorkflowSource, /tool:\s*cargo-audit@0\.22\.1/);
+  assert.match(ciWorkflowSource, /fallback:\s*none/);
   assert.match(ciWorkflowSource, /name:\s*Security audit/);
   assert.match(ciWorkflowSource, /working-directory:\s*src-tauri/);
-  assert.match(ciWorkflowSource, /cargo install cargo-audit --locked --version 0\.22\.1/);
   assert.match(ciWorkflowSource, /cargo audit/);
+  assert.doesNotMatch(ciWorkflowSource, /cargo install cargo-audit/);
   assert.doesNotMatch(ciWorkflowSource, /cargo audit --manifest-path/);
 });
 
