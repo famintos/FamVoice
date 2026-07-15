@@ -17,6 +17,7 @@ const TARGET_SAMPLE_RATE: u32 = 16000;
 const MAX_RECORDING_DURATION_SECONDS: usize = 5 * 60;
 const MAX_RECORDED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * MAX_RECORDING_DURATION_SECONDS;
 const LOW_LATENCY_TARGET_BUFFER_MS: u32 = 10;
+const RECORDING_TAIL_GRACE_MS: u64 = 80;
 
 const PREROLL_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 500) / 1000;
 
@@ -852,6 +853,11 @@ impl Default for AudioState {
                         let _ = reply.send(Ok(()));
                     }
                     AudioCommand::Stop(reply) => {
+                        // Keep capturing briefly after hotkey release so queued device samples and
+                        // quiet final consonants are not cut from the last dictated word.
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            RECORDING_TAIL_GRACE_MS,
+                        ));
                         pending_start_clone.store(false, Ordering::Release);
                         let samples = {
                             let mut buffer = sample_buffer.lock().unwrap();

@@ -101,6 +101,19 @@ fn log_operation_error(operation: &str, error: &str) {
     eprintln!("[FamVoice] {operation}: {error}");
 }
 
+fn ensure_main_window_visible(app: &AppHandle, focus: bool) -> Result<(), String> {
+    let widget_mode = {
+        let state: State<SettingsState> = app.state();
+        let settings = state
+            .settings
+            .lock()
+            .map_err(|e| format!("Failed to acquire settings lock: {e}"))?;
+        settings.widget_mode
+    };
+
+    window::ensure_main_window_visible(app, widget_mode, focus)
+}
+
 fn handle_recording_shortcut_event(app: &AppHandle, event_state: ShortcutState) {
     if event_state == ShortcutState::Pressed {
         let state: State<AudioState> = app.state();
@@ -420,6 +433,12 @@ async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
 
     match audio::start_recording(app.clone(), &audio_state, Some(input_device_id.as_str())).await {
         Ok(()) => {
+            if let Err(error) = ensure_main_window_visible(&app, false) {
+                log_operation_error(
+                    "Failed to restore main window after recording start",
+                    &error,
+                );
+            }
             let _ = app.emit("status", "recording");
             Ok(())
         }
@@ -1158,6 +1177,16 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .setup(|app| {
             startup::disable_unsafe_autostart_entry(app.handle());
 
@@ -1219,10 +1248,8 @@ pub fn run() {
                         ..
                     } => {
                         let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        if let Err(error) = ensure_main_window_visible(app, true) {
+                            log_operation_error("Failed to show main window from tray", &error);
                         }
                     }
                     TrayIconEvent::DoubleClick {
@@ -1230,10 +1257,8 @@ pub fn run() {
                         ..
                     } => {
                         let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        if let Err(error) = ensure_main_window_visible(app, true) {
+                            log_operation_error("Failed to show main window from tray", &error);
                         }
                         let _ = app.emit("highlight-widget", ());
                     }

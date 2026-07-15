@@ -623,7 +623,7 @@ export function MainView() {
           </button>
           <button
             type="button"
-            onClick={() => appWindow.close()}
+            onClick={() => appWindow.hide()}
             className={`focus-ring rounded p-0.5 ${controlMotion} hover:text-red-400`}
             aria-label="Close window"
           >
