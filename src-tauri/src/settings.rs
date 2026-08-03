@@ -1,8 +1,8 @@
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 const SETTINGS_SERVICE_NAME: &str = "com.famvoice.app";
 const OPENAI_API_KEY_ACCOUNT: &str = "openai_api_key";
@@ -13,8 +13,12 @@ const MAX_API_KEY_LEN: usize = 200;
 const MAX_HOTKEY_LEN: usize = 100;
 const MAX_INPUT_DEVICE_ID_LEN: usize = 512;
 pub const SUPPORTED_PROVIDERS: [&str; 2] = ["openai", "groq"];
-pub const OPENAI_MODELS: [&str; 1] = ["whisper-1"];
+pub const OPENAI_MODELS: [&str; 2] = ["gpt-transcribe", "whisper-1"];
 pub const GROQ_MODELS: [&str; 2] = ["whisper-large-v3-turbo", "whisper-large-v3"];
+const DEFAULT_OPENAI_MODEL: &str = "gpt-transcribe";
+const DEFAULT_GROQ_MODEL: &str = "whisper-large-v3-turbo";
+const CURRENT_TRANSCRIPTION_MODEL_SETTINGS_VERSION: u32 = 1;
+const TRANSCRIPTION_MODEL_MIGRATION_NOTICE: &str = "FamVoice updated your legacy OpenAI transcription model to gpt-transcribe, the recommended model for completed dictation. You can still choose whisper-1 for timestamps, subtitles, or translation.";
 pub const SUPPORTED_LANGUAGE_PREFERENCES: [&str; 17] = [
     "auto", "ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr",
     "uk", "zh",
@@ -34,7 +38,7 @@ fn default_provider() -> String {
 }
 
 fn default_model() -> String {
-    OPENAI_MODELS[0].to_string()
+    DEFAULT_OPENAI_MODEL.to_string()
 }
 
 fn models_for_provider(provider: &str) -> &'static [&'static str] {
@@ -44,12 +48,32 @@ fn models_for_provider(provider: &str) -> &'static [&'static str] {
     }
 }
 
-fn normalize_transcription_model(provider: &str, model: &str) -> String {
-    match (provider, model) {
-        ("openai", "gpt-4o-mini-transcribe" | "gpt-4o-transcribe") => OPENAI_MODELS[0].to_string(),
-        _ if models_for_provider(provider).contains(&model) => model.to_string(),
-        _ => models_for_provider(provider)[0].to_string(),
+fn default_model_for_provider(provider: &str) -> &'static str {
+    match provider {
+        "groq" => DEFAULT_GROQ_MODEL,
+        _ => DEFAULT_OPENAI_MODEL,
     }
+}
+
+fn normalize_transcription_model(provider: &str, model: &str) -> String {
+    if models_for_provider(provider).contains(&model) {
+        model.to_string()
+    } else {
+        default_model_for_provider(provider).to_string()
+    }
+}
+
+fn migrate_transcription_model(settings: &DiskSettings) -> (String, bool) {
+    if settings.transcription_model_settings_version < CURRENT_TRANSCRIPTION_MODEL_SETTINGS_VERSION
+        && settings.transcription_provider == "openai"
+    {
+        return (DEFAULT_OPENAI_MODEL.to_string(), true);
+    }
+
+    (
+        normalize_transcription_model(&settings.transcription_provider, &settings.model),
+        false,
+    )
 }
 
 fn default_language() -> String {
@@ -121,7 +145,7 @@ fn default_replacements() -> Vec<Replacement> {
     Vec::new()
 }
 
-fn normalize_input_device_id(input_device_id: &str) -> String {
+pub(crate) fn normalize_input_device_id(input_device_id: &str) -> String {
     let trimmed = input_device_id.trim();
     if trimmed.is_empty() {
         default_input_device_id()
@@ -143,6 +167,10 @@ fn mask_secret(secret: &str) -> Option<String> {
     let trimmed = secret.trim();
     if trimmed.is_empty() {
         return None;
+    }
+
+    if trimmed.chars().count() <= 7 {
+        return Some("***".to_string());
     }
 
     let prefix: String = trimmed.chars().take(3).collect();
@@ -222,6 +250,8 @@ impl AppSettings {
             prompt_optimization_enabled: self.prompt_optimization_enabled,
             prompt_optimizer_model: self.prompt_optimizer_model.clone(),
             replacements: self.replacements.clone(),
+            credential_storage: CredentialStorageState::secure(),
+            transcription_model_notice: None,
         }
     }
 
@@ -253,6 +283,33 @@ pub struct FrontendSettings {
     pub prompt_optimization_enabled: bool,
     pub prompt_optimizer_model: String,
     pub replacements: Vec<Replacement>,
+    pub credential_storage: CredentialStorageState,
+    pub transcription_model_notice: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct CredentialStorageState {
+    pub mode: String,
+    pub message: Option<String>,
+}
+
+impl CredentialStorageState {
+    fn secure() -> Self {
+        Self {
+            mode: "secure_store".to_string(),
+            message: None,
+        }
+    }
+
+    fn encrypted_fallback() -> Self {
+        Self {
+            mode: "encrypted_disk_fallback".to_string(),
+            message: Some(
+                "Windows Credential Manager is unavailable. Existing keys were recovered from the encrypted local copy; reopen Settings and retry before changing keys."
+                    .to_string(),
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -311,6 +368,8 @@ impl SaveSettingsRequest {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct DiskSettings {
+    #[serde(default)]
+    transcription_model_settings_version: u32,
     #[serde(default = "default_provider")]
     transcription_provider: String,
     #[serde(default)]
@@ -359,6 +418,7 @@ struct DiskSettings {
 impl Default for DiskSettings {
     fn default() -> Self {
         Self {
+            transcription_model_settings_version: CURRENT_TRANSCRIPTION_MODEL_SETTINGS_VERSION,
             transcription_provider: default_provider(),
             api_key: None,
             groq_api_key: None,
@@ -385,6 +445,7 @@ impl Default for DiskSettings {
 impl DiskSettings {
     fn from_settings(settings: &AppSettings) -> Result<Self, String> {
         Ok(Self {
+            transcription_model_settings_version: CURRENT_TRANSCRIPTION_MODEL_SETTINGS_VERSION,
             transcription_provider: settings.transcription_provider.clone(),
             api_key: None,
             groq_api_key: None,
@@ -417,12 +478,17 @@ struct SecretStore {
 }
 
 type SecretAccount<'a> = (
-    &'a str,
-    &'a str,
+    &'static str,
+    &'static str,
     &'a mut String,
     Option<String>,
     Option<String>,
 );
+
+trait CredentialStore: Send + Sync {
+    fn get_secret(&self, account: &str) -> Result<Option<String>, String>;
+    fn write_secret(&self, account: &str, value: &str) -> Result<(), String>;
+}
 
 impl SecretStore {
     fn new(service_name: impl Into<String>) -> Self {
@@ -435,7 +501,9 @@ impl SecretStore {
         Entry::new(&self.service_name, account)
             .map_err(|error| format!("Failed to access secure storage entry: {error}"))
     }
+}
 
+impl CredentialStore for SecretStore {
     fn get_secret(&self, account: &str) -> Result<Option<String>, String> {
         let entry = self.entry(account)?;
         match entry.get_password() {
@@ -462,8 +530,10 @@ impl SecretStore {
 
 pub struct SettingsState {
     pub settings: Mutex<AppSettings>,
-    pub path: PathBuf,
-    secret_store: SecretStore,
+    storage: crate::persistence::AtomicFile,
+    secret_store: Arc<dyn CredentialStore>,
+    credential_storage: Mutex<CredentialStorageState>,
+    transcription_model_notice: Option<String>,
 }
 
 impl SettingsState {
@@ -472,16 +542,19 @@ impl SettingsState {
     }
 
     fn load_with_service_name(app_dir: PathBuf, service_name: impl Into<String>) -> Self {
+        Self::load_with_store(app_dir, Arc::new(SecretStore::new(service_name)))
+    }
+
+    fn load_with_store(app_dir: PathBuf, secret_store: Arc<dyn CredentialStore>) -> Self {
         let path = app_dir.join("settings.json");
-        let disk_settings = load_disk_settings(&app_dir, &path);
-        let secret_store = SecretStore::new(service_name);
+        let storage = crate::persistence::AtomicFile::new(path);
+        let (disk_settings, recovered_from_backup) = load_disk_settings(&storage);
+        let (transcription_model, migrated_transcription_model) =
+            migrate_transcription_model(&disk_settings);
 
         let mut settings = AppSettings {
             transcription_provider: disk_settings.transcription_provider.clone(),
-            model: normalize_transcription_model(
-                &disk_settings.transcription_provider,
-                &disk_settings.model,
-            ),
+            model: transcription_model,
             language: normalize_language_preference(&disk_settings.language),
             auto_paste: disk_settings.auto_paste,
             preserve_clipboard: disk_settings.preserve_clipboard,
@@ -499,7 +572,10 @@ impl SettingsState {
             ..AppSettings::default()
         };
 
-        let mut needs_resave = settings.language != disk_settings.language
+        let mut needs_resave = recovered_from_backup
+            || disk_settings.transcription_model_settings_version
+                < CURRENT_TRANSCRIPTION_MODEL_SETTINGS_VERSION
+            || settings.language != disk_settings.language
             || settings.model != disk_settings.model
             || settings.repaste_hotkey != disk_settings.repaste_hotkey
             || settings.input_device_id != disk_settings.input_device_id
@@ -507,6 +583,8 @@ impl SettingsState {
             || disk_settings.api_key.is_some()
             || disk_settings.groq_api_key.is_some()
             || disk_settings.legacy_anthropic_api_key.is_some();
+        let mut accounts_to_seed = Vec::new();
+        let mut keyring_unavailable = false;
 
         let secret_accounts: [SecretAccount<'_>; 2] = [
             (
@@ -525,6 +603,9 @@ impl SettingsState {
             ),
         ];
 
+        // Authority rule: a readable keyring value wins and is mirrored to the
+        // DPAPI fallback. The encrypted disk value is authoritative only when
+        // the keyring entry is absent or the keyring cannot be read.
         for (account, context, field, plaintext_fallback, encrypted_fallback) in secret_accounts {
             match secret_store.get_secret(account) {
                 Ok(Some(secret)) => {
@@ -533,6 +614,18 @@ impl SettingsState {
                         "[FamVoice] Keyring {account}: loaded ({} chars)",
                         secret.len()
                     );
+                    let fallback_matches = recover_disk_secret(
+                        encrypted_fallback.as_deref(),
+                        plaintext_fallback.as_deref(),
+                        context,
+                    )
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                        == Some(secret.as_str());
+                    if !fallback_matches {
+                        needs_resave = true;
+                    }
                     *field = secret;
                 }
                 Ok(None) => {
@@ -553,9 +646,11 @@ impl SettingsState {
                     if let Some(secret) = recovered_secret {
                         *field = secret;
                         needs_resave = true;
+                        accounts_to_seed.push(account);
                     }
                 }
                 Err(error) => {
+                    keyring_unavailable = true;
                     #[cfg(debug_assertions)]
                     eprintln!("[FamVoice] Keyring {account}: error — {error}");
                     let recovered_secret = match recover_disk_secret(
@@ -575,6 +670,7 @@ impl SettingsState {
                     if let Some(secret) = recovered_secret {
                         *field = secret;
                         needs_resave = true;
+                        accounts_to_seed.push(account);
                     }
                 }
             }
@@ -582,8 +678,15 @@ impl SettingsState {
 
         let state = Self {
             settings: Mutex::new(settings),
-            path,
+            storage,
             secret_store,
+            credential_storage: Mutex::new(if keyring_unavailable {
+                CredentialStorageState::encrypted_fallback()
+            } else {
+                CredentialStorageState::secure()
+            }),
+            transcription_model_notice: migrated_transcription_model
+                .then(|| TRANSCRIPTION_MODEL_MIGRATION_NOTICE.to_string()),
         };
 
         if needs_resave {
@@ -591,11 +694,26 @@ impl SettingsState {
                 Ok(guard) => {
                     let snapshot = guard.clone();
                     drop(guard);
-                    if let Err(_error) = state.persist(&snapshot, None) {
+                    if let Err(_error) = state.write_migrated_disk_settings(&snapshot) {
                         #[cfg(debug_assertions)]
                         eprintln!(
-                            "[FamVoice] Failed to migrate settings into secure storage: {_error}"
+                            "[FamVoice] Failed to migrate settings to atomic encrypted storage: {_error}"
                         );
+                    } else if !accounts_to_seed.is_empty() {
+                        match state.write_selected_secrets(&snapshot, &accounts_to_seed) {
+                            Ok(()) => {
+                                state.set_credential_storage(CredentialStorageState::secure())
+                            }
+                            Err(_error) => {
+                                state.set_credential_storage(
+                                    CredentialStorageState::encrypted_fallback(),
+                                );
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "[FamVoice] Failed to seed recovered credentials into the keyring: {_error}"
+                                );
+                            }
+                        }
                     }
                 }
                 Err(_error) => {
@@ -606,6 +724,22 @@ impl SettingsState {
         }
 
         state
+    }
+
+    pub fn apply_credential_state(&self, frontend: &mut FrontendSettings) {
+        frontend.credential_storage = self
+            .credential_storage
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        frontend.transcription_model_notice = self.transcription_model_notice.clone();
+    }
+
+    fn set_credential_storage(&self, value: CredentialStorageState) {
+        *self
+            .credential_storage
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = value;
     }
 
     pub fn save_request(&self, request: SaveSettingsRequest) -> Result<AppSettings, String> {
@@ -640,47 +774,138 @@ impl SettingsState {
             return Err(format!("Invalid settings: {}", errors.join(", ")));
         }
 
-        self.persist(&next, Some(&previous))?;
+        self.persist(&next, &previous)?;
         *settings = next.clone();
         Ok(next)
     }
 
-    fn persist(
-        &self,
-        settings: &AppSettings,
-        previous: Option<&AppSettings>,
-    ) -> Result<(), String> {
-        let secret_write_error = self.write_secrets(settings).err();
-        if let Err(error) = self.write_disk_settings(settings) {
-            if secret_write_error.is_none() {
-                if let Some(previous_settings) = previous {
-                    let _ = self.write_secrets(previous_settings);
+    fn persist(&self, settings: &AppSettings, previous: &AppSettings) -> Result<(), String> {
+        let changes = secret_changes(settings, previous);
+        let applied = match self.apply_secret_changes(&changes) {
+            Ok(applied) => applied,
+            Err((error, rollback_complete)) => {
+                #[cfg(debug_assertions)]
+                eprintln!("[FamVoice] Credential save failed: {error}");
+                if !rollback_complete {
+                    self.set_credential_storage(CredentialStorageState::encrypted_fallback());
                 }
+                return Err(sanitized_credential_save_error(rollback_complete));
             }
-            return Err(error);
+        };
+
+        if let Err(error) = self.write_disk_settings(settings) {
+            let rollback_complete = self.rollback_secret_changes(&applied);
+            if !rollback_complete {
+                self.set_credential_storage(CredentialStorageState::encrypted_fallback());
+            }
+            return Err(if rollback_complete {
+                error
+            } else {
+                "Settings were not committed and credential recovery needs attention. Reopen Settings before retrying."
+                    .to_string()
+            });
         }
 
-        if let Some(error) = secret_write_error {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[FamVoice] Failed to write secrets to keyring, kept encrypted disk backup: {error}"
-            );
-        }
-
+        self.set_credential_storage(CredentialStorageState::secure());
         Ok(())
     }
 
-    fn write_secrets(&self, settings: &AppSettings) -> Result<(), String> {
-        self.secret_store
-            .write_secret(OPENAI_API_KEY_ACCOUNT, &settings.api_key)?;
-        self.secret_store
-            .write_secret(GROQ_API_KEY_ACCOUNT, &settings.groq_api_key)
+    fn apply_secret_changes<'a>(
+        &self,
+        changes: &[SecretChange<'a>],
+    ) -> Result<Vec<SecretChange<'a>>, (String, bool)> {
+        let mut applied = Vec::new();
+        for change in changes {
+            if let Err(error) = self.secret_store.write_secret(change.account, change.next) {
+                let rollback_complete = self.rollback_secret_changes(&applied);
+                return Err((error, rollback_complete));
+            }
+            applied.push(*change);
+        }
+        Ok(applied)
+    }
+
+    fn rollback_secret_changes(&self, changes: &[SecretChange<'_>]) -> bool {
+        let mut complete = true;
+        for change in changes.iter().rev() {
+            if self
+                .secret_store
+                .write_secret(change.account, change.previous)
+                .is_err()
+            {
+                complete = false;
+            }
+        }
+        complete
+    }
+
+    fn write_selected_secrets(
+        &self,
+        settings: &AppSettings,
+        accounts: &[&str],
+    ) -> Result<(), String> {
+        for account in accounts {
+            let value = match *account {
+                OPENAI_API_KEY_ACCOUNT => &settings.api_key,
+                GROQ_API_KEY_ACCOUNT => &settings.groq_api_key,
+                _ => continue,
+            };
+            self.secret_store.write_secret(account, value)?;
+        }
+        Ok(())
     }
 
     fn write_disk_settings(&self, settings: &AppSettings) -> Result<(), String> {
         let data = serde_json::to_string_pretty(&DiskSettings::from_settings(settings)?)
             .map_err(|_| "Failed to serialize settings".to_string())?;
-        fs::write(&self.path, data).map_err(|error| format!("Failed to save settings: {error}"))
+        let revision = self.storage.reserve_revision();
+        self.storage.write(revision, data.as_bytes()).map(|_| ())
+    }
+
+    fn write_migrated_disk_settings(&self, settings: &AppSettings) -> Result<(), String> {
+        let data = serde_json::to_string_pretty(&DiskSettings::from_settings(settings)?)
+            .map_err(|_| "Failed to serialize settings".to_string())?;
+        // Legacy files can contain plaintext secrets. Replace atomically without
+        // copying that plaintext into the recovery file.
+        self.storage.restore_known_good(data.as_bytes())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SecretChange<'a> {
+    account: &'static str,
+    previous: &'a str,
+    next: &'a str,
+}
+
+fn secret_changes<'a>(
+    settings: &'a AppSettings,
+    previous: &'a AppSettings,
+) -> Vec<SecretChange<'a>> {
+    [
+        SecretChange {
+            account: OPENAI_API_KEY_ACCOUNT,
+            previous: &previous.api_key,
+            next: &settings.api_key,
+        },
+        SecretChange {
+            account: GROQ_API_KEY_ACCOUNT,
+            previous: &previous.groq_api_key,
+            next: &settings.groq_api_key,
+        },
+    ]
+    .into_iter()
+    .filter(|change| change.previous != change.next)
+    .collect()
+}
+
+fn sanitized_credential_save_error(rollback_complete: bool) -> String {
+    if rollback_complete {
+        "Windows Credential Manager is unavailable. No settings were changed. Reopen Settings and try again."
+            .to_string()
+    } else {
+        "Credential storage failed during recovery. Settings were not committed; reopen Settings before retrying."
+            .to_string()
     }
 }
 
@@ -730,35 +955,42 @@ fn decrypt_disk_secret(secret: &str, context: &str) -> Result<String, String> {
     }
 }
 
-fn load_disk_settings(app_dir: &Path, path: &Path) -> DiskSettings {
-    if !path.exists() {
-        return DiskSettings::default();
-    }
-
-    match fs::read_to_string(path) {
-        Ok(data) => match serde_json::from_str::<DiskSettings>(&data) {
-            Ok(settings) => settings,
+fn load_disk_settings(storage: &crate::persistence::AtomicFile) -> (DiskSettings, bool) {
+    let path = storage.path();
+    if path.exists() {
+        match fs::read_to_string(path) {
+            Ok(data) => match serde_json::from_str::<DiskSettings>(&data) {
+                Ok(settings) => return (settings, false),
+                Err(_error) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[FamVoice] Failed to parse settings.json: {}, preserving corrupt file",
+                        _error
+                    );
+                    let _ = crate::persistence::preserve_corrupt_file(path);
+                }
+            },
             Err(_error) => {
                 #[cfg(debug_assertions)]
                 eprintln!(
-                    "[FamVoice] Failed to parse settings.json: {}, creating backup",
+                    "[FamVoice] Failed to read settings.json: {}, preserving corrupt file",
                     _error
                 );
-                let backup_path = app_dir.join("settings.json.corrupt");
-                let _ = fs::copy(path, &backup_path);
-                DiskSettings::default()
+                let _ = crate::persistence::preserve_corrupt_file(path);
+            }
+        }
+    }
+
+    match fs::read_to_string(storage.backup_path()) {
+        Ok(data) => match serde_json::from_str::<DiskSettings>(&data) {
+            Ok(settings) => (settings, true),
+            Err(_error) => {
+                #[cfg(debug_assertions)]
+                eprintln!("[FamVoice] Settings recovery copy is invalid: {_error}");
+                (DiskSettings::default(), false)
             }
         },
-        Err(_error) => {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[FamVoice] Failed to read settings.json: {}, creating backup",
-                _error
-            );
-            let backup_path = app_dir.join("settings.json.corrupt");
-            let _ = fs::copy(path, &backup_path);
-            DiskSettings::default()
-        }
+        Err(_) => (DiskSettings::default(), false),
     }
 }
 
@@ -868,7 +1100,59 @@ pub fn validate_settings(settings: &AppSettings) -> Result<(), Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tempfile::tempdir;
+
+    #[derive(Default)]
+    struct MockCredentialStore {
+        secrets: Mutex<HashMap<String, String>>,
+        unavailable: AtomicBool,
+        fail_write_account: Mutex<Option<String>>,
+    }
+
+    impl MockCredentialStore {
+        fn with_secrets(values: &[(&str, &str)]) -> Self {
+            Self {
+                secrets: Mutex::new(
+                    values
+                        .iter()
+                        .map(|(account, value)| (account.to_string(), value.to_string()))
+                        .collect(),
+                ),
+                ..Self::default()
+            }
+        }
+
+        fn secret(&self, account: &str) -> Option<String> {
+            self.secrets.lock().unwrap().get(account).cloned()
+        }
+    }
+
+    impl CredentialStore for MockCredentialStore {
+        fn get_secret(&self, account: &str) -> Result<Option<String>, String> {
+            if self.unavailable.load(Ordering::SeqCst) {
+                return Err("simulated credential store unavailable".to_string());
+            }
+            Ok(self.secret(account))
+        }
+
+        fn write_secret(&self, account: &str, value: &str) -> Result<(), String> {
+            if self.unavailable.load(Ordering::SeqCst)
+                || self.fail_write_account.lock().unwrap().as_deref() == Some(account)
+            {
+                return Err("simulated credential write failure".to_string());
+            }
+
+            let mut secrets = self.secrets.lock().unwrap();
+            if value.trim().is_empty() {
+                secrets.remove(account);
+            } else {
+                secrets.insert(account.to_string(), value.to_string());
+            }
+            Ok(())
+        }
+    }
 
     fn sample_save_request() -> SaveSettingsRequest {
         SaveSettingsRequest {
@@ -913,11 +1197,145 @@ mod tests {
     }
 
     fn test_state(dir: &tempfile::TempDir) -> SettingsState {
-        let service_name = dir.path().to_string_lossy().replace(['\\', '/', ':'], "_");
-        SettingsState::load_with_service_name(
+        SettingsState::load_with_store(
             dir.path().to_path_buf(),
-            format!("{SETTINGS_SERVICE_NAME}.test.{service_name}"),
+            Arc::new(MockCredentialStore::default()),
         )
+    }
+
+    #[test]
+    fn test_default_uses_recommended_openai_transcription_model() {
+        let settings = AppSettings::default();
+        let disk_settings = DiskSettings::default();
+
+        assert_eq!(settings.transcription_provider, "openai");
+        assert_eq!(settings.model, "gpt-transcribe");
+        assert_eq!(
+            disk_settings.transcription_model_settings_version,
+            CURRENT_TRANSCRIPTION_MODEL_SETTINGS_VERSION
+        );
+    }
+
+    #[test]
+    fn test_legacy_openai_whisper_migrates_once_with_sanitized_notice() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{
+  "transcription_provider": "openai",
+  "api_key": "sk-never-show-this",
+  "model": "whisper-1",
+  "language": "pt"
+}"#,
+        )
+        .unwrap();
+
+        let state = test_state(&dir);
+        let settings = state.settings.lock().unwrap().clone();
+        let mut frontend = settings.to_frontend();
+        state.apply_credential_state(&mut frontend);
+
+        assert_eq!(settings.model, "gpt-transcribe");
+        let notice = frontend
+            .transcription_model_notice
+            .expect("legacy OpenAI migration should be visible");
+        assert!(notice.contains("gpt-transcribe"));
+        assert!(!notice.contains("sk-never-show-this"));
+
+        let migrated_json = fs::read_to_string(&path).unwrap();
+        assert!(migrated_json.contains(r#""transcription_model_settings_version": 1"#));
+        assert!(migrated_json.contains(r#""model": "gpt-transcribe""#));
+        assert!(!migrated_json.contains("sk-never-show-this"));
+        drop(state);
+
+        let reloaded = test_state(&dir);
+        let reloaded_settings = reloaded.settings.lock().unwrap().clone();
+        let mut reloaded_frontend = reloaded_settings.to_frontend();
+        reloaded.apply_credential_state(&mut reloaded_frontend);
+
+        assert_eq!(reloaded_settings.model, "gpt-transcribe");
+        assert_eq!(reloaded_frontend.transcription_model_notice, None);
+    }
+
+    #[test]
+    fn test_current_explicit_openai_whisper_choice_is_preserved() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{
+  "transcription_model_settings_version": 1,
+  "transcription_provider": "openai",
+  "model": "whisper-1",
+  "language": "pt"
+}"#,
+        )
+        .unwrap();
+
+        let state = test_state(&dir);
+        let settings = state.settings.lock().unwrap().clone();
+        let mut frontend = settings.to_frontend();
+        state.apply_credential_state(&mut frontend);
+
+        assert_eq!(settings.model, "whisper-1");
+        assert_eq!(frontend.transcription_model_notice, None);
+        assert!(fs::read_to_string(path)
+            .unwrap()
+            .contains(r#""model": "whisper-1""#));
+    }
+
+    #[test]
+    fn test_legacy_groq_model_choices_are_preserved() {
+        for model in GROQ_MODELS {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("settings.json");
+            fs::write(
+                &path,
+                format!(
+                    r#"{{
+  "transcription_provider": "groq",
+  "model": "{model}",
+  "language": "pt"
+}}"#
+                ),
+            )
+            .unwrap();
+
+            let state = test_state(&dir);
+            let settings = state.settings.lock().unwrap().clone();
+            let mut frontend = settings.to_frontend();
+            state.apply_credential_state(&mut frontend);
+
+            assert_eq!(settings.model, model);
+            assert_eq!(frontend.transcription_model_notice, None);
+            let migrated_json = fs::read_to_string(path).unwrap();
+            assert!(migrated_json.contains(&format!(r#""model": "{model}""#)));
+            assert!(migrated_json.contains(r#""transcription_model_settings_version": 1"#));
+        }
+    }
+
+    #[test]
+    fn test_missing_and_unsupported_legacy_openai_models_use_recommended_default() {
+        for model_field in [
+            String::new(),
+            r#", "model": "unsupported-openai-model""#.to_string(),
+        ] {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("settings.json"),
+                format!(r#"{{"transcription_provider": "openai"{model_field}, "language": "pt"}}"#),
+            )
+            .unwrap();
+
+            let state = test_state(&dir);
+            let settings = state.settings.lock().unwrap().clone();
+            let mut frontend = settings.to_frontend();
+            state.apply_credential_state(&mut frontend);
+
+            assert_eq!(settings.model, "gpt-transcribe");
+            assert!(frontend.transcription_model_notice.is_some());
+        }
     }
 
     #[test]
@@ -934,6 +1352,19 @@ mod tests {
         assert_eq!(frontend.api_key_masked.as_deref(), Some("sk-...enai"));
         assert!(frontend.groq_api_key_present);
         assert_eq!(frontend.groq_api_key_masked.as_deref(), Some("gsk...groq"));
+    }
+
+    #[test]
+    fn test_to_frontend_does_not_reveal_short_secrets() {
+        let settings = AppSettings {
+            api_key: "secret".to_string(),
+            ..sample_settings()
+        };
+
+        let frontend = settings.to_frontend();
+
+        assert_eq!(frontend.api_key_masked.as_deref(), Some("***"));
+        assert!(!frontend.api_key_masked.unwrap().contains("secret"));
     }
 
     #[test]
@@ -1082,14 +1513,143 @@ mod tests {
 
         assert_eq!(settings.api_key, "sk-test");
         assert_eq!(settings.groq_api_key, "gsk-old");
-        assert_eq!(settings.model, "whisper-1");
+        assert_eq!(settings.model, "gpt-transcribe");
         assert_eq!(settings.language, "pt");
         assert!(!migrated_json.contains("sk-test"));
         assert!(!migrated_json.contains("gsk-old"));
         assert!(!migrated_json.contains("sk-ant-old"));
-        assert!(migrated_json.contains(r#""model": "whisper-1""#));
+        assert!(migrated_json.contains(r#""model": "gpt-transcribe""#));
+        assert!(migrated_json.contains(r#""transcription_model_settings_version": 1"#));
         assert!(!migrated_json.contains("gpt-4o-transcribe"));
         assert!(!migrated_json.contains("pt-first"));
+        assert!(!dir.path().join("settings.json.bak").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_keyring_unavailable_recovers_from_encrypted_disk_with_sanitized_state() {
+        let dir = tempdir().unwrap();
+        let settings = AppSettings {
+            api_key: "sk-encrypted-recovery".to_string(),
+            groq_api_key: "gsk-encrypted-recovery".to_string(),
+            ..sample_settings()
+        };
+        let disk =
+            serde_json::to_string_pretty(&DiskSettings::from_settings(&settings).unwrap()).unwrap();
+        fs::write(dir.path().join("settings.json"), disk).unwrap();
+        let store = Arc::new(MockCredentialStore::default());
+        store.unavailable.store(true, Ordering::SeqCst);
+
+        let state = SettingsState::load_with_store(dir.path().to_path_buf(), store);
+        let loaded = state.settings.lock().unwrap().clone();
+        let mut frontend = loaded.to_frontend();
+        state.apply_credential_state(&mut frontend);
+
+        assert_eq!(loaded.api_key, "sk-encrypted-recovery");
+        assert_eq!(loaded.groq_api_key, "gsk-encrypted-recovery");
+        assert_eq!(frontend.credential_storage.mode, "encrypted_disk_fallback");
+        let message = frontend.credential_storage.message.unwrap();
+        assert!(!message.contains("sk-encrypted-recovery"));
+        assert!(!message.contains("gsk-encrypted-recovery"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_existing_keyring_value_is_authoritative_over_encrypted_fallback() {
+        let dir = tempdir().unwrap();
+        let disk_settings = AppSettings {
+            api_key: "sk-disk-value".to_string(),
+            groq_api_key: "gsk-disk-value".to_string(),
+            ..sample_settings()
+        };
+        fs::write(
+            dir.path().join("settings.json"),
+            serde_json::to_string_pretty(&DiskSettings::from_settings(&disk_settings).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        let store = Arc::new(MockCredentialStore::with_secrets(&[
+            (OPENAI_API_KEY_ACCOUNT, "sk-keyring-value"),
+            (GROQ_API_KEY_ACCOUNT, "gsk-keyring-value"),
+        ]));
+
+        let state = SettingsState::load_with_store(dir.path().to_path_buf(), store);
+        let loaded = state.settings.lock().unwrap();
+
+        assert_eq!(loaded.api_key, "sk-keyring-value");
+        assert_eq!(loaded.groq_api_key, "gsk-keyring-value");
+    }
+
+    #[test]
+    fn test_partial_keyring_write_rolls_back_and_reports_failure() {
+        let dir = tempdir().unwrap();
+        let store = Arc::new(MockCredentialStore::with_secrets(&[
+            (OPENAI_API_KEY_ACCOUNT, "sk-old"),
+            (GROQ_API_KEY_ACCOUNT, "gsk-old"),
+        ]));
+        let state = SettingsState::load_with_store(dir.path().to_path_buf(), store.clone());
+        *store.fail_write_account.lock().unwrap() = Some(GROQ_API_KEY_ACCOUNT.to_string());
+
+        let error = state
+            .save_request(SaveSettingsRequest {
+                api_key: Some("sk-new".to_string()),
+                groq_api_key: Some("gsk-new".to_string()),
+                ..sample_save_request()
+            })
+            .err()
+            .expect("partial credential write must fail");
+
+        assert_eq!(
+            store.secret(OPENAI_API_KEY_ACCOUNT).as_deref(),
+            Some("sk-old")
+        );
+        assert_eq!(
+            store.secret(GROQ_API_KEY_ACCOUNT).as_deref(),
+            Some("gsk-old")
+        );
+        assert_eq!(state.settings.lock().unwrap().api_key, "sk-old");
+        let disk = fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(!disk.contains("sk-new"));
+        assert!(!disk.contains("gsk-new"));
+        assert!(!error.contains("sk-old"));
+        assert!(!error.contains("sk-new"));
+        assert!(error.contains("No settings were changed"));
+    }
+
+    #[test]
+    fn test_settings_recovers_last_known_good_atomic_backup() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let storage = crate::persistence::AtomicFile::new(path.clone());
+        let first = DiskSettings {
+            language: "pt".to_string(),
+            ..DiskSettings::default()
+        };
+        let second = DiskSettings {
+            language: "en".to_string(),
+            ..DiskSettings::default()
+        };
+        storage
+            .write(
+                storage.reserve_revision(),
+                serde_json::to_string_pretty(&first).unwrap().as_bytes(),
+            )
+            .unwrap();
+        storage
+            .write(
+                storage.reserve_revision(),
+                serde_json::to_string_pretty(&second).unwrap().as_bytes(),
+            )
+            .unwrap();
+        fs::write(&path, "partial-json").unwrap();
+
+        let state = SettingsState::load_with_store(
+            dir.path().to_path_buf(),
+            Arc::new(MockCredentialStore::default()),
+        );
+
+        assert_eq!(state.settings.lock().unwrap().language, "pt");
+        assert!(serde_json::from_str::<DiskSettings>(&fs::read_to_string(path).unwrap()).is_ok());
     }
 
     #[test]
@@ -1119,11 +1679,11 @@ mod tests {
             .expect("Failed to acquire settings lock")
             .clone();
 
-        assert_eq!(settings.model, "whisper-1");
+        assert_eq!(settings.model, "gpt-transcribe");
         assert_eq!(settings.prompt_optimizer_model, "gpt-5.4-mini");
 
         let migrated_json = fs::read_to_string(path).unwrap();
-        assert!(migrated_json.contains(r#""model": "whisper-1""#));
+        assert!(migrated_json.contains(r#""model": "gpt-transcribe""#));
         assert!(migrated_json.contains(r#""prompt_optimizer_model": "gpt-5.4-mini""#));
         assert!(!migrated_json.contains("gpt-4o-mini-transcribe"));
         assert!(!migrated_json.contains("gpt-5.4-nano"));
@@ -1132,6 +1692,11 @@ mod tests {
     #[test]
     fn test_validate_settings_valid() {
         assert!(validate_settings(&sample_settings()).is_ok());
+        assert!(validate_settings(&AppSettings {
+            model: "gpt-transcribe".to_string(),
+            ..sample_settings()
+        })
+        .is_ok());
     }
 
     #[test]
@@ -1249,7 +1814,7 @@ mod tests {
             .expect("Failed to acquire settings lock")
             .clone();
 
-        assert_eq!(settings.model, "whisper-1");
+        assert_eq!(settings.model, "gpt-transcribe");
         assert!(settings.repaste_hotkey.is_empty());
         assert!(settings.input_device_id.is_empty());
     }

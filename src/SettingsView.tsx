@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -13,16 +14,21 @@ import {
   X,
 } from "lucide-react";
 import {
+  DEFAULT_TRANSCRIPTION_MODEL_BY_PROVIDER,
   DEFAULT_HOTKEY,
   LANGUAGES,
   MODELS_BY_PROVIDER,
   PROMPT_OPTIMIZER_MODELS,
+  TRANSCRIPTION_MODEL_HELP,
   TRANSCRIPTION_PROVIDERS,
 } from "./appConstants";
 import { Select } from "./components/Select";
+import { DiagnosticsPanel } from "./diagnostics/DiagnosticsPanel";
 import { FamVoiceLockup } from "./components/FamVoiceLockup";
+import { HistoryPrivacyPanel } from "./history/HistoryPrivacyPanel";
 import { buildHotkeyString, formatHotkey } from "./appHelpers";
 import {
+  type DictationActivity,
   type InputDeviceOption,
   type Replacement,
   type SaveSettingsPayload,
@@ -71,7 +77,7 @@ function normalizeTranscriptionModel(provider: string, model: string): string {
   const models = MODELS_BY_PROVIDER[provider] ?? [];
   return models.some((option) => option.value === model)
     ? model
-    : (models[0]?.value ?? model);
+    : (DEFAULT_TRANSCRIPTION_MODEL_BY_PROVIDER[provider] ?? model);
 }
 
 function toSettingsDraft(settings: SettingsViewModel): SettingsDraft {
@@ -88,11 +94,19 @@ function toSavePayload(
   apiKeyInput: string,
   groqApiKeyInput: string,
 ): SaveSettingsPayload {
+  const {
+    credential_storage: _credentialStorage,
+    transcription_model_notice: _transcriptionModelNotice,
+    replacements,
+    ...persistedSettings
+  } = settings;
+  void _credentialStorage;
+  void _transcriptionModelNotice;
   return {
-    ...settings,
+    ...persistedSettings,
     api_key: apiKeyInput.trim() ? apiKeyInput.trim() : null,
     groq_api_key: groqApiKeyInput.trim() ? groqApiKeyInput.trim() : null,
-    replacements: settings.replacements.map(({ id: _id, ...replacement }) => replacement),
+    replacements: replacements.map(({ id: _id, ...replacement }) => replacement),
   };
 }
 
@@ -160,7 +174,7 @@ function ControlSection({
     <section className="control-section py-3 px-1">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <p className="section-eyebrow text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          <p className="section-eyebrow text-[10px] font-bold uppercase tracking-widest text-slate-400">
             {eyebrow}
           </p>
           {description ? (
@@ -181,10 +195,16 @@ export function SettingsView() {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [groqApiKeyInput, setGroqApiKeyInput] = useState("");
   const [inputDevices, setInputDevices] = useState<InputDeviceOption[]>([DEFAULT_INPUT_DEVICE_OPTION]);
+  const [dictationActivity, setDictationActivity] = useState<DictationActivity>({
+    active: false,
+    recording: false,
+    transcribing: false,
+  });
   const [autostart, setAutostart] = useState(false);
   const [autostartAvailable, setAutostartAvailable] = useState(true);
   const [isListening, setIsListening] = useState(false);
   const [isRepasteListening, setIsRepasteListening] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
@@ -245,6 +265,16 @@ export function SettingsView() {
         setErrorMessage(String(error));
       });
     void loadInputDevices().then(setInputDevices);
+    invoke<DictationActivity>("get_dictation_activity")
+      .then(setDictationActivity)
+      .catch((error) => {
+        console.error("Failed to load dictation activity:", error);
+      });
+
+    const unlistenDictationActivity = listen<DictationActivity>(
+      "dictation-activity",
+      (event) => setDictationActivity(event.payload),
+    );
 
     isEnabled()
       .then(setAutostart)
@@ -300,10 +330,13 @@ export function SettingsView() {
 
     return () => {
       unlistenFocusChanged.then((fn) => fn());
+      unlistenDictationActivity.then((fn) => fn());
     };
   }, []);
 
   const saveSettings = async (newSettings: SettingsDraft) => {
+    if (isSaving) return;
+    setIsSaving(true);
     try {
       setErrorMessage(null);
       if (
@@ -336,6 +369,8 @@ export function SettingsView() {
     } catch (error) {
       console.error("Failed to save settings:", error);
       setErrorMessage(String(error));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -402,12 +437,51 @@ export function SettingsView() {
   };
 
   const handleHotkeyCapture = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!isListening) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setIsListening(true);
+      }
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation();
+    if (e.key === "Escape") {
+      setIsListening(false);
+      (e.target as HTMLInputElement).blur();
+      return;
+    }
+
     const combo = buildHotkeyString(e);
     if (combo && settings) {
       setSettings({ ...settings, hotkey: combo });
       setIsListening(false);
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  const handleRepasteHotkeyCapture = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!isRepasteListening) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setIsRepasteListening(true);
+      }
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      setIsRepasteListening(false);
+      (e.target as HTMLInputElement).blur();
+      return;
+    }
+
+    const combo = buildHotkeyString(e);
+    if (combo && settings) {
+      setSettings({ ...settings, repaste_hotkey: combo });
+      setIsRepasteListening(false);
       (e.target as HTMLInputElement).blur();
     }
   };
@@ -490,16 +564,39 @@ export function SettingsView() {
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 pr-2 custom-scrollbar no-drag">
           <div className="space-y-4 pb-4">
           <ControlSection eyebrow="Transcription">
+          {settings.transcription_model_notice ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-[#f4d1ae]"
+            >
+              <p className="text-sm font-medium text-[#f8dfc5]">Transcription model updated</p>
+              <p className="mt-1 break-words text-xs leading-5 text-[#e7bd94]">
+                {settings.transcription_model_notice}
+              </p>
+            </div>
+          ) : null}
+          {settings.credential_storage.mode === "encrypted_disk_fallback" && settings.credential_storage.message ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-[#f4d1ae]"
+            >
+              <p className="text-sm font-medium text-[#f8dfc5]">Credential recovery active</p>
+              <p className="mt-1 break-words text-xs leading-5 text-[#e7bd94]">
+                {settings.credential_storage.message}
+              </p>
+            </div>
+          ) : null}
           <label className="flex flex-col gap-1.5 text-sm text-slate-300">
             Provider
             <Select
               value={settings.transcription_provider}
               onChange={(provider) => {
-                const models = MODELS_BY_PROVIDER[provider] ?? [];
                 setSettings({
                   ...settings,
                   transcription_provider: provider,
-                  model: models[0]?.value ?? "",
+                  model: DEFAULT_TRANSCRIPTION_MODEL_BY_PROVIDER[provider] ?? "",
                 });
               }}
               options={TRANSCRIPTION_PROVIDERS}
@@ -509,7 +606,7 @@ export function SettingsView() {
           <label className="flex flex-col gap-1 text-sm">
             <div className="flex items-center justify-between">
               <span className="font-medium text-slate-200">OpenAI API Key</span>
-              <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider ${settings.api_key_present ? "text-green-500" : "text-slate-500"}`}>
+              <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider ${settings.api_key_present ? "text-green-500" : "text-slate-400"}`}>
                 <span className={`w-1 h-1 rounded-full ${settings.api_key_present ? "bg-green-500" : "bg-slate-500"}`} />
                 {settings.api_key_present ? "Configured" : "Not set"}
               </span>
@@ -521,10 +618,12 @@ export function SettingsView() {
                 className={`focus-ring w-full border-b border-white/10 bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary`}
                 placeholder={settings.api_key_masked ?? "sk-..."}
               />
-              <span className="text-[11px] leading-relaxed text-slate-500">
+              <span className="text-[11px] leading-relaxed text-slate-400">
                 {settings.api_key_present
-                  ? `Saved in your OS credential store as ${settings.api_key_masked}. Leave blank to keep it.`
-                : "Used for OpenAI transcription and prompt optimization. Saved after you enter one."}
+                  ? settings.credential_storage.mode === "secure_store"
+                    ? `Saved in Windows Credential Manager as ${settings.api_key_masked}. Leave blank to keep it.`
+                    : `Recovered from the encrypted local copy as ${settings.api_key_masked}. Leave blank to keep it.`
+                  : "Used for OpenAI transcription and prompt optimization. Saved after you enter one."}
             </span>
           </label>
 
@@ -532,7 +631,7 @@ export function SettingsView() {
             <label className="flex flex-col gap-1 text-sm">
               <div className="flex items-center justify-between">
                 <span className="font-medium text-slate-200">Groq API Key</span>
-                <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider ${settings.groq_api_key_present ? "text-green-500" : "text-slate-500"}`}>
+                <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider ${settings.groq_api_key_present ? "text-green-500" : "text-slate-400"}`}>
                   <span className={`w-1 h-1 rounded-full ${settings.groq_api_key_present ? "bg-green-500" : "bg-slate-500"}`} />
                   {settings.groq_api_key_present ? "Configured" : "Not set"}
                 </span>
@@ -544,22 +643,33 @@ export function SettingsView() {
                 className={`focus-ring w-full border-b border-white/10 bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary`}
                 placeholder={settings.groq_api_key_masked ?? "gsk_..."}
               />
-              <span className="text-[11px] leading-relaxed text-slate-500">
+              <span className="text-[11px] leading-relaxed text-slate-400">
                 {settings.groq_api_key_present
-                  ? `Saved in your OS credential store as ${settings.groq_api_key_masked}. Leave blank to keep it.`
-                  : "Saved in your OS credential store after you enter one."}
+                  ? settings.credential_storage.mode === "secure_store"
+                    ? `Saved in Windows Credential Manager as ${settings.groq_api_key_masked}. Leave blank to keep it.`
+                    : `Recovered from the encrypted local copy as ${settings.groq_api_key_masked}. Leave blank to keep it.`
+                  : "Saved in Windows Credential Manager after you enter one."}
               </span>
             </label>
           )}
 
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-200">
-            Model
-            <Select
-              value={settings.model}
-              onChange={(value) => setSettings({ ...settings, model: value })}
-              options={MODELS_BY_PROVIDER[settings.transcription_provider] ?? []}
-            />
-          </label>
+          <div className="flex flex-col gap-1.5">
+            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-200">
+              Transcription model
+              <Select
+                value={settings.model}
+                onChange={(value) => setSettings({ ...settings, model: value })}
+                options={MODELS_BY_PROVIDER[settings.transcription_provider] ?? []}
+                ariaDescribedBy="transcription-model-help"
+              />
+            </label>
+            <span
+              id="transcription-model-help"
+              className="text-xs font-normal leading-5 text-slate-400"
+            >
+              {TRANSCRIPTION_MODEL_HELP[settings.model] ?? "Choose a supported model for this provider."}
+            </span>
+          </div>
           </ControlSection>
 
           <ControlSection
@@ -578,7 +688,7 @@ export function SettingsView() {
             </div>
             <div className="flex flex-col gap-0.5">
               <span className="font-medium text-slate-200">Improve into prompt</span>
-              <span className="text-xs leading-normal text-slate-500">Adds an extra OpenAI model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
+              <span className="text-xs leading-normal text-slate-400">Adds an extra OpenAI model pass that rewrites the finalized transcript into an English implementation prompt for a coding agent.</span>
             </div>
           </label>
 
@@ -591,7 +701,7 @@ export function SettingsView() {
             />
           </label>
 
-          <p className="text-xs leading-normal text-slate-500">
+          <p className="text-xs leading-normal text-slate-400">
             Uses the saved OpenAI API key above. Keep the static metaprompt first and the dictated request last to maximize prompt caching.
           </p>
           </ControlSection>
@@ -605,28 +715,47 @@ export function SettingsView() {
               <Select
                 value={settings.input_device_id}
                 onChange={(value) => setSettings({ ...settings, input_device_id: value })}
+                disabled={dictationActivity.active}
+                ariaDescribedBy="microphone-availability"
                 options={microphoneOptions.map((option) => ({
                   value: option.id,
                   label: option.label,
                 }))}
               />
+              <span
+                id="microphone-availability"
+                aria-live="polite"
+                className={`text-xs leading-normal ${
+                  dictationActivity.active ? "text-primary" : "text-slate-400"
+                }`}
+              >
+                {dictationActivity.recording
+                  ? "Microphone selection is locked while recording. Stop the current dictation to change it."
+                  : dictationActivity.transcribing
+                    ? "Microphone selection is locked until the current transcription finishes."
+                    : "Changes take effect on the next recording."}
+              </span>
             </label>
           </ControlSection>
 
           <ControlSection eyebrow="Behavior">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-slate-200">Hotkey</span>
+              <label htmlFor="recording-hotkey" className="font-medium text-slate-200">
+                Recording hotkey
+              </label>
               <div className="flex gap-2 items-center">
                 <input
+                  id="recording-hotkey"
                   type="text"
                   readOnly
-                  value={isListening ? "Press keys..." : formatHotkey(settings.hotkey)}
-                  onFocus={() => setIsListening(true)}
+                  value={isListening ? "Capturing... Escape to cancel" : formatHotkey(settings.hotkey)}
+                  onClick={() => setIsListening(true)}
                   onBlur={() => setIsListening(false)}
                   onKeyDown={handleHotkeyCapture}
                   onMouseDown={handleMouseCapture}
                   onContextMenu={(e) => isListening && e.preventDefault()}
+                  aria-describedby="recording-hotkey-help hotkey-capture-status"
                   className={`focus-ring flex-1 w-full cursor-pointer border-b bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary ${isListening ? "border-primary text-primary" : "border-white/10"}`}
                 />
                 <button
@@ -638,26 +767,28 @@ export function SettingsView() {
                   <RefreshCw size={12} />
                 </button>
               </div>
+              <span id="recording-hotkey-help" className="text-[11px] leading-relaxed text-slate-400">
+                Select the field, then press a key combination or Mouse 3, 4, or 5. Press Escape to cancel capture.
+              </span>
             </div>
             <div className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-slate-200">Re-paste Last Transcript</span>
+              <label htmlFor="repaste-hotkey" className="font-medium text-slate-200">
+                Re-paste last transcript
+              </label>
               <div className="flex gap-2 items-center">
                 <input
+                  id="repaste-hotkey"
                   type="text"
                   readOnly
-                  value={isRepasteListening ? "Press keys..." : formatHotkeyValue(settings.repaste_hotkey)}
-                  onFocus={() => setIsRepasteListening(true)}
+                  value={isRepasteListening ? "Capturing... Escape to cancel" : formatHotkeyValue(settings.repaste_hotkey)}
+                  onClick={() => setIsRepasteListening(true)}
                   onBlur={() => setIsRepasteListening(false)}
-                  onKeyDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const combo = buildHotkeyString(e);
-                    if (combo && settings) {
-                      setSettings({ ...settings, repaste_hotkey: combo });
-                      setIsRepasteListening(false);
-                      (e.target as HTMLInputElement).blur();
-                    }
-                  }}
+                  onKeyDown={handleRepasteHotkeyCapture}
+                  aria-describedby="repaste-hotkey-help hotkey-capture-status"
+                  aria-invalid={Boolean(
+                    settings.repaste_hotkey &&
+                    settings.repaste_hotkey.trim() === settings.hotkey.trim()
+                  )}
                   className={`focus-ring flex-1 w-full cursor-pointer border-b bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary ${isRepasteListening ? "border-primary text-primary" : "border-white/10"}`}
                 />
                 <button
@@ -669,8 +800,8 @@ export function SettingsView() {
                   <X size={12} />
                 </button>
               </div>
-              <span className="text-[11px] leading-relaxed text-slate-500">
-                Leave this disabled if you do not want a second global shortcut. It only works with keyboard combinations.
+              <span id="repaste-hotkey-help" className="text-[11px] leading-relaxed text-slate-400">
+                Select the field, then press a keyboard combination. Press Escape to cancel capture, or use Disable to turn this shortcut off.
               </span>
               {settings.repaste_hotkey &&
                 settings.repaste_hotkey.trim() === settings.hotkey.trim() && (
@@ -679,6 +810,13 @@ export function SettingsView() {
                   </span>
                 )}
             </div>
+            <span id="hotkey-capture-status" className="sr-only" aria-live="polite" aria-atomic="true">
+              {isListening
+                ? "Recording hotkey capture active. Press a key combination or Mouse 3, 4, or 5. Press Escape to cancel."
+                : isRepasteListening
+                  ? "Re-paste hotkey capture active. Press a keyboard combination. Press Escape to cancel."
+                  : ""}
+            </span>
             <label className="flex flex-col gap-1.5 text-sm">
               <span className="font-medium text-slate-200">Language Preference</span>
               <Select
@@ -686,7 +824,7 @@ export function SettingsView() {
                 onChange={(value) => setSettings({ ...settings, language: value })}
                 options={LANGUAGES}
               />
-              <span className="text-[11px] leading-relaxed text-slate-500">
+              <span className="text-[11px] leading-relaxed text-slate-400">
                 Auto Detect handles mixed dictation. Choose a specific language when you want to bias transcription or avoid unwanted translation.
               </span>
             </label>
@@ -702,15 +840,15 @@ export function SettingsView() {
                   onChange={(e) => setSettings({ ...settings, mic_sensitivity: Number(e.target.value) })}
                   className="focus-ring flex-1 cursor-pointer accent-primary"
                 />
-                <span className="w-8 text-right text-xs font-mono text-slate-500">
+                <span className="w-8 text-right text-xs font-mono text-slate-400">
                   {settings.mic_sensitivity}
                 </span>
               </div>
-              <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-600">
+              <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 <span>Less noise</span>
                 <span>Quieter voice</span>
               </div>
-              <span className="text-[11px] leading-relaxed text-slate-500">
+              <span className="text-[11px] leading-relaxed text-slate-400">
                 Higher sensitivity helps softer speech, but can pick up more background noise.
               </span>
             </label>
@@ -726,7 +864,7 @@ export function SettingsView() {
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="font-medium text-slate-200">Noise Suppression</span>
-                <span className="text-xs leading-normal text-slate-500">
+                <span className="text-xs leading-normal text-slate-400">
                   Smooths steady background noise before transcription.
                 </span>
               </div>
@@ -745,7 +883,7 @@ export function SettingsView() {
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="font-medium text-slate-200">Widget Mode</span>
-                <span className="text-xs leading-normal text-slate-500">Minimal UI with only waveforms</span>
+                <span className="text-xs leading-normal text-slate-400">Minimal UI with only waveforms</span>
               </div>
             </label>
 
@@ -770,7 +908,7 @@ export function SettingsView() {
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="font-medium text-slate-200">Copy Transcript to Clipboard</span>
-                <span className="text-xs leading-normal text-slate-500">Save the final transcript to your clipboard when you finish speaking, even without auto-paste</span>
+                <span className="text-xs leading-normal text-slate-400">Save the final transcript to your clipboard when you finish speaking, even without auto-paste</span>
               </div>
             </label>
 
@@ -786,7 +924,7 @@ export function SettingsView() {
                 <span className="font-medium text-slate-200">Launch on Startup</span>
               </label>
               {!autostartAvailable && (
-                <p className="pl-7 text-xs leading-normal text-slate-500">
+                <p className="pl-7 text-xs leading-normal text-slate-400">
                   Launch on Startup is only available from the installed app.
                 </p>
               )}
@@ -795,12 +933,26 @@ export function SettingsView() {
           </ControlSection>
 
           <ControlSection
+            eyebrow="Diagnostics"
+            description="Check the saved microphone, shortcuts, provider authentication, and the last measured operation without sending dictated content."
+          >
+            <DiagnosticsPanel />
+          </ControlSection>
+
+          <ControlSection
+            eyebrow="History & Privacy"
+            description="Control how many finalized transcripts FamVoice keeps in its encrypted local history."
+          >
+            <HistoryPrivacyPanel />
+          </ControlSection>
+
+          <ControlSection
             eyebrow="Update"
             action={
               <button
                 type="button"
                 onClick={() => void refreshUpdate()}
-                className={`focus-ring flex cursor-pointer items-center gap-1 text-xs font-medium text-slate-500 ${controlMotion} hover:text-primary`}
+                className={`focus-ring flex min-h-6 cursor-pointer items-center gap-1 rounded px-1 text-xs font-medium text-slate-400 ${controlMotion} hover:text-primary`}
               >
                 <RefreshCw size={10} />
                 Refresh
@@ -809,14 +961,14 @@ export function SettingsView() {
           >
             <div className="space-y-3">
               {isCheckingForUpdates ? (
-                <div className="py-2 text-slate-200">
+                <div className="py-2 text-slate-200" role="status">
                   {currentVersionRow}
-                  <p className="mt-3 text-xs leading-normal text-slate-500">
+                  <p className="mt-3 text-xs leading-normal text-slate-400">
                     Checking for updates...
                   </p>
                 </div>
               ) : updateCheckError ? (
-                <div className="py-2 text-red-400">
+                <div className="py-2 text-red-400" role="status">
                   {currentVersionRow}
                   <p className="mt-3 text-sm font-medium text-red-400">
                     Could not check for updates.
@@ -831,32 +983,33 @@ export function SettingsView() {
               ) : availableUpdate ? (
                 <div
                   className="py-2 text-slate-200"
+                  role="status"
                 >
                   {currentVersionRow}
                   <div className="mt-3 flex items-center justify-between text-xs font-medium text-slate-300">
                     <span>Update available</span>
-                    <span className="font-mono text-slate-500">v{availableUpdate.version}</span>
+                    <span className="font-mono text-slate-400">v{availableUpdate.version}</span>
                   </div>
                   <button
                     type="button"
                     onClick={handleApplyUpdate}
                     disabled={isApplyingUpdate}
-                    className="focus-ring mt-3 w-full rounded border border-primary/30 bg-primary/10 py-2 text-sm font-semibold text-amber-50 transition-[background-color,color,transform] duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="focus-ring mt-3 w-full rounded border border-primary/30 bg-primary/10 py-2 text-sm font-semibold text-amber-50 transition-colors duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isApplyingUpdate ? "Updating..." : "Update"}
                   </button>
                 </div>
               ) : (
-                <div className="py-2 text-slate-200">
+                <div className="py-2 text-slate-200" role="status">
                   {currentVersionRow}
-                  <p className="mt-3 text-xs leading-normal text-slate-500">
+                  <p className="mt-3 text-xs leading-normal text-slate-400">
                     No update available.
                   </p>
                 </div>
               )}
 
               {updateInstallError && (
-                <div className="py-2 text-red-400">
+                <div className="py-2 text-red-400" role="alert" aria-atomic="true">
                   <p className="text-sm font-medium text-red-400">
                     Update installation failed.
                   </p>
@@ -878,7 +1031,7 @@ export function SettingsView() {
               <button
                 type="button"
                 onClick={addReplacement}
-                className={`focus-ring flex cursor-pointer items-center gap-1 text-xs font-medium text-primary ${controlMotion} hover:text-amber-200`}
+                className={`focus-ring flex min-h-6 cursor-pointer items-center gap-1 rounded px-1 text-xs font-medium text-primary ${controlMotion} hover:text-amber-200`}
               >
                 <Plus size={10} /> Add
               </button>
@@ -891,7 +1044,7 @@ export function SettingsView() {
                   className="flex items-end gap-3 rounded-xl border border-white/10 bg-black/10 p-3"
                 >
                   <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm font-medium">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Spoken term</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Spoken term</span>
                     <input
                       value={replacement.target}
                       onChange={(e) => updateReplacement(replacement.id, "target", e.target.value)}
@@ -900,7 +1053,7 @@ export function SettingsView() {
                   </label>
                   <span className="pb-2 text-sm text-slate-600">-&gt;</span>
                   <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm font-medium">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Replacement</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Replacement</span>
                     <input
                       value={replacement.replacement}
                       onChange={(e) => updateReplacement(replacement.id, "replacement", e.target.value)}
@@ -911,14 +1064,14 @@ export function SettingsView() {
                     type="button"
                     onClick={() => removeReplacement(replacement.id)}
                     aria-label="Delete glossary row"
-                    className={`focus-ring self-end cursor-pointer rounded p-1 text-gray-700 ${controlMotion} hover:text-red-500`}
+                    className={`focus-ring flex size-6 self-end cursor-pointer items-center justify-center rounded text-slate-500 ${controlMotion} hover:text-red-500`}
                   >
                     <Trash2 size={12} />
                   </button>
                 </div>
               ))}
               {settings.replacements.length === 0 && (
-                <p className="text-sm italic text-slate-600">No glossary entries configured.</p>
+                <p className="text-sm italic text-slate-400">No glossary entries configured.</p>
               )}
             </div>
           </ControlSection>
@@ -927,7 +1080,11 @@ export function SettingsView() {
 
       <div className="px-4 py-3 no-drag">
         {errorMessage && (
-          <div className="mb-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-3 text-red-50">
+          <div
+            className="mb-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-3 text-red-50"
+            role="alert"
+            aria-atomic="true"
+          >
             <p className="text-base font-medium text-red-100">
               Could not save settings.
             </p>
@@ -942,9 +1099,10 @@ export function SettingsView() {
         <button
           type="button"
           onClick={() => saveSettings(settings)}
-          className="focus-ring w-full rounded bg-primary py-2.5 text-sm font-semibold text-slate-950 transition-[background-color,color,transform] duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:bg-[#b86a1f] active:scale-[0.98]"
+          disabled={isSaving}
+          className="focus-ring motion-scale-control w-full rounded bg-primary py-2.5 text-sm font-semibold text-slate-950 transition-[background-color,color,transform] duration-[var(--fam-duration-fast)] ease-[var(--fam-ease-ease)] hover:bg-[#b86a1f] active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
         >
-          Save changes
+          {isSaving ? "Saving changes..." : "Save changes"}
         </button>
       </div>
     </div>

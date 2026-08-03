@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { cursorPosition, getCurrentWindow } from "@tauri-apps/api/window";
@@ -7,10 +8,13 @@ import {
   AlertCircle,
   CheckCircle2,
   Copy,
+  Download,
   History as HistoryIcon,
   Minus,
   Info,
+  Pin,
   RefreshCw,
+  Search,
   Settings as SettingsIcon,
   Trash2,
   X,
@@ -18,6 +22,7 @@ import {
 import { WIDGET_CURSOR_POLL_INTERVAL_MS, WIDGET_DRAG_START_GRACE_MS } from "./appConstants";
 import type {
   HistoryItem,
+  RetryAudioStatus,
   SettingsViewModel,
   Status,
   WidgetWindowMetrics,
@@ -46,6 +51,14 @@ interface ToastEntry {
   title: string;
   description?: string;
   variant: ToastVariant;
+  actionLabel?: string;
+  onAction?: () => void;
+}
+
+interface ToastOptions {
+  actionLabel?: string;
+  durationMs?: number;
+  onAction?: () => void;
 }
 
 function formatHistoryTimestamp(timestamp: number): string {
@@ -88,6 +101,8 @@ function ToastStack({
           <div
             key={toast.id}
             className={`pointer-events-auto rounded-xl border px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.35)] backdrop-blur-sm ${toneClassName}`}
+            role={toast.variant === "error" ? "alert" : "status"}
+            aria-atomic="true"
           >
             <div className="flex items-start gap-2">
               <ToastIcon variant={toast.variant} />
@@ -100,11 +115,23 @@ function ToastStack({
                     {toast.description}
                   </p>
                 ) : null}
+                {toast.actionLabel && toast.onAction ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toast.onAction?.();
+                      onDismiss(toast.id);
+                    }}
+                    className="focus-ring mt-2 min-h-6 rounded-full border border-white/15 px-2.5 text-[11px] font-semibold text-white transition-colors hover:border-primary/50 hover:text-primary"
+                  >
+                    {toast.actionLabel}
+                  </button>
+                ) : null}
               </div>
               <button
                 type="button"
                 onClick={() => onDismiss(toast.id)}
-                className="focus-ring -mr-1 rounded p-0.5 text-white/40 transition-colors hover:text-white"
+                className="focus-ring -mr-1 flex size-6 shrink-0 items-center justify-center rounded text-white/40 transition-colors hover:text-white"
                 aria-label="Dismiss notification"
               >
                 <X size={11} />
@@ -130,6 +157,65 @@ function ClearHistoryDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const onCancelRef = useRef(onCancel);
+  const isSubmittingRef = useRef(isSubmitting);
+
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+    isSubmittingRef.current = isSubmitting;
+  }, [isSubmitting, onCancel]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    cancelButtonRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (!isSubmittingRef.current) {
+          event.preventDefault();
+          onCancelRef.current();
+        }
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+
+      const focusableElements = Array.from(dialog.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      ));
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (event.shiftKey && (activeElement === firstElement || !dialog.contains(activeElement))) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && (activeElement === lastElement || !dialog.contains(activeElement))) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -141,11 +227,14 @@ function ClearHistoryDialog({
       onMouseDown={onCancel}
     >
       <div
+        ref={dialogRef}
         className="w-full max-w-[18rem] rounded-2xl border border-white/10 bg-[#111723] p-4 text-left shadow-[0_22px_60px_rgba(0,0,0,0.45)]"
         role="dialog"
         aria-modal="true"
+        aria-busy={isSubmitting}
         aria-labelledby="clear-history-dialog-title"
         aria-describedby="clear-history-dialog-description"
+        tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3">
@@ -157,12 +246,13 @@ function ClearHistoryDialog({
               Clear history?
             </h3>
             <p id="clear-history-dialog-description" className="mt-1 text-xs leading-5 text-slate-400">
-              This will delete {count} {count === 1 ? "entry" : "entries"} from your local history. This cannot be undone.
+              This permanently deletes {count} {count === 1 ? "entry" : "entries"} and FamVoice recovery copies. Exported files are unaffected. This cannot be undone.
             </p>
           </div>
         </div>
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
+            ref={cancelButtonRef}
             type="button"
             onClick={onCancel}
             className="focus-ring rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-white/20 hover:text-white"
@@ -191,12 +281,19 @@ export function MainView() {
   const [settings, setSettings] = useState<SettingsViewModel | null>(null);
   const [activeTab, setActiveTab] = useState<"record" | "history">("record");
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [retryAudio, setRetryAudio] = useState<RetryAudioStatus>({ available: false });
+  const [isRetrying, setIsRetrying] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const [isUpdateNoticeOpen, setIsUpdateNoticeOpen] = useState(false);
   const [highlightKey, setHighlightKey] = useState(0);
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const [isClearHistoryOpen, setIsClearHistoryOpen] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
+  const recordTabRef = useRef<HTMLButtonElement>(null);
+  const historyTabRef = useRef<HTMLButtonElement>(null);
+  const clearHistoryButtonRef = useRef<HTMLButtonElement>(null);
+  const clearHistoryWasOpenRef = useRef(false);
   const widgetContainerRef = useRef<HTMLElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
   const ignoreCursorEventsRef = useRef<boolean | null>(null);
@@ -210,6 +307,7 @@ export function MainView() {
   useEffect(() => {
     invoke<SettingsViewModel>("get_settings").then(setSettings);
     invoke<HistoryItem[]>("get_history").then(setHistory);
+    invoke<RetryAudioStatus>("get_retry_audio_state").then(setRetryAudio);
 
     const unlistenStatus = listen<Status>("status", (event) => {
       setStatus(event.payload);
@@ -227,6 +325,10 @@ export function MainView() {
       setHistory(event.payload);
     });
 
+    const unlistenRetryAudio = listen<RetryAudioStatus>("retry-audio-state", (event) => {
+      setRetryAudio(event.payload);
+    });
+
     const unlistenHighlight = listen("highlight-widget", () => {
       setHighlightKey((k) => k + 1);
     });
@@ -236,9 +338,25 @@ export function MainView() {
       unlistenTranscript.then((fn) => fn());
       unlistenSettings.then((fn) => fn());
       unlistenHistory.then((fn) => fn());
+      unlistenRetryAudio.then((fn) => fn());
       unlistenHighlight.then((fn) => fn());
     };
   }, []);
+
+  useEffect(() => {
+    if (!retryAudio.available) return;
+    const interval = window.setInterval(() => {
+      void invoke<RetryAudioStatus>("get_retry_audio_state")
+        .then((nextStatus) => {
+          if (!nextStatus.available) {
+            setTranscript("");
+          }
+          setRetryAudio(nextStatus);
+        })
+        .catch(() => setRetryAudio({ available: false }));
+    }, 1_000);
+    return () => window.clearInterval(interval);
+  }, [retryAudio.available]);
 
   useEffect(() => {
     if (!settings?.widget_mode) {
@@ -293,6 +411,8 @@ export function MainView() {
     }
 
     let cancelled = false;
+    let cursorSyncInFlight = false;
+    let cursorSyncQueued = false;
 
     const loadWindowMetrics = async (): Promise<WidgetWindowMetrics> => {
       const [windowPosition, scaleFactor] = await Promise.all([
@@ -303,7 +423,7 @@ export function MainView() {
       return { windowPosition, scaleFactor };
     };
 
-    const syncCursorInteractivity = async () => {
+    const performCursorInteractivitySync = async () => {
       if (cancelled) return;
 
       const container = widgetContainerRef.current;
@@ -345,6 +465,25 @@ export function MainView() {
       await appWindow.setIgnoreCursorEvents(nextIgnoreValue);
     };
 
+    const syncCursorInteractivity = async () => {
+      if (cancelled) return;
+
+      if (cursorSyncInFlight) {
+        cursorSyncQueued = true;
+        return;
+      }
+
+      cursorSyncInFlight = true;
+      try {
+        do {
+          cursorSyncQueued = false;
+          await performCursorInteractivitySync();
+        } while (cursorSyncQueued && !cancelled);
+      } finally {
+        cursorSyncInFlight = false;
+      }
+    };
+
     const syncFromWindowMove = ({ payload }: { payload: { x: number; y: number } }) => {
       widgetWindowMetricsRef.current = {
         ...(widgetWindowMetricsRef.current ?? { scaleFactor: 1 }),
@@ -366,6 +505,9 @@ export function MainView() {
     void syncCursorInteractivity();
     const unlistenMoved = appWindow.onMoved(syncFromWindowMove);
     const unlistenScaleChanged = appWindow.onScaleChanged(syncFromScaleChange);
+    // Pointer enter/leave cannot wake a transparent click-through WebView after
+    // setIgnoreCursorEvents(true), so polling remains the recovery mechanism.
+    // The single-flight queue above keeps the 75 ms checks from overlapping.
     const intervalId = window.setInterval(() => {
       void syncCursorInteractivity();
     }, WIDGET_CURSOR_POLL_INTERVAL_MS);
@@ -398,23 +540,22 @@ export function MainView() {
   }, []);
 
   useEffect(() => {
-    if (!isClearHistoryOpen) {
+    if (isClearHistoryOpen) {
+      clearHistoryWasOpenRef.current = true;
       return;
     }
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isClearingHistory) {
-        event.preventDefault();
-        setIsClearHistoryOpen(false);
-      }
-    };
+    if (!clearHistoryWasOpenRef.current) return;
+    clearHistoryWasOpenRef.current = false;
 
-    window.addEventListener("keydown", handleKeyDown);
+    const clearHistoryButton = clearHistoryButtonRef.current;
+    if (clearHistoryButton?.isConnected) {
+      clearHistoryButton.focus();
+      return;
+    }
 
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isClearHistoryOpen, isClearingHistory]);
+    historyTabRef.current?.focus();
+  }, [isClearHistoryOpen]);
 
   useEffect(() => {
     return () => {
@@ -431,15 +572,26 @@ export function MainView() {
     variant: ToastVariant,
     title: string,
     description?: string,
+    options: ToastOptions = {},
   ) => {
     const id = toastIdRef.current + 1;
     toastIdRef.current = id;
-    setToasts((current) => [...current, { id, variant, title, description }]);
+    setToasts((current) => [
+      ...current,
+      {
+        id,
+        variant,
+        title,
+        description,
+        actionLabel: options.actionLabel,
+        onAction: options.onAction,
+      },
+    ]);
 
     const timeoutId = window.setTimeout(() => {
       setToasts((current) => current.filter((toast) => toast.id !== id));
       toastTimeoutsRef.current = toastTimeoutsRef.current.filter((currentId) => currentId !== timeoutId);
-    }, TOAST_AUTO_DISMISS_MS);
+    }, options.durationMs ?? TOAST_AUTO_DISMISS_MS);
     toastTimeoutsRef.current.push(timeoutId);
   };
 
@@ -497,8 +649,79 @@ export function MainView() {
     await invoke("open_settings_window");
   };
 
+  const restoreHistory = async (item: HistoryItem) => {
+    try {
+      await invoke("restore_history_item", { item });
+      showToast("success", "Transcript restored", "The history entry is back in its original position.");
+    } catch (error) {
+      console.error("Failed to restore history item:", error);
+      showToast("error", "Could not restore transcript", String(error));
+    }
+  };
+
   const deleteHistory = async (id: number) => {
-    await invoke("delete_history_item", { id });
+    try {
+      const deletedItem = await invoke<HistoryItem>("delete_history_item", { id });
+      showToast("neutral", "Transcript deleted", undefined, {
+        actionLabel: "Undo",
+        durationMs: 6000,
+        onAction: () => void restoreHistory(deletedItem),
+      });
+    } catch (error) {
+      console.error("Failed to delete history item:", error);
+      showToast("error", "Could not delete transcript", String(error));
+    }
+  };
+
+  const toggleHistoryPin = async (id: number) => {
+    try {
+      await invoke("toggle_history_pin", { id });
+    } catch (error) {
+      showToast("error", "Could not update pin", String(error));
+    }
+  };
+
+  const exportHistory = async (format: "txt" | "markdown" | "json") => {
+    try {
+      const path = await invoke<string>("export_history", { format });
+      showToast("success", "History exported", path);
+    } catch (error) {
+      showToast("error", "Could not export history", String(error));
+    }
+  };
+
+  const retryLastDictation = async () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    try {
+      await invoke("retry_last_dictation");
+    } catch (error) {
+      console.error("Failed to retry dictation:", error);
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  const discardRetryAudio = async () => {
+    try {
+      await invoke("discard_last_failed_dictation");
+      setRetryAudio({ available: false });
+      setTranscript("");
+      setStatus("idle");
+    } catch (error) {
+      showToast("error", "Could not discard failed dictation", String(error));
+    }
+  };
+
+  const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+
+    event.preventDefault();
+    const nextTab = event.key === "ArrowLeft" || event.key === "Home" ? "record" : "history";
+    setActiveTab(nextTab);
+    window.requestAnimationFrame(() => {
+      (nextTab === "record" ? recordTabRef.current : historyTabRef.current)?.focus();
+    });
   };
 
   const waveMode = status === "transcribing" ? "transcribing" : status === "recording" ? "recording" : "idle";
@@ -510,8 +733,16 @@ export function MainView() {
 
   const missingPromptOptimizerKey = settings && settings.prompt_optimization_enabled && !settings.api_key_present;
   const showSettingsNotice = status === "idle" && !transcript && (missingTranscriptionKey || missingPromptOptimizerKey);
-  const showRecordError = status === "error" && Boolean(transcript);
+  const showRecordError = (status === "error" || retryAudio.available) && Boolean(transcript);
   const showRecordTranscript = !showRecordError && Boolean(transcript);
+  const visibleHistory = useMemo(() => {
+    const query = historyQuery.trim().toLocaleLowerCase();
+    return history
+      .filter((item) => !query || item.text.toLocaleLowerCase().includes(query))
+      .map((item, index) => ({ item, index }))
+      .sort((left, right) => Number(right.item.pinned) - Number(left.item.pinned) || left.index - right.index)
+      .map(({ item }) => item);
+  }, [history, historyQuery]);
   const statusLabel = status === "recording"
     ? "Listening"
     : status === "transcribing"
@@ -533,6 +764,16 @@ export function MainView() {
         : status === "error"
           ? "Review the message below, then try again."
           : "Hold hotkey to dictate.";
+  const showStageHint = status !== "error" && (status !== "idle" || !transcript);
+  const liveStatusMessage = status === "recording"
+    ? "Recording started. Release the hotkey to send."
+    : status === "transcribing"
+      ? "Recording stopped. Transcription in progress."
+      : status === "success"
+        ? settings?.auto_paste
+          ? "Transcript ready. Pasted to your app."
+          : "Transcript ready. Ready for paste-back."
+        : "";
 
   if (settings?.widget_mode) {
     return (
@@ -541,6 +782,10 @@ export function MainView() {
         missingApiKey={!!missingTranscriptionKey}
         highlightKey={highlightKey}
         errorMessage={status === "error" ? transcript : undefined}
+        retryAvailable={retryAudio.available}
+        isRetrying={isRetrying}
+        onRetry={() => void retryLastDictation()}
+        onDiscardRetry={() => void discardRetryAudio()}
         containerRef={widgetContainerRef}
         onMouseDownCapture={(e) => {
           if (e.button !== 0) return;
@@ -567,10 +812,18 @@ export function MainView() {
     <main
       className="signal-shell relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[16px] bg-[#0F0F0F]"
     >
-      <ToastStack
-        toasts={toasts}
-        onDismiss={dismissToast}
-      />
+      <div
+        className="contents"
+        inert={isClearHistoryOpen ? true : undefined}
+        aria-hidden={isClearHistoryOpen ? true : undefined}
+      >
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {liveStatusMessage}
+        </p>
+        <ToastStack
+          toasts={toasts}
+          onDismiss={dismissToast}
+        />
 
       {pendingUpdate && isUpdateNoticeOpen && (
         <div className="absolute inset-x-1.5 top-1.5 z-20 no-drag rounded-lg bg-transparent p-2">
@@ -611,7 +864,7 @@ export function MainView() {
           <button
             type="button"
             onClick={() => appWindow.minimize()}
-            className={`focus-ring rounded p-0.5 ${controlMotion} hover:text-white`}
+            className={`focus-ring flex size-6 items-center justify-center rounded ${controlMotion} hover:text-white`}
             aria-label="Minimize window"
           >
             <Minus size={10} />
@@ -619,7 +872,7 @@ export function MainView() {
           <button
             type="button"
             onClick={() => appWindow.hide()}
-            className={`focus-ring rounded p-0.5 ${controlMotion} hover:text-red-400`}
+            className={`focus-ring flex size-6 items-center justify-center rounded ${controlMotion} hover:text-red-400`}
             aria-label="Close window"
           >
             <X size={10} />
@@ -632,31 +885,37 @@ export function MainView() {
         <div className="flex items-center justify-between pb-0.5">
           <div className="flex gap-1" role="tablist" aria-label="Main sections">
             <button
+              ref={recordTabRef}
               type="button"
               id="record-tab"
               role="tab"
               onClick={() => setActiveTab("record")}
+              onKeyDown={handleTabKeyDown}
               aria-controls="record-panel"
               aria-selected={activeTab === "record"}
-               className={`focus-ring rounded-full px-2 py-1 text-[11px] font-medium tracking-tight ${controlMotion} ${
+              tabIndex={activeTab === "record" ? 0 : -1}
+              className={`focus-ring min-h-6 rounded-full px-2 py-1 text-[11px] font-medium tracking-tight ${controlMotion} ${
                 activeTab === "record"
                   ? "bg-white/10 text-white"
-                  : "text-slate-500 hover:text-slate-300"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
               Record
             </button>
             <button
+              ref={historyTabRef}
               type="button"
               id="history-tab"
               role="tab"
               onClick={() => setActiveTab("history")}
+              onKeyDown={handleTabKeyDown}
               aria-controls="history-panel"
               aria-selected={activeTab === "history"}
-               className={`focus-ring rounded-full px-2 py-1 text-[11px] font-medium tracking-tight ${controlMotion} ${
+              tabIndex={activeTab === "history" ? 0 : -1}
+              className={`focus-ring min-h-6 rounded-full px-2 py-1 text-[11px] font-medium tracking-tight ${controlMotion} ${
                 activeTab === "history"
                   ? "bg-white/10 text-white"
-                  : "text-slate-500 hover:text-slate-300"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
               History
@@ -667,7 +926,7 @@ export function MainView() {
             <button
               type="button"
               onClick={() => void handleOpenSettings()}
-              className={`focus-ring inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[11px] font-medium text-slate-400 ${controlMotion} hover:border-primary/40 hover:text-white`}
+              className={`focus-ring inline-flex min-h-6 items-center gap-1 rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[11px] font-medium text-slate-400 ${controlMotion} hover:border-primary/40 hover:text-white`}
               aria-label="Open settings"
             >
               <SettingsIcon size={10} />
@@ -675,9 +934,12 @@ export function MainView() {
             </button>
             {activeTab === "history" && history.length > 0 && (
               <button
+                ref={clearHistoryButtonRef}
                 type="button"
                 onClick={openClearHistoryConfirm}
-                className={`focus-ring rounded-full px-2 py-1 text-[11px] font-medium tracking-tight text-slate-400 ${controlMotion} hover:text-red-400`}
+                className={`focus-ring min-h-6 rounded-full px-2 py-1 text-[11px] font-medium tracking-tight text-slate-400 ${controlMotion} hover:text-red-400`}
+                aria-haspopup="dialog"
+                aria-expanded={isClearHistoryOpen}
               >
                 Clear history
               </button>
@@ -704,11 +966,9 @@ export function MainView() {
                   </h2>
                   <p
                     className={`max-w-[14rem] text-[11px] leading-tight text-slate-400 ${
-                      (status === "error" || status === "success" || status === "transcribing" || Boolean(transcript)) ? "h-0 overflow-hidden" : "mt-0.5 min-h-[1.5rem]"
-                    } ${
-                      (status === "error" || status === "success" || status === "transcribing" || Boolean(transcript)) ? "invisible" : ""
+                      showStageHint ? "mt-0.5 min-h-[1.5rem]" : "h-0 overflow-hidden invisible"
                     }`}
-                    aria-hidden={status === "error" || status === "success" || status === "transcribing" || Boolean(transcript)}
+                    aria-hidden={!showStageHint}
                   >
                     {stageHint}
                   </p>
@@ -717,12 +977,36 @@ export function MainView() {
 
               <div className={`${(status === "error" || status === "success" || status === "transcribing" || Boolean(transcript)) ? "mt-1.5" : "mt-0.5"} flex min-h-[2.75rem] w-full max-w-[16rem] items-start justify-center`}>
                 {showRecordError ? (
-                  <div className="w-full rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5">
+                  <div
+                    className="w-full rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5"
+                    role="alert"
+                    aria-atomic="true"
+                  >
                     <div className="flex items-start gap-2 text-left">
                       <AlertCircle size={13} className="mt-0.5 shrink-0 text-danger" />
                       <div className="space-y-0.5">
                         <p className="text-[11px] font-medium leading-tight text-red-50">{transcript}</p>
-                        <p className="text-[10px] leading-tight text-red-100/60">Try again or check settings.</p>
+                        {retryAudio.available ? (
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => void retryLastDictation()}
+                              disabled={isRetrying}
+                              className={`focus-ring min-h-6 rounded-full border border-red-100/20 bg-black/20 px-2 text-[10px] font-semibold text-red-50 ${controlMotion} hover:border-red-100/40 disabled:opacity-50`}
+                            >
+                              {isRetrying ? "Retrying…" : "Retry last dictation"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void discardRetryAudio()}
+                              className={`focus-ring min-h-6 rounded-full px-2 text-[10px] text-red-100/60 ${controlMotion} hover:text-red-50`}
+                            >
+                              Discard audio
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] leading-tight text-red-100/60">Try again or check settings.</p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -756,19 +1040,62 @@ export function MainView() {
             aria-labelledby="history-tab"
             className="flex h-full flex-col no-drag"
           >
+            <div className="border-b border-white/[0.06] px-3 pb-2 pt-1">
+              <div className="flex items-center gap-2">
+                <label className="relative min-w-0 flex-1">
+                  <span className="sr-only">Search history</span>
+                  <Search size={11} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" />
+                  <input
+                    type="search"
+                    value={historyQuery}
+                    onChange={(event) => setHistoryQuery(event.target.value)}
+                    placeholder="Search history"
+                    className="focus-ring min-h-7 w-full rounded-full border border-white/10 bg-black/20 pl-6 pr-2 text-[11px] text-white placeholder:text-slate-500"
+                  />
+                </label>
+                <div className="flex items-center gap-0.5" aria-label="Export history">
+                  {(["txt", "markdown", "json"] as const).map((format) => (
+                    <button
+                      key={format}
+                      type="button"
+                      onClick={() => void exportHistory(format)}
+                      className={`focus-ring min-h-7 rounded px-1.5 text-[9px] font-semibold uppercase text-slate-400 ${controlMotion} hover:text-primary`}
+                      aria-label={`Export history as ${format === "markdown" ? "Markdown" : format.toUpperCase()}`}
+                    >
+                      {format === "markdown" ? "MD" : format}
+                    </button>
+                  ))}
+                  <Download size={10} className="ml-0.5 text-slate-600" aria-hidden="true" />
+                </div>
+              </div>
+              {historyQuery ? (
+                <p className="mt-1 px-1 text-[10px] text-slate-500" role="status">
+                  {visibleHistory.length} {visibleHistory.length === 1 ? "match" : "matches"}
+                </p>
+              ) : null}
+            </div>
             <div className="custom-scrollbar flex-1 overflow-y-auto px-3 pb-3">
-              {history.map((item) => (
+              {visibleHistory.map((item) => (
                 <div key={item.id} className={`relative -mx-1 rounded-lg px-1 py-2 ${controlMotion} hover:bg-white/5`}>
                   <p className="pr-1 text-xs leading-5 text-slate-200">{item.text}</p>
                   <div className="mt-1.5 flex items-center justify-between">
-                    <span className="text-[10px] text-slate-600 font-mono">
+                    <span className="text-[10px] text-slate-400 font-mono">
                       {formatHistoryTimestamp(item.timestamp)}
                     </span>
                     <div className="flex items-center gap-1 text-slate-500">
                       <button
                         type="button"
+                        onClick={() => void toggleHistoryPin(item.id)}
+                        className={`focus-ring flex size-6 items-center justify-center rounded ${controlMotion} ${item.pinned ? "text-primary" : "hover:text-primary"}`}
+                        aria-label={item.pinned ? "Unpin transcript" : "Pin transcript"}
+                        aria-pressed={item.pinned}
+                      >
+                        <Pin size={10} fill={item.pinned ? "currentColor" : "none"} />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => copyToClipboard(item.text)}
-                        className={`focus-ring rounded p-1 ${controlMotion} hover:text-white`}
+                        className={`focus-ring flex size-6 items-center justify-center rounded ${controlMotion} hover:text-white`}
                         aria-label="Copy transcript"
                       >
                         <Copy size={10} />
@@ -776,7 +1103,7 @@ export function MainView() {
                       <button
                         type="button"
                         onClick={() => repasteHistory(item.text)}
-                        className={`focus-ring rounded p-1 ${controlMotion} hover:text-primary`}
+                        className={`focus-ring flex size-6 items-center justify-center rounded ${controlMotion} hover:text-primary`}
                         aria-label="Re-paste transcript"
                       >
                         <RefreshCw size={10} />
@@ -784,7 +1111,7 @@ export function MainView() {
                       <button
                         type="button"
                         onClick={() => deleteHistory(item.id)}
-                        className={`focus-ring rounded p-1 ${controlMotion} hover:text-red-400`}
+                        className={`focus-ring flex size-6 items-center justify-center rounded ${controlMotion} hover:text-red-400`}
                         aria-label="Delete transcript"
                       >
                         <Trash2 size={10} />
@@ -805,9 +1132,17 @@ export function MainView() {
                   </p>
                 </div>
               )}
+              {history.length > 0 && visibleHistory.length === 0 && (
+                <div className="flex h-full flex-col items-center justify-center pb-4 text-center text-slate-500">
+                  <Search size={20} className="mb-2 opacity-50" />
+                  <p className="text-sm font-medium text-slate-200">No matching transcripts.</p>
+                  <p className="mt-1 text-xs text-slate-400">Try a different search.</p>
+                </div>
+              )}
             </div>
           </div>
         )}
+      </div>
       </div>
       <ClearHistoryDialog
         open={isClearHistoryOpen}

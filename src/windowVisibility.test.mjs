@@ -18,7 +18,8 @@ test("closing the main surface hides it instead of destroying it", () => {
 
 test("recording restores the widget without requesting focus", () => {
   const startIndex = libSource.indexOf("async fn start_recording_cmd");
-  const startBlock = libSource.slice(startIndex, startIndex + 900);
+  const stopIndex = libSource.indexOf("fn prompt_optimizer_timeout", startIndex);
+  const startBlock = libSource.slice(startIndex, stopIndex);
 
   assert.match(startBlock, /ensure_main_window_visible\(&app, false\)/);
   assert.match(windowSource, /SW_SHOWNOACTIVATE/);

@@ -5,6 +5,8 @@ use std::fmt;
 
 pub use openai::SUPPORTED_MODELS;
 
+const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PromptOptimizerRequest {
     pub model: String,
@@ -52,6 +54,36 @@ impl fmt::Display for PromptOptimizerError {
 }
 
 impl std::error::Error for PromptOptimizerError {}
+
+async fn parse_response_limited(
+    mut response: reqwest::Response,
+) -> Result<openai::ResponsesResponse, PromptOptimizerError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+    {
+        return Err(PromptOptimizerError::InvalidResponse(
+            "response exceeded the size limit".to_string(),
+        ));
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| PromptOptimizerError::InvalidResponse(error.to_string()))?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            return Err(PromptOptimizerError::InvalidResponse(
+                "response exceeded the size limit".to_string(),
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    serde_json::from_slice(&body)
+        .map_err(|error| PromptOptimizerError::InvalidResponse(error.to_string()))
+}
 
 fn validate_optimized_prompt_text(optimized_prompt: &str) -> Result<(), PromptOptimizerError> {
     let normalized = optimized_prompt.trim().to_lowercase();
@@ -129,7 +161,7 @@ pub async fn optimize_prompt(
 
     let response = client
         .post(openai::RESPONSES_ENDPOINT)
-        .header("Authorization", format!("Bearer {}", api_key))
+        .bearer_auth(api_key)
         .timeout(std::time::Duration::from_secs(15))
         .json(&openai_request)
         .send()
@@ -138,17 +170,13 @@ pub async fn optimize_prompt(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
         return Err(PromptOptimizerError::Http(format!(
-            "openai returned status {}: {}",
-            status, body
+            "openai returned status {}",
+            status
         )));
     }
 
-    let parsed = response
-        .json::<openai::ResponsesResponse>()
-        .await
-        .map_err(|error| PromptOptimizerError::InvalidResponse(error.to_string()))?;
+    let parsed = parse_response_limited(response).await?;
 
     let optimized_prompt = openai::extract_optimized_prompt_text(parsed)?;
     validate_optimized_prompt_text(&optimized_prompt)?;

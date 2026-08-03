@@ -1,15 +1,26 @@
+#[cfg(not(target_os = "windows"))]
+compile_error!(
+    "FamVoice is officially supported only on Windows because local history and credential recovery rely on Windows DPAPI."
+);
+
 mod audio;
 mod clipboard;
+mod delivery;
+mod diagnostics;
+mod dictation;
 mod dpapi;
 mod glossary;
 mod history;
 mod injection;
 mod input_hook;
 mod mic_analysis;
+mod persistence;
 mod prompt_optimizer;
+mod retry_audio;
 mod settings;
 mod startup;
 mod transcription;
+mod user_export;
 mod window;
 
 use std::future::Future;
@@ -23,6 +34,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use audio::AudioState;
 use clipboard::ClipboardState;
+use dictation::{DictationActivity, DictationCoordinatorState, SessionId};
 use history::HistoryState;
 use settings::{AppSettings, FrontendSettings, SaveSettingsRequest, SettingsState};
 
@@ -32,7 +44,6 @@ const STATUS_RESET_DELAY_MS: u64 = 2_000;
 const PROMPT_OPTIMIZER_TIMEOUT_MS: u64 = 10_000;
 const MIN_RESIZE_DIMENSION: f64 = 50.0;
 const MAX_RESIZE_DIMENSION: f64 = 4000.0;
-const MAX_REPASTE_TEXT_BYTES: usize = 50 * 1024;
 
 pub struct HttpClientState {
     pub client: reqwest::Client,
@@ -115,40 +126,19 @@ fn ensure_main_window_visible(app: &AppHandle, focus: bool) -> Result<(), String
 }
 
 fn handle_recording_shortcut_event(app: &AppHandle, event_state: ShortcutState) {
+    let coordinator: State<DictationCoordinatorState> = app.state();
     if event_state == ShortcutState::Pressed {
-        let state: State<AudioState> = app.state();
-        if state
-            .is_recording
-            .compare_exchange(
-                false,
-                true,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            )
-            .is_ok()
-        {
+        if coordinator.mark_hotkey_pressed() {
             let app_clone = app.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = start_recording_cmd(app_clone.clone()).await;
             });
         }
-    } else if event_state == ShortcutState::Released {
-        let state: State<AudioState> = app.state();
-        if state
-            .is_recording
-            .compare_exchange(
-                true,
-                false,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            )
-            .is_ok()
-        {
-            let app_clone = app.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = stop_recording_cmd(app_clone.clone()).await;
-            });
-        }
+    } else if event_state == ShortcutState::Released && coordinator.mark_hotkey_released() {
+        let app_clone = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = stop_recording_cmd(app_clone.clone()).await;
+        });
     }
 }
 
@@ -203,53 +193,25 @@ fn register_hotkeys(app: &AppHandle, recording_hotkey: &str, repaste_hotkey: &st
     }
 }
 
-fn schedule_clipboard_restore(
-    app: &AppHandle,
-    tasks_state: &BackgroundTasksState,
-    saved_clipboard: Option<String>,
-    error_context: &'static str,
-) {
-    let Some(saved_text) = saved_clipboard else {
-        return;
-    };
-
-    let app_handle = app.clone();
-    let handle = tokio::spawn(async move {
-        tokio::time::sleep(clipboard_restore_delay()).await;
-        let clipboard_state: State<ClipboardState> = app_handle.state();
-        if let Err(error) = clipboard::restore_clipboard_text(&clipboard_state, &saved_text) {
-            log_operation_error(error_context, &error);
-        }
-    });
-    tasks_state.spawn(handle);
-}
-
 async fn paste_text_via_clipboard(app: &AppHandle, text: &str) -> Result<(), String> {
-    if text.len() > MAX_REPASTE_TEXT_BYTES {
-        return Err("History item is too large to repaste".to_string());
-    }
+    delivery::validate_text_length(text)?;
 
     let clipboard_state: State<ClipboardState> = app.state();
-    clipboard::save_clipboard(&clipboard_state);
-
-    clipboard::set_clipboard(&clipboard_state, text)
-        .map_err(|error| format!("Failed to set clipboard: {}", error))?;
-
-    tokio::time::sleep(paste_clipboard_settle_delay()).await;
-    let paste_result = tokio::task::spawn_blocking(injection::simulate_paste)
-        .await
-        .map_err(|error| format!("Paste task panicked: {}", error))?;
-
-    let saved_clipboard = clipboard::saved_clipboard_text(&clipboard_state);
-    let tasks_state: State<BackgroundTasksState> = app.state();
-    schedule_clipboard_restore(
-        app,
-        &tasks_state,
-        saved_clipboard,
-        "Failed to restore clipboard after repaste",
-    );
-
-    paste_result.map_err(|error| format!("Failed to simulate paste: {}", error))
+    clipboard::run_temporary_text_transaction(
+        clipboard_state.transaction_lock(),
+        text,
+        paste_clipboard_settle_delay(),
+        clipboard_restore_delay(),
+        || clipboard::read_clipboard_text(&clipboard_state),
+        |value| clipboard::set_clipboard(&clipboard_state, value),
+        || async {
+            tokio::task::spawn_blocking(injection::simulate_paste)
+                .await
+                .map_err(|error| format!("Paste task panicked: {error}"))?
+                .map_err(|error| format!("Failed to simulate paste: {error}"))
+        },
+    )
+    .await
 }
 
 fn latest_history_text(history_state: &HistoryState) -> Result<String, String> {
@@ -270,8 +232,9 @@ async fn repaste_last_history_item(app: AppHandle) -> Result<(), String> {
     paste_text_via_clipboard(&app, &text).await
 }
 
-fn normalize_frontend_settings(settings: &AppSettings) -> FrontendSettings {
+fn normalize_frontend_settings(state: &SettingsState, settings: &AppSettings) -> FrontendSettings {
     let mut frontend = settings.to_frontend();
+    state.apply_credential_state(&mut frontend);
 
     if !frontend.input_device_id.is_empty() {
         match audio::list_input_devices() {
@@ -302,7 +265,28 @@ fn get_settings(state: State<'_, SettingsState>) -> Result<FrontendSettings, Str
         .settings
         .lock()
         .map_err(|e| format!("Failed to acquire settings lock: {}", e))?;
-    Ok(normalize_frontend_settings(&settings))
+    Ok(normalize_frontend_settings(&state, &settings))
+}
+
+#[tauri::command]
+fn get_dictation_activity(state: State<'_, DictationCoordinatorState>) -> DictationActivity {
+    state.activity()
+}
+
+fn ensure_input_device_change_allowed(
+    previous_device_id: &str,
+    requested_device_id: &str,
+    activity: DictationActivity,
+) -> Result<(), String> {
+    let requested_device_id = settings::normalize_input_device_id(requested_device_id);
+    if previous_device_id != requested_device_id && activity.active {
+        return Err(
+            "Microphone cannot be changed while a recording or transcription is active. Try again when the current dictation finishes."
+                .to_string(),
+        );
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -311,13 +295,20 @@ async fn save_settings(
     state: State<'_, SettingsState>,
     new_settings: SaveSettingsRequest,
 ) -> Result<FrontendSettings, String> {
+    let coordinator: State<DictationCoordinatorState> = app.state();
+    let _operation_guard = coordinator.lock_operation().await;
     let previous = state
         .settings
         .lock()
         .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
         .clone();
+    ensure_input_device_change_allowed(
+        &previous.input_device_id,
+        &new_settings.input_device_id,
+        coordinator.activity(),
+    )?;
     let saved = state.save_request(new_settings)?;
-    let frontend = normalize_frontend_settings(&saved);
+    let frontend = normalize_frontend_settings(&state, &saved);
 
     if previous.widget_mode != saved.widget_mode {
         window::apply_main_window_mode(&app, saved.widget_mode, true)?;
@@ -373,15 +364,78 @@ fn get_history(state: State<'_, HistoryState>) -> Result<Vec<history::HistoryIte
 }
 
 #[tauri::command]
-fn delete_history_item(app: AppHandle, state: State<'_, HistoryState>, id: u64) {
-    state.delete(id);
+fn delete_history_item(
+    app: AppHandle,
+    state: State<'_, HistoryState>,
+    id: u64,
+) -> Result<history::HistoryItem, String> {
+    let deleted_item = state.delete(id)?;
     emit_history_updated(&app, &state);
+    Ok(deleted_item)
 }
 
 #[tauri::command]
-fn clear_history(app: AppHandle, state: State<'_, HistoryState>) {
-    state.clear();
+fn restore_history_item(
+    app: AppHandle,
+    state: State<'_, HistoryState>,
+    item: history::HistoryItem,
+) -> Result<(), String> {
+    state.restore(item)?;
     emit_history_updated(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_history(app: AppHandle, state: State<'_, HistoryState>) -> Result<(), String> {
+    state.clear()?;
+    emit_history_updated(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_history_retention(state: State<'_, HistoryState>) -> history::HistoryRetentionPolicy {
+    state.retention_policy()
+}
+
+#[tauri::command]
+fn set_history_retention(
+    state: State<'_, HistoryState>,
+    max_items: usize,
+) -> Result<history::HistoryRetentionPolicy, String> {
+    state.set_max_items(max_items)?;
+    Ok(state.retention_policy())
+}
+
+#[tauri::command]
+fn toggle_history_pin(
+    app: AppHandle,
+    state: State<'_, HistoryState>,
+    id: u64,
+) -> Result<bool, String> {
+    let pinned = state.toggle_pin(id)?;
+    emit_history_updated(&app, &state);
+    Ok(pinned)
+}
+
+#[tauri::command]
+fn export_history(
+    app: AppHandle,
+    state: State<'_, HistoryState>,
+    format: history::HistoryExportFormat,
+) -> Result<String, String> {
+    let export = state.prepare_export(format)?;
+    let extension = match format {
+        history::HistoryExportFormat::Txt => "txt",
+        history::HistoryExportFormat::Markdown => "md",
+        history::HistoryExportFormat::Json => "json",
+    };
+    let path = user_export::write_download(
+        &app,
+        "famvoice-history",
+        extension,
+        export.contents.as_bytes(),
+    )?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -418,20 +472,167 @@ fn transcription_language_override(language_preference: &str) -> Option<&str> {
     }
 }
 
+fn shortcut_is_registered(app: &AppHandle, value: &str) -> bool {
+    if input_hook::is_mouse_hotkey(value) {
+        return input_hook::mouse_listener_available();
+    }
+    value
+        .parse::<Shortcut>()
+        .is_ok_and(|shortcut| app.global_shortcut().is_registered(shortcut))
+}
+
+fn diagnostics_snapshot_for_app(
+    app: &AppHandle,
+    settings_state: &SettingsState,
+    audio_state: &AudioState,
+    diagnostics_state: &diagnostics::DiagnosticsState,
+) -> Result<diagnostics::DiagnosticsSnapshot, String> {
+    let settings = settings_state
+        .settings
+        .lock()
+        .map_err(|error| format!("Failed to acquire settings lock: {error}"))?
+        .clone();
+    let devices = audio::list_input_devices().unwrap_or_default();
+    let recording_registered = shortcut_is_registered(app, &settings.hotkey);
+    let repaste_registered = hotkey_is_disabled(&settings.repaste_hotkey)
+        || shortcut_is_registered(app, &settings.repaste_hotkey);
+
+    Ok(diagnostics::diagnostics_snapshot(
+        &settings,
+        &devices,
+        audio_state
+            .stream_healthy
+            .load(std::sync::atomic::Ordering::SeqCst),
+        recording_registered,
+        repaste_registered,
+        diagnostics_state,
+    ))
+}
+
+#[tauri::command]
+fn get_diagnostics_snapshot(
+    app: AppHandle,
+    settings_state: State<'_, SettingsState>,
+    audio_state: State<'_, AudioState>,
+    diagnostics_state: State<'_, diagnostics::DiagnosticsState>,
+) -> Result<diagnostics::DiagnosticsSnapshot, String> {
+    diagnostics_snapshot_for_app(&app, &settings_state, &audio_state, &diagnostics_state)
+}
+
+#[tauri::command]
+async fn run_microphone_test(app: AppHandle) -> Result<diagnostics::MicrophoneSignalTest, String> {
+    let coordinator: State<DictationCoordinatorState> = app.state();
+    let settings_state: State<SettingsState> = app.state();
+    let audio_state: State<AudioState> = app.state();
+    let diagnostics_state: State<diagnostics::DiagnosticsState> = app.state();
+    let _operation_guard = coordinator.lock_operation().await;
+    if coordinator.activity().active {
+        return Err("Finish the active dictation before testing the microphone.".to_string());
+    }
+    let selected_device_id = settings_state
+        .settings
+        .lock()
+        .map_err(|error| format!("Failed to acquire settings lock: {error}"))?
+        .input_device_id
+        .clone();
+    let token = diagnostics_state.begin_operation(diagnostics::DiagnosticOperation::MicrophoneTest);
+    let result =
+        audio::test_input_signal(app.clone(), &audio_state, Some(selected_device_id.as_str()))
+            .await;
+    match result {
+        Ok(levels) => {
+            let test = diagnostics::microphone_test_from_levels(&levels);
+            diagnostics_state.record_microphone_test(test.clone());
+            diagnostics_state.finish_operation(token, Ok(()));
+            Ok(test)
+        }
+        Err(error) => {
+            diagnostics_state.finish_operation(token, Err(&error));
+            Err(diagnostics::sanitize_error(&error))
+        }
+    }
+}
+
+#[tauri::command]
+async fn test_provider_auth(
+    app: AppHandle,
+) -> Result<diagnostics::ProviderConnectivityTest, String> {
+    let settings_state: State<SettingsState> = app.state();
+    let http_state: State<HttpClientState> = app.state();
+    let diagnostics_state: State<diagnostics::DiagnosticsState> = app.state();
+    let settings = settings_state
+        .settings
+        .lock()
+        .map_err(|error| format!("Failed to acquire settings lock: {error}"))?
+        .clone();
+    let token = diagnostics_state.begin_operation(diagnostics::DiagnosticOperation::ProviderTest);
+    let test = diagnostics::test_provider_models(
+        &http_state.client,
+        &settings.transcription_provider,
+        settings.transcription_api_key(),
+    )
+    .await;
+    diagnostics_state.record_provider_test(test.clone());
+    let result = if test.authenticated {
+        Ok(())
+    } else {
+        Err(test.error.as_deref().unwrap_or("Provider test failed."))
+    };
+    diagnostics_state.finish_operation(token, result);
+    Ok(test)
+}
+
+#[tauri::command]
+fn export_diagnostics(
+    app: AppHandle,
+    settings_state: State<'_, SettingsState>,
+    audio_state: State<'_, AudioState>,
+    diagnostics_state: State<'_, diagnostics::DiagnosticsState>,
+) -> Result<String, String> {
+    let snapshot =
+        diagnostics_snapshot_for_app(&app, &settings_state, &audio_state, &diagnostics_state)?;
+    let contents = diagnostics::export_diagnostics_json(&snapshot)?;
+    let path =
+        user_export::write_download(&app, "famvoice-diagnostics", "json", contents.as_bytes())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+fn emit_dictation_activity(app: &AppHandle, coordinator: &DictationCoordinatorState) {
+    let _ = app.emit("dictation-activity", coordinator.activity());
+}
+
+fn emit_retry_audio_state(app: &AppHandle, state: &retry_audio::RetryAudioState) {
+    let _ = app.emit("retry-audio-state", state.status());
+}
+
 #[tauri::command]
 async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
     let audio_state: State<AudioState> = app.state();
     let tasks_state: State<BackgroundTasksState> = app.state();
     let settings_state: State<SettingsState> = app.state();
-    tasks_state.invalidate_status_reset();
+    let coordinator: State<DictationCoordinatorState> = app.state();
+    let retry_state: State<retry_audio::RetryAudioState> = app.state();
+    let _operation_guard = coordinator.lock_operation().await;
     let input_device_id = settings_state
         .settings
         .lock()
         .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
         .input_device_id
         .clone();
+    let session_id = coordinator.begin_recording()?;
+    retry_state.discard();
+    emit_retry_audio_state(&app, &retry_state);
+    emit_dictation_activity(&app, &coordinator);
+    tasks_state.invalidate_status_reset();
 
-    match audio::start_recording(app.clone(), &audio_state, Some(input_device_id.as_str())).await {
+    match audio::start_recording(
+        app.clone(),
+        &audio_state,
+        session_id,
+        Some(input_device_id.as_str()),
+    )
+    .await
+    {
         Ok(()) => {
             if let Err(error) = ensure_main_window_visible(&app, false) {
                 log_operation_error(
@@ -440,9 +641,12 @@ async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
                 );
             }
             let _ = app.emit("status", "recording");
+            let _ = app.emit("transcript", "");
             Ok(())
         }
         Err(error) => {
+            coordinator.fail_recording(session_id);
+            emit_dictation_activity(&app, &coordinator);
             eprintln!("[FamVoice] Failed to start recording: {}", error);
             let _ = app.emit("status", "error");
             let _ = app.emit("transcript", error.clone());
@@ -555,9 +759,8 @@ where
     }
 }
 
-#[cfg(test)]
-fn should_restore_original_clipboard(auto_paste: bool, copy_transcript_to_clipboard: bool) -> bool {
-    auto_paste && !copy_transcript_to_clipboard
+fn should_touch_clipboard(_auto_paste: bool, copy_transcript_to_clipboard: bool) -> bool {
+    copy_transcript_to_clipboard
 }
 
 fn paste_clipboard_settle_delay() -> std::time::Duration {
@@ -595,14 +798,49 @@ fn schedule_status_reset(app: AppHandle, tasks_state: &BackgroundTasksState) {
     tasks_state.spawn(handle);
 }
 
-fn emit_transient_recording_error(
+fn finish_session_with_error(
     app: &AppHandle,
     tasks_state: &BackgroundTasksState,
+    coordinator: &DictationCoordinatorState,
+    session_id: SessionId,
     message: &str,
 ) {
-    let _ = app.emit("status", "error");
-    let _ = app.emit("transcript", message);
-    schedule_status_reset(app.clone(), tasks_state);
+    let should_emit = coordinator.finish_session(session_id);
+    emit_dictation_activity(app, coordinator);
+    if should_emit {
+        let _ = app.emit("status", "error");
+        let _ = app.emit("transcript", message);
+        schedule_status_reset(app.clone(), tasks_state);
+    }
+}
+
+#[tauri::command]
+fn get_retry_audio_state(
+    state: State<'_, retry_audio::RetryAudioState>,
+) -> retry_audio::RetryAudioStatus {
+    state.status()
+}
+
+#[tauri::command]
+fn discard_last_failed_dictation(app: AppHandle, state: State<'_, retry_audio::RetryAudioState>) {
+    state.discard();
+    emit_retry_audio_state(&app, &state);
+}
+
+pub(crate) async fn handle_audio_stream_failure(app: AppHandle, session_id: SessionId) {
+    let coordinator: State<DictationCoordinatorState> = app.state();
+    let tasks_state: State<BackgroundTasksState> = app.state();
+    let _operation_guard = coordinator.lock_operation().await;
+
+    if coordinator.fail_recording(session_id) {
+        tasks_state.invalidate_status_reset();
+        emit_dictation_activity(&app, &coordinator);
+        let message =
+            "The microphone stopped unexpectedly. Check the input device and try recording again.";
+        let _ = app.emit("status", "error");
+        let _ = app.emit("transcript", message);
+        schedule_status_reset(app.clone(), &tasks_state);
+    }
 }
 
 struct PreparedRecording {
@@ -611,24 +849,12 @@ struct PreparedRecording {
     silence_threshold: f64,
 }
 
-async fn capture_and_prepare_samples(
-    app: &AppHandle,
-    tasks_state: &BackgroundTasksState,
-    audio_state: &AudioState,
+fn prepare_recorded_samples(
+    mut samples: Vec<i16>,
     settings_state: &SettingsState,
 ) -> Result<PreparedRecording, String> {
-    let mut samples = match audio::stop_recording(audio_state).await {
-        Some(samples) => samples,
-        None => {
-            eprintln!("[FamVoice] stop_recording returned None, was not recording");
-            let _ = app.emit("status", "idle");
-            return Err("Not recording".into());
-        }
-    };
-
     if samples.is_empty() {
         eprintln!("[FamVoice] No audio samples recorded");
-        emit_transient_recording_error(app, tasks_state, "No audio recorded");
         return Err("No audio recorded".into());
     }
 
@@ -654,7 +880,6 @@ async fn capture_and_prepare_samples(
 
     if mic_analysis::should_reject_for_silence(levels, settings.mic_sensitivity) {
         eprintln!("[FamVoice] Silence detected, skipping transcription");
-        emit_transient_recording_error(app, tasks_state, "No voice detected");
         return Err("No voice detected".into());
     }
 
@@ -690,18 +915,6 @@ async fn capture_and_prepare_samples(
         }
     }
 
-    if settings.transcription_api_key().is_empty() {
-        let provider_label = if settings.transcription_provider == "groq" {
-            "Groq"
-        } else {
-            "OpenAI"
-        };
-        eprintln!("[FamVoice] {} API key is empty!", provider_label);
-        let _ = app.emit("status", "error");
-        let _ = app.emit("transcript", format!("{} API key missing", provider_label));
-        return Err("API key is empty".into());
-    }
-
     Ok(PreparedRecording {
         settings,
         samples,
@@ -709,16 +922,35 @@ async fn capture_and_prepare_samples(
     })
 }
 
-async fn transcribe_recording(
-    http_client: &reqwest::Client,
-    settings: &AppSettings,
-    samples: Vec<i16>,
-    silence_threshold: f64,
-    started_at: std::time::Instant,
-) -> Result<String, String> {
+struct EncodedRecording {
+    bytes: Vec<u8>,
+    format: retry_audio::RetryAudioFormat,
+    audio_duration: std::time::Duration,
+}
+
+impl EncodedRecording {
+    fn into_retry_parts(mut self) -> (Vec<u8>, retry_audio::RetryAudioFormat, std::time::Duration) {
+        (
+            std::mem::take(&mut self.bytes),
+            self.format,
+            self.audio_duration,
+        )
+    }
+}
+
+impl Drop for EncodedRecording {
+    fn drop(&mut self) {
+        self.bytes.fill(0);
+        std::hint::black_box(self.bytes.as_mut_slice());
+    }
+}
+
+fn encode_recording(samples: Vec<i16>, silence_threshold: f64) -> EncodedRecording {
     let t_encode = std::time::Instant::now();
     let upload_audio = audio::select_samples_for_upload(&samples, silence_threshold);
     let sample_rate = 16_000.0;
+    let audio_duration =
+        std::time::Duration::from_secs_f64(upload_audio.samples.len() as f64 / sample_rate);
 
     if upload_audio.was_trimmed {
         eprintln!(
@@ -730,45 +962,86 @@ async fn transcribe_recording(
         );
     }
 
-    let (audio_bytes, audio_mime, audio_ext, format_label) =
+    let (bytes, format, format_label) =
         match audio::encode_flac_in_memory(upload_audio.samples.as_ref()) {
-            Ok(flac_bytes) => (flac_bytes, "audio/flac", "audio.flac", "FLAC"),
+            Ok(flac_bytes) => (flac_bytes, retry_audio::RetryAudioFormat::Flac, "FLAC"),
             Err(flac_err) => {
                 eprintln!(
                     "[FamVoice] FLAC encode failed, falling back to WAV: {}",
                     flac_err
                 );
-                let wav = audio::encode_wav_in_memory(upload_audio.samples.as_ref());
-                (wav, "audio/wav", "audio.wav", "WAV")
+                (
+                    audio::encode_wav_in_memory(upload_audio.samples.as_ref()),
+                    retry_audio::RetryAudioFormat::Wav,
+                    "WAV",
+                )
             }
         };
-    let t_api = std::time::Instant::now();
     eprintln!(
         "[FamVoice] {} encode: {} samples ({:.1}s) -> {} bytes in {:.0}ms",
         format_label,
         upload_audio.samples.len(),
         upload_audio.samples.len() as f64 / sample_rate,
-        audio_bytes.len(),
+        bytes.len(),
         t_encode.elapsed().as_secs_f64() * 1000.0
     );
+
+    EncodedRecording {
+        bytes,
+        format,
+        audio_duration,
+    }
+}
+
+async fn transcribe_encoded_recording(
+    http_client: &reqwest::Client,
+    settings: &AppSettings,
+    audio_bytes: &[u8],
+    audio_format: retry_audio::RetryAudioFormat,
+    audio_duration: std::time::Duration,
+    started_at: std::time::Instant,
+) -> Result<String, String> {
+    let t_api = std::time::Instant::now();
+
+    if settings.transcription_api_key().trim().is_empty() {
+        let provider_label = if settings.transcription_provider == "groq" {
+            "Groq"
+        } else {
+            "OpenAI"
+        };
+        eprintln!("[FamVoice] {} API key is empty!", provider_label);
+        return Err(format!("{} API key missing", provider_label));
+    }
 
     eprintln!(
         "[FamVoice] Transcribing with provider: {}, model: {}, language preference: {}, path: upload",
         settings.transcription_provider, settings.model, settings.language
     );
     let lang = transcription_language_override(&settings.language);
-    let transcription_prompt =
-        glossary::transcription_prompt(&settings.language, &settings.replacements);
+    let transcription_keywords = glossary::transcription_keywords(&settings.replacements);
+    let transcription_prompt = if settings.model == "gpt-transcribe" {
+        // GPT Transcribe has a dedicated literal keyword field. Keep replacement
+        // values out of its unstructured context so hints cannot introduce text
+        // that the user did not say.
+        glossary::transcription_context_prompt(&settings.language)
+    } else {
+        // Preserve the established prompt-compatible path for Whisper/Groq.
+        glossary::transcription_prompt(&settings.language, &settings.replacements)
+    };
     let text = transcription::transcribe_audio(
         http_client,
-        audio_bytes,
+        audio_bytes.to_vec(),
         settings.transcription_api_key(),
-        &settings.model,
-        lang,
-        transcription_prompt.as_deref(),
-        &settings.transcription_provider,
-        audio_mime,
-        audio_ext,
+        transcription::TranscriptionRequest {
+            model: &settings.model,
+            language: lang,
+            prompt: transcription_prompt.as_deref(),
+            keywords: &transcription_keywords,
+            provider: &settings.transcription_provider,
+            mime_type: audio_format.mime_type(),
+            file_name: audio_format.file_name(),
+            audio_duration,
+        },
     )
     .await?;
 
@@ -780,124 +1053,195 @@ async fn transcribe_recording(
         |request| prompt_optimizer::optimize_prompt(http_client, settings.api_key.trim(), request),
     )
     .await;
+    let text = transcription::validate_transcript_text(&text)?;
     eprintln!(
         "[FamVoice] Transcript ready: path=upload | API {:.0}ms | Total {:.0}ms | {} chars",
         t_api.elapsed().as_secs_f64() * 1000.0,
         started_at.elapsed().as_secs_f64() * 1000.0,
-        text.len(),
+        text.chars().count(),
     );
-    #[cfg(debug_assertions)]
-    {
-        let preview = if text.len() > 100 {
-            &text[..100]
-        } else {
-            &text
-        };
-        eprintln!("[FamVoice] Transcript preview: {:?}", preview);
-    }
 
     Ok(text)
 }
 
+struct TranscriptDeliveryContext<'a> {
+    app: &'a AppHandle,
+    tasks_state: &'a BackgroundTasksState,
+    coordinator: &'a DictationCoordinatorState,
+    history_state: &'a HistoryState,
+    clipboard_state: &'a ClipboardState,
+}
+
 async fn deliver_transcript(
-    app: &AppHandle,
-    tasks_state: &BackgroundTasksState,
-    history_state: &HistoryState,
-    clipboard_state: &ClipboardState,
+    context: TranscriptDeliveryContext<'_>,
+    session_id: SessionId,
     settings: &AppSettings,
     text: String,
 ) {
-    let should_copy_transcript_to_clipboard = settings.preserve_clipboard;
-    let needs_clipboard_for_auto_paste = settings.auto_paste;
-    let should_touch_clipboard =
-        should_copy_transcript_to_clipboard || needs_clipboard_for_auto_paste;
-    let should_restore_original_clipboard =
-        needs_clipboard_for_auto_paste && !should_copy_transcript_to_clipboard;
+    let TranscriptDeliveryContext {
+        app,
+        tasks_state,
+        coordinator,
+        history_state,
+        clipboard_state,
+    } = context;
+    let _operation_guard = coordinator.lock_operation().await;
+    let text = match transcription::validate_transcript_text(&text) {
+        Ok(text) => text,
+        Err(error) => {
+            finish_session_with_error(app, tasks_state, coordinator, session_id, &error);
+            return;
+        }
+    };
 
-    if should_restore_original_clipboard {
-        clipboard::save_clipboard(clipboard_state);
+    if !coordinator.should_deliver(session_id) {
+        if let Err(error) = history_state.add(text) {
+            log_operation_error(
+                "Failed to preserve superseded transcript in history",
+                &error,
+            );
+        }
+        emit_history_updated(app, history_state);
+        coordinator.finish_session(session_id);
+        emit_dictation_activity(app, coordinator);
+        return;
     }
 
-    if should_touch_clipboard {
+    let should_copy_transcript_to_clipboard = settings.preserve_clipboard;
+    let should_touch_clipboard =
+        should_touch_clipboard(settings.auto_paste, should_copy_transcript_to_clipboard);
+    let history_save_error = history_state.add(text.clone()).err();
+    emit_history_updated(app, history_state);
+
+    let requires_external_delivery = settings.auto_paste || should_copy_transcript_to_clipboard;
+    let length_error = requires_external_delivery
+        .then(|| delivery::validate_text_length(&text).err())
+        .flatten();
+    let delivery_allowed = length_error.is_none();
+    let _clipboard_guard = if delivery_allowed && should_touch_clipboard {
+        Some(clipboard_state.lock_transaction().await)
+    } else {
+        None
+    };
+
+    let mut delivery_error = length_error;
+
+    if delivery_allowed && should_touch_clipboard {
         if let Err(error) = clipboard::set_clipboard(clipboard_state, &text) {
             eprintln!("[FamVoice] Failed to set clipboard: {}", error);
+            delivery_error = Some(format!("Could not copy the transcript: {error}"));
         }
     }
 
-    let mut paste_successful = true;
-    let mut paste_error = None;
+    if settings.auto_paste && delivery_error.is_none() {
+        let injection_result = if should_touch_clipboard {
+            tokio::time::sleep(paste_clipboard_settle_delay()).await;
+            tokio::task::spawn_blocking(injection::simulate_paste).await
+        } else {
+            let transcript = text.clone();
+            tokio::task::spawn_blocking(move || injection::simulate_text(&transcript)).await
+        };
 
-    if settings.auto_paste {
-        tokio::time::sleep(paste_clipboard_settle_delay()).await;
-        match tokio::task::spawn_blocking(injection::simulate_paste).await {
+        match injection_result {
             Ok(Err(error)) => {
-                eprintln!("[FamVoice] Failed to simulate paste: {}", error);
-                paste_successful = false;
-                paste_error = Some(error);
+                eprintln!("[FamVoice] Failed to insert transcript: {}", error);
+                delivery_error = Some(format!("Could not insert the transcript: {error}"));
             }
             Err(join_error) => {
-                let error = format!("Paste task panicked: {}", join_error);
+                let error = format!("Transcript insertion task panicked: {}", join_error);
                 eprintln!("[FamVoice] {}", error);
-                paste_successful = false;
-                paste_error = Some(error);
+                delivery_error = Some(error);
             }
             Ok(Ok(())) => {}
         }
     }
 
-    if should_restore_original_clipboard {
-        let saved_clipboard = clipboard::saved_clipboard_text(clipboard_state);
-        schedule_clipboard_restore(
-            app,
-            tasks_state,
-            saved_clipboard,
-            "Failed to restore clipboard",
-        );
+    if let Some(error) = history_save_error {
+        log_operation_error("Failed to save transcript history", &error);
+        let persistence_message =
+            "The transcript could not be saved to disk. Check available disk space before continuing.";
+        delivery_error = Some(match delivery_error {
+            Some(existing) => format!("{existing} {persistence_message}"),
+            None => persistence_message.to_string(),
+        });
     }
 
-    history_state.add(text.clone());
-    emit_history_updated(app, history_state);
-
-    if !paste_successful {
+    if let Some(error) = delivery_error {
         let _ = app.emit("status", "error");
         let error_msg = if should_copy_transcript_to_clipboard {
             format!(
-                "Paste failed: {}. Transcript is on clipboard.",
-                paste_error.unwrap_or_default()
+                "{error}. The transcript is available in History and may still be on the clipboard."
             )
         } else {
-            format!(
-                "Paste failed: {}. Transcript is available in History.",
-                paste_error.unwrap_or_default()
-            )
+            format!("{error}. The transcript is available in History.")
         };
         let _ = app.emit("transcript", error_msg);
-        return;
+    } else {
+        let _ = app.emit("transcript", text);
+        let _ = app.emit("status", "success");
     }
 
-    let _ = app.emit("transcript", text);
-    let _ = app.emit("status", "success");
+    coordinator.finish_session(session_id);
+    emit_dictation_activity(app, coordinator);
+    schedule_status_reset(app.clone(), tasks_state);
 }
 
 #[tauri::command]
 async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
     let audio_state: State<AudioState> = app.state();
     let tasks_state: State<BackgroundTasksState> = app.state();
-    tasks_state.invalidate_status_reset();
-    let _ = app.emit("status", "transcribing");
+    let coordinator: State<DictationCoordinatorState> = app.state();
     let settings_state: State<SettingsState> = app.state();
     let history_state: State<HistoryState> = app.state();
     let clipboard_state: State<ClipboardState> = app.state();
     let http_state: State<HttpClientState> = app.state();
+    let retry_state: State<retry_audio::RetryAudioState> = app.state();
+    let diagnostics_state: State<diagnostics::DiagnosticsState> = app.state();
     let started_at = std::time::Instant::now();
 
-    let prepared =
-        capture_and_prepare_samples(&app, &tasks_state, &audio_state, &settings_state).await?;
-    let text = match transcribe_recording(
+    let (session_id, samples) = {
+        let _operation_guard = coordinator.lock_operation().await;
+        let session_id = coordinator
+            .current_recording_session()
+            .ok_or_else(|| "Not recording".to_string())?;
+        coordinator.begin_transcription(session_id)?;
+        emit_dictation_activity(&app, &coordinator);
+        tasks_state.invalidate_status_reset();
+        let _ = app.emit("status", "transcribing");
+
+        let Some(samples) = audio::stop_recording(&audio_state, session_id).await else {
+            let message = if audio_state
+                .stream_healthy
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                "Recording could not be completed"
+            } else {
+                "The microphone stopped unexpectedly. Check the input device and try recording again."
+            };
+            finish_session_with_error(&app, &tasks_state, &coordinator, session_id, message);
+            return Err(message.to_string());
+        };
+        (session_id, samples)
+    };
+    let diagnostics_token =
+        diagnostics_state.begin_operation(diagnostics::DiagnosticOperation::Dictation);
+
+    let prepared = match prepare_recorded_samples(samples, &settings_state) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            diagnostics_state.finish_operation(diagnostics_token, Err(&error));
+            let _operation_guard = coordinator.lock_operation().await;
+            finish_session_with_error(&app, &tasks_state, &coordinator, session_id, &error);
+            return Err(error);
+        }
+    };
+    let encoded = encode_recording(prepared.samples, prepared.silence_threshold);
+    let text = match transcribe_encoded_recording(
         &http_state.client,
         &prepared.settings,
-        prepared.samples,
-        prepared.silence_threshold,
+        &encoded.bytes,
+        encoded.format,
+        encoded.audio_duration,
         started_at,
     )
     .await
@@ -905,22 +1249,107 @@ async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
         Ok(text) => text,
         Err(error) => {
             eprintln!("[FamVoice] Transcription error: {}", error);
-            let _ = app.emit("status", "error");
-            let _ = app.emit("transcript", error.clone());
+            diagnostics_state.finish_operation(diagnostics_token, Err(&error));
+            let _operation_guard = coordinator.lock_operation().await;
+            if coordinator.should_deliver(session_id) {
+                let (bytes, format, audio_duration) = encoded.into_retry_parts();
+                if let Err(cache_error) = retry_state.store(bytes, format, audio_duration) {
+                    log_operation_error("Failed to retain temporary retry audio", &cache_error);
+                }
+                emit_retry_audio_state(&app, &retry_state);
+            }
+            finish_session_with_error(&app, &tasks_state, &coordinator, session_id, &error);
             return Err(error);
         }
     };
 
     deliver_transcript(
-        &app,
-        &tasks_state,
-        &history_state,
-        &clipboard_state,
+        TranscriptDeliveryContext {
+            app: &app,
+            tasks_state: &tasks_state,
+            coordinator: &coordinator,
+            history_state: &history_state,
+            clipboard_state: &clipboard_state,
+        },
+        session_id,
         &prepared.settings,
         text,
     )
     .await;
-    schedule_status_reset(app.clone(), &tasks_state);
+    diagnostics_state.finish_operation(diagnostics_token, Ok(()));
+    Ok(())
+}
+
+#[tauri::command]
+async fn retry_last_dictation(app: AppHandle) -> Result<(), String> {
+    let tasks_state: State<BackgroundTasksState> = app.state();
+    let coordinator: State<DictationCoordinatorState> = app.state();
+    let settings_state: State<SettingsState> = app.state();
+    let history_state: State<HistoryState> = app.state();
+    let clipboard_state: State<ClipboardState> = app.state();
+    let http_state: State<HttpClientState> = app.state();
+    let retry_state: State<retry_audio::RetryAudioState> = app.state();
+    let diagnostics_state: State<diagnostics::DiagnosticsState> = app.state();
+    let started_at = std::time::Instant::now();
+
+    let (session_id, audio, settings) = {
+        let _operation_guard = coordinator.lock_operation().await;
+        let settings = settings_state
+            .settings
+            .lock()
+            .map_err(|error| format!("Failed to acquire settings lock: {error}"))?
+            .clone();
+        let session_id = coordinator.begin_retry_transcription()?;
+        let Some(audio) = retry_state.take() else {
+            coordinator.finish_session(session_id);
+            emit_dictation_activity(&app, &coordinator);
+            emit_retry_audio_state(&app, &retry_state);
+            return Err("The failed dictation is no longer available".to_string());
+        };
+        tasks_state.invalidate_status_reset();
+        emit_retry_audio_state(&app, &retry_state);
+        emit_dictation_activity(&app, &coordinator);
+        let _ = app.emit("status", "transcribing");
+        let _ = app.emit("transcript", "");
+        (session_id, audio, settings)
+    };
+
+    let diagnostics_token =
+        diagnostics_state.begin_operation(diagnostics::DiagnosticOperation::Dictation);
+    let result = transcribe_encoded_recording(
+        &http_state.client,
+        &settings,
+        audio.bytes(),
+        audio.format(),
+        audio.audio_duration(),
+        started_at,
+    )
+    .await;
+
+    let text = match result {
+        Ok(text) => text,
+        Err(error) => {
+            diagnostics_state.finish_operation(diagnostics_token, Err(&error));
+            let _operation_guard = coordinator.lock_operation().await;
+            finish_session_with_error(&app, &tasks_state, &coordinator, session_id, &error);
+            return Err(error);
+        }
+    };
+
+    deliver_transcript(
+        TranscriptDeliveryContext {
+            app: &app,
+            tasks_state: &tasks_state,
+            coordinator: &coordinator,
+            history_state: &history_state,
+            clipboard_state: &clipboard_state,
+        },
+        session_id,
+        &settings,
+        text,
+    )
+    .await;
+    diagnostics_state.finish_operation(diagnostics_token, Ok(()));
     Ok(())
 }
 
@@ -943,11 +1372,51 @@ mod tests {
     }
 
     #[test]
-    fn test_should_restore_original_clipboard_only_for_temporary_auto_paste() {
-        assert!(should_restore_original_clipboard(true, false));
-        assert!(!should_restore_original_clipboard(false, false));
-        assert!(!should_restore_original_clipboard(true, true));
-        assert!(!should_restore_original_clipboard(false, true));
+    fn copy_disabled_auto_paste_does_not_touch_clipboard() {
+        assert!(
+            !should_touch_clipboard(true, false),
+            "auto-paste must not write dictated text to the clipboard when copy is disabled",
+        );
+        assert!(!should_touch_clipboard(false, false));
+        assert!(should_touch_clipboard(true, true));
+        assert!(should_touch_clipboard(false, true));
+    }
+
+    #[test]
+    fn microphone_change_is_rejected_during_recording_and_transcription() {
+        for activity in [
+            DictationActivity {
+                active: true,
+                recording: true,
+                transcribing: false,
+            },
+            DictationActivity {
+                active: true,
+                recording: false,
+                transcribing: true,
+            },
+        ] {
+            let error = ensure_input_device_change_allowed("mic-a", "mic-b", activity)
+                .expect_err("active dictation must reject microphone changes");
+            assert!(error.contains("recording or transcription is active"));
+        }
+    }
+
+    #[test]
+    fn microphone_change_is_allowed_when_idle_or_unchanged() {
+        let idle = DictationActivity {
+            active: false,
+            recording: false,
+            transcribing: false,
+        };
+        let recording = DictationActivity {
+            active: true,
+            recording: true,
+            transcribing: false,
+        };
+
+        assert!(ensure_input_device_change_allowed("mic-a", "mic-b", idle).is_ok());
+        assert!(ensure_input_device_change_allowed("mic-a", "mic-a", recording).is_ok());
     }
 
     #[test]
@@ -1196,7 +1665,10 @@ pub fn run() {
                 .unwrap_or_else(|_| PathBuf::from("."));
             std::fs::create_dir_all(&app_dir).unwrap_or_default();
 
+            app.manage(DictationCoordinatorState::default());
             app.manage(AudioState::default());
+            app.manage(diagnostics::DiagnosticsState::default());
+            app.manage(retry_audio::RetryAudioState::default());
             app.manage(SettingsState::load(app_dir.clone()));
             app.manage(HistoryState::load(app_dir));
             app.manage(ClipboardState::default());
@@ -1329,12 +1801,25 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            get_dictation_activity,
             save_settings,
             list_input_devices,
             get_history,
             delete_history_item,
+            restore_history_item,
             clear_history,
+            get_history_retention,
+            set_history_retention,
+            toggle_history_pin,
+            export_history,
             repaste_history_item,
+            get_retry_audio_state,
+            retry_last_dictation,
+            discard_last_failed_dictation,
+            get_diagnostics_snapshot,
+            run_microphone_test,
+            test_provider_auth,
+            export_diagnostics,
             start_recording_cmd,
             stop_recording_cmd,
             resize_main_window,

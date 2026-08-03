@@ -76,7 +76,7 @@ test("glossary rows keep persistent labels", () => {
 
 test("settings helper copy and glossary content use the upgraded body scale", () => {
   assert.match(settingsView, /max-w-\[42rem\] text-xs leading-normal text-slate-400\/80/);
-  assert.match(settingsView, /text-xs leading-normal text-slate-500/);
+  assert.match(settingsView, /text-xs leading-normal text-slate-400/);
   assert.match(settingsView, /const controlMotion = "transition-colors duration-\[var\(--fam-duration-fast\)\] ease-\[var\(--fam-ease-ease\)\]";/);
   assert.match(settingsView, /text-base text-white \$\{controlMotion\} focus-visible:border-primary/);
   assert.match(settingsView, /-&gt;<\/span>/);
@@ -124,7 +124,7 @@ test("settings helper copy and errors include recovery steps", () => {
 });
 
 test("widget keeps issues inline without a visible settings action", () => {
-  assert.match(widgetView, /Open Settings\./);
+  assert.match(widgetView, /Tray menu → Settings\./);
   assert.doesNotMatch(widgetView, /title=/);
   assert.doesNotMatch(widgetView, /const settingsAction = \(/);
   assert.doesNotMatch(widgetView, /aria-label="Settings"/);

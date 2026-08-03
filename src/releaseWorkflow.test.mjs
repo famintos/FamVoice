@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const workflowSource = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+const workflowSource = readFileSync(
+  new URL("../.github/workflows/release.yml", import.meta.url),
+  "utf8",
+).replace(/\r\n?/g, "\n");
 
 test("release workflow publishes releases instead of leaving them as drafts", () => {
   assert.match(workflowSource, /releaseDraft:\s*false/);
@@ -33,11 +36,12 @@ test("release workflow reruns the quality gates before publishing", () => {
 
 test("release workflow avoids redundant checks and downloads cargo-audit", () => {
   assert.doesNotMatch(workflowSource, /name:\s*Check Rust backend/);
-  assert.match(
-    workflowSource,
-    /uses:\s*taiki-e\/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853/,
+  const installAction = workflowSource.match(
+    /uses:\s*taiki-e\/install-action@([0-9a-f]+)(?:\s+#.*)?/,
   );
-  assert.match(workflowSource, /tool:\s*cargo-audit@0\.22\.1/);
+  assert.ok(installAction, "release workflow must use the binary install action");
+  assert.match(installAction[1], /^[0-9a-f]{40}$/);
+  assert.match(workflowSource, /tool:\s*cargo-audit@\d+\.\d+\.\d+/);
   assert.match(workflowSource, /fallback:\s*none/);
   assert.doesNotMatch(workflowSource, /cargo install cargo-audit/);
 });

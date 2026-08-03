@@ -9,9 +9,17 @@ interface SelectProps {
   value: string;
   onChange: (value: string) => void;
   options: Option[];
+  disabled?: boolean;
+  ariaDescribedBy?: string;
 }
 
-export function Select({ value, onChange, options }: SelectProps) {
+export function Select({
+  value,
+  onChange,
+  options,
+  disabled = false,
+  ariaDescribedBy,
+}: SelectProps) {
   const selectedValue = options.some((option) => option.value === value)
     ? value
     : options[0]?.value ?? "";
@@ -20,8 +28,10 @@ export function Select({ value, onChange, options }: SelectProps) {
     <div className="relative w-full text-xs">
       <select
         value={selectedValue}
+        disabled={disabled}
+        aria-describedby={ariaDescribedBy}
         onChange={(event) => onChange(event.target.value)}
-        className="focus-ring w-full cursor-pointer appearance-none rounded border border-white/10 bg-black/40 p-2 pr-8 text-white transition-colors hover:border-white/20 focus-visible:border-primary"
+        className="focus-ring w-full cursor-pointer appearance-none rounded border border-white/10 bg-black/40 p-2 pr-8 text-white transition-colors hover:border-white/20 focus-visible:border-primary disabled:cursor-not-allowed disabled:border-white/5 disabled:text-slate-500 disabled:opacity-70"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value} className="bg-[#1a1a1a] text-white">

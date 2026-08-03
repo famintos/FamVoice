@@ -1,8 +1,12 @@
 # FamVoice
 
-A lightweight desktop dictation app. Hold a hotkey, speak, and the transcribed text is pasted directly into whatever window you're using.
+A lightweight Windows desktop dictation app. Hold a hotkey, speak, and the transcribed text is pasted directly into whatever window you're using.
 
 Built with **Tauri v2** (Rust) + **React** + **Tailwind CSS**.
+
+## Supported Platform
+
+FamVoice is officially **Windows-only** in the current release line (Windows 10/11, x64). CI, signed installers, updater metadata, credential storage, and encrypted transcript history are all maintained for Windows. macOS and Linux builds are not supported because they do not yet have equivalent secure persistence and native smoke coverage.
 
 ## How It Works
 
@@ -22,16 +26,21 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 - **Prompt Optimization** - Optional AI pass (OpenAI GPT-5.4 Mini) that rewrites your dictation into a polished implementation prompt for coding agents
 - **Glossary Replacements** - Auto-correct specific words or phrases (e.g. "omg" -> "Oh my gosh")
 - **Widget Mode** - Minimal floating overlay showing only the recording waveform
-- **History** - Browse, copy, or re-paste past transcriptions
+- **Recover Failed Dictation** - Retry the most recent failed upload for up to two minutes without speaking again
+- **Diagnostics** - Test microphone signal, device/hotkey state, and provider authentication without sending dictated content
+- **History** - Search, pin, copy, re-paste, export, or delete past transcriptions
 - **Sound Cues** - Audio feedback for recording start, stop, success, and errors
 - **Launch on Startup** - Auto-start with your OS
 - **Mic Sensitivity Control** - Adjustable threshold to trim silence
 
 ## Supported Transcription Models
 
-- `whisper-1` (OpenAI, legacy / fallback)
-- `whisper-large-v3-turbo` (Groq)
-- `whisper-large-v3` (Groq)
+- `gpt-transcribe` (OpenAI, recommended default for completed-file dictation; $0.0045/min)
+- `whisper-1` (OpenAI, specialized fallback for timestamps, subtitles, or translation; $0.006/min)
+- `whisper-large-v3-turbo` (Groq, speed / value; $0.04/hour)
+- `whisper-large-v3` (Groq, accuracy-first; $0.111/hour)
+
+Existing Groq choices are preserved. Legacy unversioned OpenAI settings migrate once to `gpt-transcribe`; after the migration, an explicit `whisper-1` choice remains stable. See [Transcription models](docs/transcription-models.md) for the provider field matrix, versioned migration policy, official sources, and the dated pt-PT evaluation status.
 
 ## Supported Prompt Optimization Models
 
@@ -39,9 +48,10 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 
 ## Prerequisites
 
+- Windows 10 or Windows 11 (x64)
 - [Node.js](https://nodejs.org/) (v20.19+ on Node 20, v22.13+ on Node 22, or v24+)
 - [Rust](https://www.rust-lang.org/tools/install) (stable)
-- [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform
+- [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for Windows
 - An OpenAI API key or Groq API key (for transcription)
 - *(Optional)* An OpenAI API key (for prompt optimization)
 
@@ -53,7 +63,11 @@ FamVoice does not ship with a shared backend API key. It runs as a local desktop
 - Groq key: required when transcription provider is `Groq`
 - Prompt optimization key: optional OpenAI API key, only used when prompt optimization is enabled
 
-API keys are stored in your OS credential store / keyring, not committed to the repo and not intended to live in plaintext project files.
+API keys are stored in Windows Credential Manager with a DPAPI-encrypted local recovery copy. They are not committed to the repo and are never written to settings in plaintext.
+
+Transcript history is DPAPI-encrypted and bounded to at most 100 items. Settings can reduce the limit or stop saving new transcripts; **Clear history** purges the active history plus FamVoice recovery copies. Explicit TXT, Markdown, and JSON exports are plaintext files in Downloads and remain under the user's control.
+
+When an upload fails after valid speech was captured, FamVoice can retain only that one encoded recording in process RAM for at most two minutes and 10 MiB. Retry consumes it once. Expiry, discard, a new recording, or closing FamVoice removes it; audio is never added to logs, transcript history, diagnostics, or a temporary file.
 
 ## Getting Started
 
@@ -88,8 +102,12 @@ src-tauri/src/
   transcription.rs  OpenAI API integration
   clipboard.rs    System clipboard read/write (arboard)
   injection.rs    Keystroke simulation for auto-paste (enigo)
-  settings.rs     JSON settings persistence
-  history.rs      Transcript history log
+  settings.rs     Atomic settings and Windows credential persistence
+  history.rs      Atomic DPAPI-encrypted transcript history
+  retry_audio.rs  Single-use, RAM-only failed-audio recovery cache
+  diagnostics.rs  Sanitized device, hotkey, provider and latency diagnostics
+  user_export.rs  Explicit non-overwriting exports to Downloads
+  persistence.rs  Shared atomic-write and recovery primitive
   prompt_optimizer/
     mod.rs         Prompt optimization orchestration
     openai.rs      OpenAI API client
@@ -106,7 +124,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for more details.
 | Backend | Rust |
 | Frontend | React 19, TypeScript, Tailwind CSS 4 |
 | Audio | cpal |
-| Transcription | OpenAI API (Whisper / GPT-4o) |
+| Transcription | OpenAI (`gpt-transcribe`, `whisper-1`) or Groq Whisper API |
 | Prompt Optimization | OpenAI API (GPT-5.4 Mini) |
 | Clipboard | arboard |
 | Key Injection | enigo |

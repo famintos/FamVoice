@@ -29,15 +29,19 @@ function getWidgetShellCssBlock() {
 function getRecordTabBlock() {
   const recordTabIndex = mainViewSource.indexOf('{activeTab === "record" ? (');
   assert.notEqual(recordTabIndex, -1, "expected record tab branch in MainView.tsx");
+  const historyTabIndex = mainViewSource.indexOf('id="history-panel"', recordTabIndex);
+  assert.notEqual(historyTabIndex, -1, "expected history tab branch in MainView.tsx");
 
-  return mainViewSource.slice(recordTabIndex, recordTabIndex + 2600);
+  return mainViewSource.slice(recordTabIndex, historyTabIndex);
 }
 
 function getHistoryTabBlock() {
-  const historyTabIndex = mainViewSource.indexOf('className="custom-scrollbar flex-1 overflow-y-auto px-3 pb-3"');
+  const historyTabIndex = mainViewSource.indexOf('id="history-panel"');
   assert.notEqual(historyTabIndex, -1, "expected history tab content in MainView.tsx");
+  const historyTabEnd = mainViewSource.indexOf("<ClearHistoryDialog", historyTabIndex);
+  assert.notEqual(historyTabEnd, -1, "expected history tab content end in MainView.tsx");
 
-  return mainViewSource.slice(historyTabIndex - 300, historyTabIndex + 3200);
+  return mainViewSource.slice(historyTabIndex, historyTabEnd);
 }
 
 test("app shell keeps fonts local and avoids remote font providers", () => {

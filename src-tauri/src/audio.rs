@@ -7,7 +7,7 @@ use cpal::{Sample, SampleFormat};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tokio::sync::mpsc;
@@ -18,6 +18,7 @@ const MAX_RECORDING_DURATION_SECONDS: usize = 5 * 60;
 const MAX_RECORDED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * MAX_RECORDING_DURATION_SECONDS;
 const LOW_LATENCY_TARGET_BUFFER_MS: u32 = 10;
 const RECORDING_TAIL_GRACE_MS: u64 = 80;
+const INPUT_SIGNAL_TEST_DURATION_MS: u64 = 1_500;
 
 const PREROLL_SAMPLES: usize = (TARGET_SAMPLE_RATE as usize * 500) / 1000;
 
@@ -31,7 +32,7 @@ const SPEECH_WINDOW_MIN_SAVED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize / 10;
 
 #[derive(Clone)]
 pub struct AudioState {
-    pub is_recording: Arc<AtomicBool>,
+    pub stream_healthy: Arc<AtomicBool>,
     pub cmd_tx: mpsc::Sender<AudioCommand>,
 }
 
@@ -40,6 +41,45 @@ pub struct InputDeviceOption {
     pub id: String,
     pub label: String,
     pub is_default: bool,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct InputSignalLevels {
+    pub rms: f64,
+    pub peak: f64,
+    pub sample_count: u64,
+}
+
+#[derive(Debug, Default)]
+struct SignalProbe {
+    sum_squares: f64,
+    peak_abs: f64,
+    sample_count: u64,
+}
+
+impl SignalProbe {
+    fn observe(&mut self, samples: &[i16]) {
+        for &sample in samples {
+            let absolute = f64::from(sample).abs();
+            self.sum_squares += absolute * absolute;
+            self.peak_abs = self.peak_abs.max(absolute);
+        }
+        self.sample_count = self.sample_count.saturating_add(samples.len() as u64);
+    }
+
+    fn levels(&self) -> InputSignalLevels {
+        let rms = if self.sample_count == 0 {
+            0.0
+        } else {
+            (self.sum_squares / self.sample_count as f64).sqrt() / f64::from(i16::MAX)
+        };
+
+        InputSignalLevels {
+            rms: rms.clamp(0.0, 1.0),
+            peak: (self.peak_abs / f64::from(i16::MAX)).clamp(0.0, 1.0),
+            sample_count: self.sample_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +95,11 @@ struct AudioStreamContext {
     pending_start: Arc<AtomicBool>,
     armed: Arc<AtomicBool>,
     is_recording: Arc<AtomicBool>,
+    stream_healthy: Arc<AtomicBool>,
     needs_rebuild: Arc<AtomicBool>,
+    stream_error_reported: Arc<AtomicBool>,
+    active_session_id: Arc<AtomicU64>,
+    signal_probe: Arc<Mutex<Option<SignalProbe>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -74,10 +118,19 @@ pub enum AudioCommand {
     ),
     Start(
         tauri::AppHandle,
+        crate::dictation::SessionId,
         Option<String>,
         tokio::sync::oneshot::Sender<Result<(), String>>,
     ),
-    Stop(tokio::sync::oneshot::Sender<Option<Vec<i16>>>),
+    Stop(
+        crate::dictation::SessionId,
+        tokio::sync::oneshot::Sender<Option<Vec<i16>>>,
+    ),
+    TestSignal(
+        tauri::AppHandle,
+        Option<String>,
+        tokio::sync::oneshot::Sender<Result<InputSignalLevels, String>>,
+    ),
 }
 
 pub fn list_input_devices() -> Result<Vec<InputDeviceOption>, String> {
@@ -352,6 +405,7 @@ where
         pending_start,
         armed,
         is_recording,
+        signal_probe,
         ..
     } = context;
     let CaptureConfig {
@@ -377,6 +431,12 @@ where
                 &mut mono_buf,
                 &mut resampled_buf,
             );
+
+            if let Ok(mut probe) = signal_probe.lock() {
+                if let Some(probe) = probe.as_mut() {
+                    probe.observe(&resampled_buf);
+                }
+            }
 
             let is_armed = armed.load(Ordering::Acquire);
 
@@ -555,6 +615,23 @@ fn build_stream_for_sample_format(
     }
 }
 
+fn transition_stream_to_failed(
+    context: &AudioStreamContext,
+) -> Option<crate::dictation::SessionId> {
+    context.pending_start.store(false, Ordering::Release);
+    context.armed.store(false, Ordering::Release);
+    let was_recording = context.is_recording.swap(false, Ordering::SeqCst);
+    context.stream_healthy.store(false, Ordering::SeqCst);
+    context.needs_rebuild.store(true, Ordering::SeqCst);
+
+    if !was_recording || context.stream_error_reported.swap(true, Ordering::SeqCst) {
+        return None;
+    }
+
+    let session_id = context.active_session_id.load(Ordering::SeqCst);
+    (session_id != 0).then_some(session_id)
+}
+
 fn build_persistent_input_stream_for_device(
     device: cpal::Device,
     context: AudioStreamContext,
@@ -614,23 +691,21 @@ fn build_persistent_input_stream_for_device(
         buffer_note
     );
 
-    let err_pending_start = context.pending_start.clone();
-    let err_armed = context.armed.clone();
-    let err_recording = context.is_recording.clone();
-    let err_rebuild = context.needs_rebuild.clone();
+    let error_context = context.clone();
+    let error_app_handle = app_handle.clone();
 
     let make_err_fn = move || {
-        let err_pending_start = err_pending_start.clone();
-        let err_armed = err_armed.clone();
-        let err_recording = err_recording.clone();
-        let err_rebuild = err_rebuild.clone();
+        let error_context = error_context.clone();
+        let error_app_handle = error_app_handle.clone();
 
         move |err| {
             eprintln!("[FamVoice] Audio stream error: {}", err);
-            err_pending_start.store(false, Ordering::Release);
-            err_armed.store(false, Ordering::Release);
-            err_recording.store(false, Ordering::SeqCst);
-            err_rebuild.store(true, Ordering::SeqCst);
+            if let Some(session_id) = transition_stream_to_failed(&error_context) {
+                tauri::async_runtime::spawn(crate::handle_audio_stream_failure(
+                    error_app_handle.clone(),
+                    session_id,
+                ));
+            }
         }
     };
 
@@ -702,12 +777,20 @@ impl Default for AudioState {
         let (tx, mut rx) = mpsc::channel::<AudioCommand>(10);
         let is_recording = Arc::new(AtomicBool::new(false));
         let is_recording_clone = is_recording.clone();
+        let stream_healthy = Arc::new(AtomicBool::new(false));
+        let stream_healthy_clone = stream_healthy.clone();
         let pending_start = Arc::new(AtomicBool::new(false));
         let pending_start_clone = pending_start.clone();
         let armed = Arc::new(AtomicBool::new(false));
         let armed_clone = armed.clone();
         let needs_rebuild = Arc::new(AtomicBool::new(false));
         let needs_rebuild_clone = needs_rebuild.clone();
+        let stream_error_reported = Arc::new(AtomicBool::new(false));
+        let stream_error_reported_clone = stream_error_reported.clone();
+        let active_session_id = Arc::new(AtomicU64::new(0));
+        let active_session_id_clone = active_session_id.clone();
+        let signal_probe = Arc::new(Mutex::new(None));
+        let signal_probe_clone = signal_probe.clone();
         std::thread::spawn(move || {
             let sample_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
             let preroll_buffer: Arc<Mutex<Vec<i16>>> =
@@ -718,7 +801,11 @@ impl Default for AudioState {
                 pending_start: pending_start_clone.clone(),
                 armed: armed_clone.clone(),
                 is_recording: is_recording_clone.clone(),
+                stream_healthy: stream_healthy_clone.clone(),
                 needs_rebuild: needs_rebuild_clone.clone(),
+                stream_error_reported: stream_error_reported_clone.clone(),
+                active_session_id: active_session_id_clone.clone(),
+                signal_probe: signal_probe_clone.clone(),
             };
             let mut recording_state = RecordingCycleState {
                 pending_start: false,
@@ -748,12 +835,14 @@ impl Default for AudioState {
 
                         if requested_device_changed || selected_device_not_active {
                             stream.take();
+                            stream_healthy_clone.store(false, Ordering::SeqCst);
                             active_device_id = None;
                             active_requested_device_id = normalized_selected_device_id.clone();
                         }
 
                         if stream_context.needs_rebuild.swap(false, Ordering::SeqCst) {
                             stream.take();
+                            stream_healthy_clone.store(false, Ordering::SeqCst);
                             active_device_id = None;
                         }
 
@@ -765,6 +854,7 @@ impl Default for AudioState {
                             ) {
                                 Ok((new_stream, device_id)) => {
                                     stream = Some(new_stream);
+                                    stream_healthy_clone.store(true, Ordering::SeqCst);
                                     active_device_id = Some(device_id);
                                 }
                                 Err(error) => {
@@ -776,7 +866,7 @@ impl Default for AudioState {
 
                         let _ = reply.send(Ok(()));
                     }
-                    AudioCommand::Start(app_handle, selected_device_id, reply) => {
+                    AudioCommand::Start(app_handle, session_id, selected_device_id, reply) => {
                         let normalized_selected_device_id = selected_device_id
                             .as_deref()
                             .map(str::trim)
@@ -793,12 +883,14 @@ impl Default for AudioState {
 
                         if requested_device_changed || selected_device_not_active {
                             stream.take();
+                            stream_healthy_clone.store(false, Ordering::SeqCst);
                             active_device_id = None;
                             active_requested_device_id = normalized_selected_device_id.clone();
                         }
 
                         if stream_context.needs_rebuild.swap(false, Ordering::SeqCst) {
                             stream.take();
+                            stream_healthy_clone.store(false, Ordering::SeqCst);
                             active_device_id = None;
                         }
 
@@ -810,6 +902,7 @@ impl Default for AudioState {
                             ) {
                                 Ok((new_stream, device_id)) => {
                                     stream = Some(new_stream);
+                                    stream_healthy_clone.store(true, Ordering::SeqCst);
                                     active_device_id = Some(device_id);
                                 }
                                 Err(error) => {
@@ -828,6 +921,8 @@ impl Default for AudioState {
                                 &mut preroll,
                             );
                         }
+                        active_session_id_clone.store(session_id, Ordering::SeqCst);
+                        stream_error_reported_clone.store(false, Ordering::SeqCst);
                         pending_start_clone.store(recording_state.pending_start, Ordering::Release);
                         armed_clone.store(recording_state.armed, Ordering::Release);
                         is_recording_clone.store(recording_state.is_recording, Ordering::SeqCst);
@@ -836,6 +931,7 @@ impl Default for AudioState {
                             if let Err(e) = s.play() {
                                 eprintln!("[FamVoice] Failed to resume stream: {}", e);
                                 stream.take();
+                                stream_healthy_clone.store(false, Ordering::SeqCst);
                                 active_device_id = None;
                                 recording_state.pending_start = false;
                                 recording_state.armed = false;
@@ -843,16 +939,36 @@ impl Default for AudioState {
                                 pending_start_clone.store(false, Ordering::Release);
                                 armed_clone.store(false, Ordering::Release);
                                 is_recording_clone.store(false, Ordering::SeqCst);
-                                stream_context.needs_rebuild.store(false, Ordering::SeqCst);
+                                stream_context.needs_rebuild.store(true, Ordering::SeqCst);
                                 let _ =
                                     reply.send(Err(format!("Failed to resume microphone: {}", e)));
                                 continue;
                             }
                         }
 
+                        stream_healthy_clone.store(true, Ordering::SeqCst);
+
                         let _ = reply.send(Ok(()));
                     }
-                    AudioCommand::Stop(reply) => {
+                    AudioCommand::Stop(session_id, reply) => {
+                        if active_session_id_clone.load(Ordering::SeqCst) != session_id {
+                            let _ = reply.send(None);
+                            continue;
+                        }
+
+                        if !is_recording_clone.load(Ordering::SeqCst) {
+                            recording_state.pending_start = false;
+                            recording_state.armed = false;
+                            recording_state.is_recording = false;
+                            pending_start_clone.store(false, Ordering::Release);
+                            armed_clone.store(false, Ordering::Release);
+                            if let Ok(mut buffer) = sample_buffer.lock() {
+                                buffer.clear();
+                            }
+                            let _ = reply.send(None);
+                            continue;
+                        }
+
                         // Keep capturing briefly after hotkey release so queued device samples and
                         // quiet final consonants are not cut from the last dictated word.
                         std::thread::sleep(std::time::Duration::from_millis(
@@ -871,6 +987,8 @@ impl Default for AudioState {
                         if let Some(ref s) = stream {
                             if let Err(e) = s.pause() {
                                 eprintln!("[FamVoice] Failed to pause stream: {}", e);
+                                stream_healthy_clone.store(false, Ordering::SeqCst);
+                                stream_context.needs_rebuild.store(true, Ordering::SeqCst);
                             }
                         }
 
@@ -885,12 +1003,160 @@ impl Default for AudioState {
                             let _ = reply.send(None);
                         }
                     }
+                    AudioCommand::TestSignal(app_handle, selected_device_id, reply) => {
+                        if is_recording_clone.load(Ordering::SeqCst) {
+                            let _ = reply.send(Err(
+                                "A dictation is active. Stop it before testing the microphone."
+                                    .to_string(),
+                            ));
+                            continue;
+                        }
+
+                        let normalized_selected_device_id = selected_device_id
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|id| !id.is_empty())
+                            .map(str::to_string);
+                        let requested_device_changed =
+                            normalized_selected_device_id != active_requested_device_id;
+                        let selected_device_not_active = normalized_selected_device_id
+                            .as_deref()
+                            .is_some_and(|selected_id| {
+                                active_device_id.as_deref() != Some(selected_id)
+                            });
+
+                        if requested_device_changed || selected_device_not_active {
+                            stream.take();
+                            stream_healthy_clone.store(false, Ordering::SeqCst);
+                            active_device_id = None;
+                            active_requested_device_id = normalized_selected_device_id.clone();
+                        }
+
+                        if stream_context.needs_rebuild.swap(false, Ordering::SeqCst) {
+                            stream.take();
+                            stream_healthy_clone.store(false, Ordering::SeqCst);
+                            active_device_id = None;
+                        }
+
+                        if stream.is_none() {
+                            match build_persistent_input_stream(
+                                normalized_selected_device_id.as_deref(),
+                                stream_context.clone(),
+                                app_handle,
+                            ) {
+                                Ok((new_stream, device_id)) => {
+                                    stream = Some(new_stream);
+                                    stream_healthy_clone.store(true, Ordering::SeqCst);
+                                    active_device_id = Some(device_id);
+                                }
+                                Err(error) => {
+                                    let _ = reply.send(Err(error));
+                                    continue;
+                                }
+                            }
+                        }
+
+                        if let Ok(mut buffer) = sample_buffer.lock() {
+                            buffer.clear();
+                        }
+                        if let Ok(mut preroll) = preroll_buffer.lock() {
+                            preroll.clear();
+                        }
+                        match signal_probe_clone.lock() {
+                            Ok(mut probe) => *probe = Some(SignalProbe::default()),
+                            Err(_) => {
+                                let _ = reply.send(Err(
+                                    "Microphone signal probe is unavailable.".to_string()
+                                ));
+                                continue;
+                            }
+                        }
+
+                        let play_result = stream.as_ref().map_or_else(
+                            || Err("Microphone stream is unavailable.".to_string()),
+                            |stream| {
+                                stream.play().map_err(|error| {
+                                    format!("Failed to start microphone test: {error}")
+                                })
+                            },
+                        );
+                        if let Err(error) = play_result {
+                            // Drop a stream that failed to transition before clearing buffers so
+                            // no late callback can repopulate diagnostic pre-roll after cleanup.
+                            stream.take();
+                            active_device_id = None;
+                            if let Ok(mut probe) = signal_probe_clone.lock() {
+                                probe.take();
+                            }
+                            if let Ok(mut buffer) = sample_buffer.lock() {
+                                buffer.clear();
+                            }
+                            if let Ok(mut preroll) = preroll_buffer.lock() {
+                                preroll.clear();
+                            }
+                            stream_healthy_clone.store(false, Ordering::SeqCst);
+                            stream_context.needs_rebuild.store(true, Ordering::SeqCst);
+                            let _ = reply.send(Err(error));
+                            continue;
+                        }
+
+                        // This command deliberately occupies the actor while the callback only
+                        // aggregates signal statistics. Start/Stop commands therefore cannot
+                        // overlap the probe and no diagnostic path can obtain PCM samples.
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            INPUT_SIGNAL_TEST_DURATION_MS,
+                        ));
+
+                        let pause_error = stream.as_ref().and_then(|stream| {
+                            stream
+                                .pause()
+                                .err()
+                                .map(|error| format!("Failed to stop microphone test: {error}"))
+                        });
+                        if pause_error.is_some() {
+                            // A stream that cannot pause must be dropped before the cleanup below;
+                            // otherwise its callback could retain a new pre-roll after we return.
+                            stream.take();
+                            active_device_id = None;
+                        }
+                        let levels = signal_probe_clone
+                            .lock()
+                            .ok()
+                            .and_then(|mut probe| probe.take())
+                            .map(|probe| probe.levels());
+
+                        // The persistent callback normally maintains a short pre-roll. A probe
+                        // is diagnostics-only, so discard both buffers before returning levels.
+                        if let Ok(mut buffer) = sample_buffer.lock() {
+                            buffer.clear();
+                        }
+                        if let Ok(mut preroll) = preroll_buffer.lock() {
+                            preroll.clear();
+                        }
+
+                        if let Some(error) = pause_error {
+                            stream_healthy_clone.store(false, Ordering::SeqCst);
+                            stream_context.needs_rebuild.store(true, Ordering::SeqCst);
+                            let _ = reply.send(Err(error));
+                        } else if !stream_healthy_clone.load(Ordering::SeqCst) {
+                            let _ = reply
+                                .send(Err("The microphone disconnected during the signal test."
+                                    .to_string()));
+                        } else if let Some(levels) = levels {
+                            let _ = reply.send(Ok(levels));
+                        } else {
+                            let _ =
+                                reply
+                                    .send(Err("Microphone signal probe did not return levels."
+                                        .to_string()));
+                        }
+                    }
                 }
             }
         });
 
         Self {
-            is_recording,
+            stream_healthy,
             cmd_tx: tx,
         }
     }
@@ -1096,6 +1362,7 @@ pub fn select_samples_for_upload<'a>(
 pub async fn start_recording(
     app_handle: tauri::AppHandle,
     state: &AudioState,
+    session_id: crate::dictation::SessionId,
     selected_device_id: Option<&str>,
 ) -> Result<(), String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1103,6 +1370,7 @@ pub async fn start_recording(
         .cmd_tx
         .send(AudioCommand::Start(
             app_handle,
+            session_id,
             selected_device_id.map(str::to_string),
             tx,
         ))
@@ -1131,9 +1399,39 @@ pub async fn prime_input_stream(
         .map_err(|e| format!("Prime channel error: {}", e))?
 }
 
-pub async fn stop_recording(state: &AudioState) -> Option<Vec<i16>> {
+/// Runs a short, actor-exclusive signal probe. Only aggregate levels cross the
+/// actor boundary; PCM remains callback-local and the actor clears its pre-roll
+/// before responding.
+pub async fn test_input_signal(
+    app_handle: tauri::AppHandle,
+    state: &AudioState,
+    selected_device_id: Option<&str>,
+) -> Result<InputSignalLevels, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
-    if state.cmd_tx.send(AudioCommand::Stop(tx)).await.is_err() {
+    state
+        .cmd_tx
+        .send(AudioCommand::TestSignal(
+            app_handle,
+            selected_device_id.map(str::to_string),
+            tx,
+        ))
+        .await
+        .map_err(|error| format!("Microphone test channel error: {error}"))?;
+    rx.await
+        .map_err(|error| format!("Microphone test response error: {error}"))?
+}
+
+pub async fn stop_recording(
+    state: &AudioState,
+    session_id: crate::dictation::SessionId,
+) -> Option<Vec<i16>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    if state
+        .cmd_tx
+        .send(AudioCommand::Stop(session_id, tx))
+        .await
+        .is_err()
+    {
         eprintln!("[FamVoice] Failed to send stop command to audio thread");
         return None;
     }
@@ -1389,5 +1687,50 @@ mod tests {
 
         assert!(!selected.was_trimmed);
         assert!(matches!(selected.samples, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn simulated_stream_disconnect_reports_once_and_allows_a_new_recording() {
+        let context = AudioStreamContext {
+            sample_buffer: Arc::new(Mutex::new(Vec::new())),
+            preroll_buffer: Arc::new(Mutex::new(Vec::new())),
+            pending_start: Arc::new(AtomicBool::new(false)),
+            armed: Arc::new(AtomicBool::new(true)),
+            is_recording: Arc::new(AtomicBool::new(true)),
+            stream_healthy: Arc::new(AtomicBool::new(true)),
+            needs_rebuild: Arc::new(AtomicBool::new(false)),
+            stream_error_reported: Arc::new(AtomicBool::new(false)),
+            active_session_id: Arc::new(AtomicU64::new(41)),
+            signal_probe: Arc::new(Mutex::new(None)),
+        };
+
+        assert_eq!(transition_stream_to_failed(&context), Some(41));
+        assert_eq!(transition_stream_to_failed(&context), None);
+        assert!(!context.is_recording.load(Ordering::SeqCst));
+        assert!(!context.stream_healthy.load(Ordering::SeqCst));
+        assert!(context.needs_rebuild.load(Ordering::SeqCst));
+
+        context.is_recording.store(true, Ordering::SeqCst);
+        context.stream_healthy.store(true, Ordering::SeqCst);
+        context.needs_rebuild.store(false, Ordering::SeqCst);
+        context.stream_error_reported.store(false, Ordering::SeqCst);
+        context.active_session_id.store(42, Ordering::SeqCst);
+
+        assert_eq!(transition_stream_to_failed(&context), Some(42));
+    }
+
+    #[test]
+    fn signal_probe_returns_only_normalized_aggregate_levels() {
+        let mut probe = SignalProbe::default();
+        probe.observe(&[-i16::MAX, 0, i16::MAX]);
+
+        let levels = probe.levels();
+        let serialized = serde_json::to_string(&levels).unwrap();
+
+        assert_eq!(levels.sample_count, 3);
+        assert!((levels.peak - 1.0).abs() < f64::EPSILON);
+        assert!(levels.rms > 0.8 && levels.rms < 0.82);
+        assert!(!serialized.contains("samples"));
+        assert!(!serialized.contains("pcm"));
     }
 }
