@@ -246,31 +246,46 @@ button, input, select, .no-drag {
   }
 }
 
+@keyframes widget-highlight-reduced {
+  0%, 100% {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+
+  1%, 80% {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+
 .widget-highlight {
   animation: widget-highlight-pulse var(--fam-duration-normal) var(--fam-ease-enter) 1;
   animation-fill-mode: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    transition-delay: 0ms !important;
-    scroll-behavior: auto !important;
+  .widget-shell,
+  .voice-wave-bar {
+    transition: none;
+  }
+
+  .motion-scale-control {
+    transform: none !important;
+    transition-property: background-color, color;
   }
 
   .wave-bar,
   .wave-processing,
   .lockup-motion--fade-in,
-  .widget-highlight,
   .widget-wave-wrap--finish,
   .animate-in,
   .fade-in,
   .slide-in-from-bottom-2 {
     animation: none !important;
+  }
+
+  .widget-highlight {
+    animation: widget-highlight-reduced 600ms steps(2, end) 1 !important;
   }
 
   .lockup-motion--fade-in,

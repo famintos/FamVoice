@@ -1,6 +1,8 @@
 use crate::settings;
 
 const MAX_TRANSCRIPTION_PROMPT_CHARS: usize = 800;
+const MAX_TRANSCRIPTION_KEYWORDS: usize = 20;
+const MAX_TRANSCRIPTION_KEYWORD_CHARS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct GlossaryRule {
@@ -71,6 +73,50 @@ fn normalized_prompt_term(term: &str) -> Option<String> {
     }
 }
 
+fn normalized_keyword(term: &str) -> Option<String> {
+    if term
+        .chars()
+        .any(|character| matches!(character, '<' | '>' | '\r' | '\n'))
+    {
+        return None;
+    }
+    let normalized = term.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() || normalized.chars().count() > MAX_TRANSCRIPTION_KEYWORD_CHARS {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+pub(crate) fn transcription_context_prompt(language: &str) -> Option<String> {
+    transcription_instruction(language).map(str::to_string)
+}
+
+/// Literal glossary targets that the user may actually say. These are safe to
+/// send as `gpt-transcribe` keyword hints: replacement values are deliberately
+/// excluded because they can contain commands or text that was never spoken.
+pub(crate) fn transcription_keywords(replacements: &[settings::Replacement]) -> Vec<String> {
+    let mut keywords = Vec::new();
+
+    for replacement in replacements {
+        let Some(keyword) = normalized_keyword(&replacement.target) else {
+            continue;
+        };
+        if keywords
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(&keyword))
+        {
+            continue;
+        }
+        keywords.push(keyword);
+        if keywords.len() >= MAX_TRANSCRIPTION_KEYWORDS {
+            break;
+        }
+    }
+
+    keywords
+}
+
 fn push_unique_prompt_term(terms: &mut Vec<String>, term: &str) {
     let Some(normalized) = normalized_prompt_term(term) else {
         return;
@@ -108,8 +154,7 @@ pub(crate) fn transcription_prompt(
     language: &str,
     replacements: &[settings::Replacement],
 ) -> Option<String> {
-    let instruction = transcription_instruction(language)?;
-    let mut prompt = instruction.to_string();
+    let mut prompt = transcription_context_prompt(language)?;
     let terms = transcription_prompt_terms(replacements);
 
     if terms.is_empty() {
@@ -514,6 +559,17 @@ mod tests {
     }
 
     #[test]
+    fn test_transcription_context_prompt_contains_no_glossary_values() {
+        let prompt = transcription_context_prompt("pt").expect("expected prompt");
+
+        assert_eq!(
+            prompt,
+            "Português europeu. Transcrição literal, com pontuação natural."
+        );
+        assert!(!prompt.contains("Vocabulário esperado"));
+    }
+
+    #[test]
     fn test_transcription_prompt_includes_only_glossary_vocabulary() {
         let prompt = transcription_prompt(
             "pt",
@@ -578,5 +634,65 @@ mod tests {
         let prompt = transcription_prompt("pt", &replacements).expect("expected prompt");
 
         assert!(prompt.chars().count() <= MAX_TRANSCRIPTION_PROMPT_CHARS);
+    }
+
+    #[test]
+    fn test_transcription_keywords_use_only_literal_spoken_targets() {
+        let keywords = transcription_keywords(&[
+            Replacement {
+                target: "Fem Voice".to_string(),
+                replacement: "FamVoice".to_string(),
+            },
+            Replacement {
+                target: "clear".to_string(),
+                replacement: "/clear".to_string(),
+            },
+        ]);
+
+        assert_eq!(keywords, vec!["Fem Voice", "clear"]);
+        assert!(!keywords.iter().any(|keyword| keyword == "FamVoice"));
+        assert!(!keywords.iter().any(|keyword| keyword == "/clear"));
+    }
+
+    #[test]
+    fn test_transcription_keywords_filter_invalid_and_duplicate_terms() {
+        let keywords = transcription_keywords(&[
+            Replacement {
+                target: "  FamVoice  ".to_string(),
+                replacement: "first".to_string(),
+            },
+            Replacement {
+                target: "famvoice".to_string(),
+                replacement: "duplicate".to_string(),
+            },
+            Replacement {
+                target: "unsafe<term>".to_string(),
+                replacement: "ignored".to_string(),
+            },
+            Replacement {
+                target: "line\nbreak".to_string(),
+                replacement: "ignored".to_string(),
+            },
+            Replacement {
+                target: " ".to_string(),
+                replacement: "ignored".to_string(),
+            },
+        ]);
+
+        assert_eq!(keywords, vec!["FamVoice"]);
+    }
+
+    #[test]
+    fn test_transcription_keywords_are_bounded() {
+        let replacements = (0..30)
+            .map(|index| Replacement {
+                target: format!("term-{index}"),
+                replacement: format!("replacement-{index}"),
+            })
+            .collect::<Vec<_>>();
+
+        let keywords = transcription_keywords(&replacements);
+
+        assert_eq!(keywords.len(), MAX_TRANSCRIPTION_KEYWORDS);
     }
 }

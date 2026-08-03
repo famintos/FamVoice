@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MouseEventHandler, RefObject } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { RefreshCw, X } from "lucide-react";
 import { FamVoiceLogo } from "./FamVoiceLogo";
 import { FamVoiceLockup } from "./components/FamVoiceLockup";
 import { VoiceWave } from "./components/VoiceWave";
@@ -16,6 +17,10 @@ interface WidgetViewProps {
   missingApiKey: boolean;
   highlightKey?: number;
   errorMessage?: string;
+  retryAvailable: boolean;
+  isRetrying: boolean;
+  onRetry: () => void;
+  onDiscardRetry: () => void;
   containerRef: RefObject<HTMLElement | null>;
   onMouseDownCapture: MouseEventHandler<HTMLElement>;
 }
@@ -25,6 +30,10 @@ export function WidgetView({
   missingApiKey,
   highlightKey,
   errorMessage,
+  retryAvailable,
+  isRetrying,
+  onRetry,
+  onDiscardRetry,
   containerRef,
   onMouseDownCapture,
 }: WidgetViewProps) {
@@ -33,14 +42,16 @@ export function WidgetView({
   const [showMicWarning, setShowMicWarning] = useState(false);
   const previousStatusRef = useRef<Status>(status);
   const finishTimeoutRef = useRef<number | null>(null);
-  const showError = status === "error";
+  const showError = status === "error" || retryAvailable;
   const showIssue = showError || (status === "idle" && missingApiKey);
   const statusLabel = showError ? "Error" : "API key missing";
   const statusCopy = showError
-    ? errorMessage === "No voice detected"
+    ? retryAvailable
+      ? "Failed audio held briefly."
+      : errorMessage === "No voice detected"
       ? "No speech found."
       : "Try again."
-    : "Open Settings.";
+    : "Tray menu → Settings.";
   const statusDotClassName = showError
     ? "bg-danger shadow-[0_0_10px_rgba(179,93,79,0.32)]"
     : "bg-primary shadow-[0_0_10px_rgba(209,122,40,0.28)]";
@@ -59,6 +70,13 @@ export function WidgetView({
     ? "widget-wave-wrap widget-wave-wrap--finish"
     : "widget-wave-wrap";
   const renderedWaveMode = waveMode === "idle" && isFinishing ? "transcribing" : waveMode;
+  const liveStatusMessage = status === "recording"
+    ? "Recording started."
+    : status === "transcribing"
+      ? "Transcription in progress."
+      : status === "success"
+        ? "Transcript ready."
+        : "";
   const widgetSizeAnchor = (
     <div className="pointer-events-none invisible">
       <div className={rowClassName}>
@@ -181,6 +199,9 @@ export function WidgetView({
           e.preventDefault();
         }}
       >
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {liveStatusMessage}
+        </p>
         {widgetSizeAnchor}
 
         <div className="absolute inset-0 flex items-center">
@@ -188,16 +209,43 @@ export function WidgetView({
             <div className="flex w-full items-center pl-1.5 pr-0.5 py-1">
               <div className="relative flex min-w-0 flex-1 items-center select-none">
                 <FamVoiceLockup aria-hidden="true" markSize={22} wordmarkClassName="opacity-0" />
-                <div className="absolute inset-y-0 right-0 left-[28px] flex min-w-0 flex-col justify-center">
+                <div
+                  className="absolute inset-y-0 right-0 left-[28px] flex min-w-0 flex-col justify-center"
+                  role={showError ? "alert" : undefined}
+                  aria-atomic={showError ? true : undefined}
+                >
                   <div className="flex items-center gap-1.5">
                     <div className={`h-1 w-1 shrink-0 rounded-full ${statusDotClassName}`} />
                     <p className={`truncate text-[10px] font-bold leading-none ${statusTextClassName}`}>
                       {statusLabel}
                     </p>
                   </div>
-                  <p className="truncate text-[9px] leading-tight text-slate-400">
-                    {statusCopy}
-                  </p>
+                  {showError && retryAvailable ? (
+                    <div className="mt-0.5 flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={onRetry}
+                        disabled={isRetrying}
+                        className="focus-ring inline-flex min-h-5 items-center gap-1 rounded-full border border-danger/20 bg-danger/10 px-1.5 text-[8px] font-bold text-red-50 disabled:opacity-50"
+                        aria-label="Retry last dictation"
+                      >
+                        <RefreshCw size={8} aria-hidden="true" />
+                        {isRetrying ? "Retrying" : "Retry"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onDiscardRetry}
+                        className="focus-ring flex size-5 items-center justify-center rounded-full text-slate-400 hover:text-white"
+                        aria-label="Discard failed dictation audio"
+                      >
+                        <X size={9} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="truncate text-[9px] leading-tight text-slate-400">
+                      {statusCopy}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

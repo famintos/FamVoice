@@ -5,8 +5,14 @@ export const TRANSCRIPTION_PROVIDERS = [
   { value: "groq", label: "Groq" },
 ];
 
+export const DEFAULT_TRANSCRIPTION_MODEL_BY_PROVIDER: Record<string, string> = {
+  openai: "gpt-transcribe",
+  groq: "whisper-large-v3-turbo",
+};
+
 export const OPENAI_MODELS = [
-  { value: "whisper-1", label: "whisper-1 (Legacy / Fallback)" },
+  { value: "gpt-transcribe", label: "gpt-transcribe — Recommended" },
+  { value: "whisper-1", label: "whisper-1 — Specialized fallback" },
 ];
 
 export const GROQ_MODELS = [
@@ -17,6 +23,17 @@ export const GROQ_MODELS = [
 export const MODELS_BY_PROVIDER: Record<string, typeof OPENAI_MODELS> = {
   openai: OPENAI_MODELS,
   groq: GROQ_MODELS,
+};
+
+export const TRANSCRIPTION_MODEL_HELP: Record<string, string> = {
+  "gpt-transcribe":
+    "Recommended for completed dictation. Supports language and vocabulary guidance, prompts, and streamed file responses. OpenAI list price: $0.0045/min.",
+  "whisper-1":
+    "Specialized fallback for word timestamps, SRT/VTT subtitles, or translation to English. File response streaming is unavailable. OpenAI list price: $0.006/min.",
+  "whisper-large-v3-turbo":
+    "Groq's faster, lower-cost multilingual option for everyday dictation ($0.04/hour).",
+  "whisper-large-v3":
+    "Groq's accuracy-first multilingual option for error-sensitive dictation ($0.111/hour).",
 };
 
 export const LANGUAGES = [

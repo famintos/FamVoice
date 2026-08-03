@@ -34,8 +34,10 @@ function getSettingsHeaderBlock() {
 function getRecordTabBlock() {
   const recordTabIndex = mainViewSource.indexOf('{activeTab === "record" ? (');
   assert.notEqual(recordTabIndex, -1, "expected record tab branch in MainView.tsx");
+  const historyTabIndex = mainViewSource.indexOf('id="history-panel"', recordTabIndex);
+  assert.notEqual(historyTabIndex, -1, "expected history tab branch in MainView.tsx");
 
-  return mainViewSource.slice(recordTabIndex, recordTabIndex + 3600);
+  return mainViewSource.slice(recordTabIndex, historyTabIndex);
 }
 
 test("widget container uses manual dragging instead of native drag-region", () => {
@@ -103,7 +105,7 @@ test("record tab keeps the open record surface and guided recovery states", () =
 
   assert.match(mainViewSource, /const waveMode = status === "transcribing" \? "transcribing" : status === "recording" \? "recording" : "idle";/);
   assert.match(mainViewSource, /const showSettingsNotice = status === "idle" && !transcript && \(missingTranscriptionKey \|\| missingPromptOptimizerKey\);/);
-  assert.match(mainViewSource, /const showRecordError = status === "error" && Boolean\(transcript\);/);
+  assert.match(mainViewSource, /const showRecordError = \(status === "error" \|\| retryAudio\.available\) && Boolean\(transcript\);/);
   assert.match(mainViewSource, /const showRecordTranscript = !showRecordError && Boolean\(transcript\);/);
   assert.match(recordTabBlock, /<VoiceWave mode=\{waveMode\} size="large" \/>/);
   assert.match(recordTabBlock, /flex min-h-0 flex-1 flex-col items-center justify-center rounded-\[18px\] border border-white\/10 bg-white\/\[0\.03\] px-3 pt-1 pb-3 no-drag text-center/);
@@ -146,7 +148,7 @@ test("widget keeps the compact lockup without a settings action", () => {
   assert.match(widgetViewSource, /const previousStatusRef = useRef<Status>\(status\);/);
   assert.match(widgetViewSource, /previousStatus === "recording" && \(status === "transcribing" \|\| status === "success"\)/);
   assert.match(widgetViewSource, /const \[showMicWarning, setShowMicWarning\] = useState\(false\);/);
-  assert.match(widgetViewSource, /const showError = status === "error";/);
+  assert.match(widgetViewSource, /const showError = status === "error" \|\| retryAvailable;/);
   assert.match(widgetViewSource, /const showIssue = showError \|\| \(status === "idle" && missingApiKey\);/);
   assert.match(widgetViewSource, /const statusLabel = showError \? "Error" : "API key missing";/);
   assert.match(widgetViewSource, /const widgetSizeAnchor = \(/);
@@ -154,7 +156,7 @@ test("widget keeps the compact lockup without a settings action", () => {
   assert.match(widgetViewSource, /\{widgetSizeAnchor\}/);
   assert.match(widgetViewSource, /No speech found\./);
   assert.match(widgetViewSource, /Try again\./);
-  assert.match(widgetViewSource, /Open Settings\./);
+  assert.match(widgetViewSource, /Tray menu → Settings\./);
   assert.doesNotMatch(widgetViewSource, /markPulseRef/);
   assert.doesNotMatch(widgetViewSource, /widget-mark-pulse/);
   assert.match(widgetViewSource, /<VoiceWave mode=\{renderedWaveMode\} size="widget" \/>/);

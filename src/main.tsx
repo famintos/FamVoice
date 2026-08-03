@@ -7,6 +7,9 @@ import "@fontsource/space-grotesk/700.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import App from "./App";
+import { applyAppTheme } from "./theme.js";
+
+applyAppTheme(document.documentElement, "dark");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

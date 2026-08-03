@@ -16,24 +16,20 @@ test("default capability allows manual window dragging", () => {
   );
 });
 
-test("default capability allows updater checks and relaunch", () => {
+test("default capability only exposes updater checks", () => {
   assert.ok(
-    capability.permissions.includes("updater:default"),
-    "expected updater:default permission",
+    capability.permissions.includes("updater:allow-check"),
+    "expected updater:allow-check permission",
   );
-  assert.ok(
-    capability.permissions.includes("process:default"),
-    "expected process:default permission",
-  );
+  assert.ok(!capability.permissions.some((permission) =>
+    permission.startsWith("process:") || permission.startsWith("autostart:")
+  ));
 });
 
-test("settings capability allows updater checks and relaunch", () => {
-  assert.ok(
-    settingsCapability.permissions.includes("updater:default"),
-    "expected updater:default permission",
-  );
-  assert.ok(
-    settingsCapability.permissions.includes("process:default"),
-    "expected process:default permission",
-  );
+test("settings capability grants only used updater and process commands", () => {
+  assert.ok(settingsCapability.permissions.includes("updater:allow-check"));
+  assert.ok(settingsCapability.permissions.includes("updater:allow-download-and-install"));
+  assert.ok(settingsCapability.permissions.includes("process:allow-restart"));
+  assert.ok(!settingsCapability.permissions.includes("updater:default"));
+  assert.ok(!settingsCapability.permissions.includes("process:default"));
 });

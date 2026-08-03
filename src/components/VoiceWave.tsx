@@ -96,7 +96,7 @@ export function VoiceWave({
       {bars.map((bar, index) => (
         <div
           key={index}
-          className={`${barWidth} shrink-0 rounded-full bg-primary transition-[opacity,height] duration-100 ease-[cubic-bezier(0.17,0.67,0.22,1.25)] ${motionClass}`}
+          className={`${barWidth} voice-wave-bar shrink-0 rounded-full bg-primary transition-[opacity,height] duration-100 ease-[var(--fam-ease-ease)] ${motionClass}`}
           style={{
             height: isIdle
               ? `${32 + bar.profile * 16}%`

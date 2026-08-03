@@ -8,7 +8,8 @@
     "core:window:allow-close",
     "core:window:allow-start-dragging",
     "autostart:default",
-    "updater:default",
-    "process:default"
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:allow-restart"
   ]
 }

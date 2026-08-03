@@ -1,5 +1,11 @@
 export type Status = "idle" | "recording" | "transcribing" | "success" | "error";
 
+export interface DictationActivity {
+  active: boolean;
+  recording: boolean;
+  transcribing: boolean;
+}
+
 export interface Replacement {
   target: string;
   replacement: string;
@@ -24,6 +30,11 @@ export interface SettingsViewModel {
   prompt_optimization_enabled: boolean;
   prompt_optimizer_model: string;
   replacements: Replacement[];
+  credential_storage: {
+    mode: "secure_store" | "encrypted_disk_fallback";
+    message: string | null;
+  };
+  transcription_model_notice: string | null;
 }
 
 export interface SaveSettingsPayload {
@@ -55,6 +66,11 @@ export interface HistoryItem {
   id: number;
   text: string;
   timestamp: number;
+  pinned: boolean;
+}
+
+export interface RetryAudioStatus {
+  available: boolean;
 }
 
 export interface WidgetWindowMetrics {

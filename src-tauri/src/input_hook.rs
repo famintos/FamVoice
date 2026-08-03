@@ -1,4 +1,3 @@
-use crate::audio::AudioState;
 #[cfg(not(target_os = "windows"))]
 use rdev::grab;
 use rdev::{Button, Event, EventType};
@@ -7,13 +6,14 @@ use std::sync::{Arc, Mutex};
 #[cfg(not(target_os = "windows"))]
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Manager, State};
+use tauri::AppHandle;
 
 pub struct HotkeyConfigState {
     pub hotkey: Arc<Mutex<String>>,
 }
 
 static MOUSE_HOTKEY_PRESSED: AtomicBool = AtomicBool::new(false);
+static MOUSE_LISTENER_AVAILABLE: AtomicBool = AtomicBool::new(false);
 const MOUSE_GRAB_RETRY_INITIAL_DELAY_MS: u64 = 500;
 const MOUSE_GRAB_RETRY_MAX_DELAY_MS: u64 = 30_000;
 
@@ -44,6 +44,10 @@ pub fn is_mouse_hotkey(hotkey: &str) -> bool {
 
 pub fn reset_mouse_hotkey_state() {
     MOUSE_HOTKEY_PRESSED.store(false, Ordering::SeqCst);
+}
+
+pub fn mouse_listener_available() -> bool {
+    MOUSE_LISTENER_AVAILABLE.load(Ordering::SeqCst)
 }
 
 fn parse_mouse_button(hotkey: &str) -> Option<Button> {
@@ -131,7 +135,9 @@ pub fn start_mouse_listener(app: AppHandle, hotkey_shared: Arc<Mutex<String>>) {
             let app_handle = app.clone();
             let hotkey = hotkey_shared.clone();
 
+            MOUSE_LISTENER_AVAILABLE.store(true, Ordering::SeqCst);
             let listener_result = grab(move |event| handle_event(&app_handle, &hotkey, event));
+            MOUSE_LISTENER_AVAILABLE.store(false, Ordering::SeqCst);
 
             match listener_result {
                 Ok(()) => {
@@ -202,21 +208,12 @@ fn process_event(
         MouseHotkeyAction::StartRecording => {
             let app_clone = app.clone();
             tauri::async_runtime::spawn(async move {
-                let audio_state: State<AudioState> = app_clone.state();
-                let is_recording = audio_state.is_recording.load(Ordering::SeqCst);
-                if !is_recording {
-                    let _ = crate::start_recording_cmd(app_clone.clone()).await;
-                }
+                let _ = crate::start_recording_cmd(app_clone.clone()).await;
             });
         }
         MouseHotkeyAction::StopRecording => {
             let app_clone = app.clone();
             tauri::async_runtime::spawn(async move {
-                let audio_state: State<AudioState> = app_clone.state();
-                let is_recording = audio_state.is_recording.load(Ordering::SeqCst);
-                if !is_recording {
-                    return;
-                }
                 let _ = crate::stop_recording_cmd(app_clone.clone()).await;
             });
         }
@@ -259,7 +256,9 @@ mod win_mouse_hook {
     use super::{
         handle_event_windows, should_swallow_mouse_event, AppHandle, Arc, Button, Duration, Event,
         EventType, Mutex, MOUSE_GRAB_RETRY_INITIAL_DELAY_MS, MOUSE_GRAB_RETRY_MAX_DELAY_MS,
+        MOUSE_LISTENER_AVAILABLE,
     };
+    use std::sync::atomic::Ordering;
     use std::sync::OnceLock;
     use std::thread;
     use std::time::SystemTime;
@@ -333,6 +332,7 @@ mod win_mouse_hook {
                 };
 
                 if hook.is_null() {
+                    MOUSE_LISTENER_AVAILABLE.store(false, Ordering::SeqCst);
                     eprintln!(
                         "[FamVoice] Failed to install WH_MOUSE_LL hook, retrying in {}ms",
                         retry_delay.as_millis()
@@ -346,6 +346,7 @@ mod win_mouse_hook {
                 }
 
                 retry_delay = Duration::from_millis(MOUSE_GRAB_RETRY_INITIAL_DELAY_MS);
+                MOUSE_LISTENER_AVAILABLE.store(true, Ordering::SeqCst);
                 eprintln!("[FamVoice] WH_MOUSE_LL hook installed");
 
                 unsafe {
@@ -359,6 +360,7 @@ mod win_mouse_hook {
                     UnhookWindowsHookEx(hook);
                 }
 
+                MOUSE_LISTENER_AVAILABLE.store(false, Ordering::SeqCst);
                 eprintln!("[FamVoice] WH_MOUSE_LL message loop ended, restarting");
             }
         });
