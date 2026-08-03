@@ -11,7 +11,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "npm run test:source && npm run test:components",
-    "test:source": "node --test \"src/*.test.mjs\" \"src-tauri/**/*.test.mjs\"",
+    "test:source": "node scripts/run-source-tests.mjs",
     "test:components": "vitest run --config vitest.config.ts",
     "lint": "eslint src",
     "tauri": "tauri"
