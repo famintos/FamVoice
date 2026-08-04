@@ -1,0 +1,15 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    FamVoice Mark, compact optical size — Amber #D17A28.
+    Use at 32px and below (tray, favicon, dense UI). Stroke 15 with a tighter
+    composition, because stroke 11 renders under 2px at tray scale and the mark
+    reads as a smear next to solid neighbours. Above 32px use famvoice-mark-amber.svg.
+    Bars are drawn at rest height; the tray raises them with live microphone level.
+  -->
+  <g fill="none" stroke="#D17A28" stroke-width="15" stroke-linecap="round">
+    <path d="M 12 32 V 68"/>
+    <path d="M 35 22 V 78"/>
+    <path d="M 58 33 H 87"/>
+    <path d="M 58 67 H 77"/>
+  </g>
+</svg>

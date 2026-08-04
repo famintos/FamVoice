@@ -20,6 +20,7 @@ mod retry_audio;
 mod settings;
 mod startup;
 mod transcription;
+mod tray;
 mod user_export;
 mod window;
 
@@ -29,7 +30,7 @@ use std::sync::Arc;
 use std::{collections::VecDeque, time::Duration};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{include_image, AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use audio::AudioState;
@@ -1709,9 +1710,9 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&settings_item, &quit_item])?;
 
-            let _tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::with_id(tray::TRAY_ID)
                 .tooltip("FamVoice")
-                .icon(include_image!("./icons/tray-icon-amber.png"))
+                .icon(tray::idle_image())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| match event {
@@ -1749,6 +1750,8 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+
+            tray::wire(app.handle());
 
             let hotkey_shared = Arc::new(Mutex::new(String::new()));
             app.manage(HotkeyConfigState {

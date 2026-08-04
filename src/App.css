@@ -81,8 +81,9 @@ body {
   color: var(--app-text);
   border: 1px solid var(--app-border);
   transition:
-    padding var(--fam-duration-fast) var(--fam-ease-ease),
-    border-radius var(--fam-duration-fast) var(--fam-ease-ease);
+    padding var(--fam-duration-slow) var(--fam-ease-enter),
+    border-radius var(--fam-duration-slow) var(--fam-ease-enter),
+    border-color var(--fam-duration-slow) var(--fam-ease-ease);
 }
 
 .widget-shell--compact {
@@ -101,10 +102,142 @@ body {
   animation: lockup-fade-in var(--fam-duration-deliberate) var(--fam-ease-enter) forwards;
 }
 
+/* Idle to listening is one move, not a swap. The wordmark clears out, the mark
+   grows into the space it leaves, and the shell closes around the result — all
+   on one duration and one curve, so the pill reads as a single object folding
+   rather than three elements retiming against each other. The word leads on the
+   way out and trails on the way in, which is why the delays are direction-split
+   between the resting rule and the collapsed one. */
+.lockup--collapsible {
+  gap: 0;
+}
+
+.lockup-wordmark-slot {
+  display: grid;
+  grid-template-columns: 1fr;
+  overflow: hidden;
+  transition: grid-template-columns var(--fam-duration-slow) var(--fam-ease-enter);
+}
+
+/* The gap rides on the word, so it collapses with it instead of leaving a hole
+   beside the mark. */
+.lockup-wordmark-slot > * {
+  min-width: 0;
+  margin-left: var(--fam-lockup-gap);
+  transition:
+    opacity var(--fam-duration-fast) var(--fam-ease-ease) 120ms,
+    filter var(--fam-duration-fast) var(--fam-ease-ease) 120ms,
+    transform var(--fam-duration-normal) var(--fam-ease-enter) 120ms;
+}
+
+[data-collapsed="true"] .lockup-wordmark-slot {
+  grid-template-columns: 0fr;
+}
+
+[data-collapsed="true"] .lockup-wordmark-slot > * {
+  opacity: 0;
+  filter: blur(2px);
+  transform: translateX(-8px);
+  transition-delay: 0ms;
+}
+
+.widget-morph-row {
+  transition: padding var(--fam-duration-slow) var(--fam-ease-enter);
+}
+
+/* The slot is what animates. Both marks fill it, so the resting mark and the
+   live one trade places at one size instead of two glyphs of different sizes
+   crossing over each other. */
+.widget-mark-slot {
+  position: relative;
+  flex: none;
+  transition:
+    width var(--fam-duration-slow) var(--fam-ease-enter),
+    height var(--fam-duration-slow) var(--fam-ease-enter);
+}
+
+.widget-mark-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--fam-duration-fast) var(--fam-ease-ease);
+}
+
+.widget-mark-layer > * {
+  width: 100%;
+  height: 100%;
+}
+
+.widget-mark-layer--live {
+  opacity: 0;
+}
+
+[data-widget-morph="active"] .widget-mark-layer--rest {
+  opacity: 0;
+}
+
+[data-widget-morph="active"] .widget-mark-layer--live {
+  opacity: 1;
+  animation: widget-mark-arrive var(--fam-duration-slow) var(--fam-ease-enter) 1;
+}
+
+/* The mark lands slightly past its size and settles — the widget is now the
+   only thing on screen reporting state, so its arrival is worth reading. */
+@keyframes widget-mark-arrive {
+  0% {
+    transform: scale(0.82);
+  }
+
+  58% {
+    transform: scale(1.05);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
 .widget-wave-wrap {
   display: flex;
   align-items: center;
   transform-origin: left center;
+}
+
+/* The mark as its own level meter. Bar height is written straight from the level
+   samples in user units, so bars and lines keep one weight at any render size.
+   No transition: samples land every 16ms already smoothed, and easing on top of
+   that only makes the bars lag behind the voice. */
+.mark-live-bar {
+  transition: opacity var(--fam-duration-fast) var(--fam-ease-ease);
+}
+
+/* Input half steps back once there is nothing left to hear. */
+.mark-live--transcribing .mark-live-bar {
+  opacity: 0.32;
+}
+
+.mark-live-line {
+  opacity: 0.32;
+  transition: opacity var(--fam-duration-fast) var(--fam-ease-ease);
+}
+
+.mark-live--transcribing .mark-live-line {
+  opacity: 1;
+  stroke-dasharray: var(--line-length);
+  animation: mark-live-write 1.1s var(--fam-ease-ease) infinite;
+}
+
+@keyframes mark-live-write {
+  0% {
+    stroke-dashoffset: var(--line-length);
+  }
+
+  55%,
+  100% {
+    stroke-dashoffset: 0;
+  }
 }
 
 @keyframes lockup-fade-in {
@@ -269,6 +402,15 @@ button, input, select, .no-drag {
     transition: none;
   }
 
+  /* The states still differ, they just arrive instead of travelling. */
+  .widget-morph-row,
+  .widget-mark-slot,
+  .widget-mark-layer,
+  .lockup-wordmark-slot,
+  .lockup-wordmark-slot > * {
+    transition: none !important;
+  }
+
   .motion-scale-control {
     transform: none !important;
     transition-property: background-color, color;
@@ -277,11 +419,22 @@ button, input, select, .no-drag {
   .wave-bar,
   .wave-processing,
   .lockup-motion--fade-in,
+  [data-widget-morph="active"] .widget-mark-layer--live,
   .widget-wave-wrap--finish,
+  .mark-live--transcribing .mark-live-line,
   .animate-in,
   .fade-in,
   .slide-in-from-bottom-2 {
     animation: none !important;
+  }
+
+  /* Level keeps reporting: the bars track a real signal, they are not decoration. */
+  .mark-live-bar {
+    transition: none !important;
+  }
+
+  .mark-live--transcribing .mark-live-line {
+    stroke-dasharray: none !important;
   }
 
   .widget-highlight {
