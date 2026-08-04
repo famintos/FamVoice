@@ -209,7 +209,10 @@ mod tests {
 
     #[test]
     fn level_is_spread_across_every_available_frame() {
-        let frames: Vec<Frame> = [0.1, 0.3, 0.6, 0.9].iter().map(|l| recording_frame(*l)).collect();
+        let frames: Vec<Frame> = [0.1, 0.3, 0.6, 0.9]
+            .iter()
+            .map(|l| recording_frame(*l))
+            .collect();
 
         assert_eq!(
             frames,
