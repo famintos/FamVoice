@@ -1,6 +1,9 @@
 <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="color:#D17A28">
-  <!-- Faminto Mark -- amber favicon source -->
-  <path d="M 84 34 A 38 38 0 1 0 84 66 L 50 50 Z"
-        fill="none" stroke="currentColor" stroke-width="6.5"
-        stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- FamVoice Mark, compact optical size -- amber favicon source -->
+  <g fill="none" stroke="currentColor" stroke-width="15" stroke-linecap="round">
+    <path d="M 12 32 V 68"/>
+    <path d="M 35 22 V 78"/>
+    <path d="M 58 33 H 87"/>
+    <path d="M 58 67 H 77"/>
+  </g>
 </svg>

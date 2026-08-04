@@ -2,10 +2,14 @@ import type React from "react";
 import { useMemo, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 
+// The FamVoice mark is a short bar followed by a tall one, then the transcript
+// lines. These profiles carry the same rhythm: the peak sits left of centre and
+// the tail runs longer to the right, so the live wave reads as the mark moving
+// rather than as a stock symmetric equalizer.
 const PROFILE_PRESETS = {
-  default: [0.42, 0.58, 0.76, 0.94, 1, 0.94, 0.76, 0.58, 0.42],
-  widget: [0.5, 0.74, 0.94, 1, 0.94, 0.74, 0.5],
-  large: [0.36, 0.48, 0.62, 0.78, 0.92, 1, 0.92, 0.78, 0.62, 0.48, 0.36],
+  default: [0.52, 0.76, 0.94, 1, 0.93, 0.84, 0.72, 0.62, 0.5],
+  widget: [0.58, 0.84, 1, 0.94, 0.82, 0.68, 0.55],
+  large: [0.44, 0.62, 0.8, 0.94, 1, 0.95, 0.87, 0.78, 0.68, 0.58, 0.48],
 } satisfies Record<"default" | "widget" | "large", number[]>;
 
 type WaveBarStyle = React.CSSProperties & {
@@ -51,17 +55,19 @@ export function VoiceWave({
 
   const bars = useMemo(() => {
     const profiles = PROFILE_PRESETS[size];
-    const centerIndex = (profiles.length - 1) / 2;
+    // Motion radiates from the loudest bar, not the geometric middle, so the
+    // asymmetric profile above stays legible while the wave animates.
+    const peakIndex = profiles.indexOf(Math.max(...profiles));
     const recordingBaseHeight = size === "widget" ? 24 : 20;
     const recordingRangeGain = size === "widget" ? 104 : 84;
 
     return profiles.map((profile, index) => {
-      const distanceFromCenter = Math.abs(index - centerIndex);
+      const distanceFromPeak = Math.abs(index - peakIndex);
 
       return {
         profile,
-        delay: `${-(distanceFromCenter * 0.08)}s`,
-        duration: `${1 + distanceFromCenter * 0.06}s`,
+        delay: `${-(distanceFromPeak * 0.08)}s`,
+        duration: `${1 + distanceFromPeak * 0.06}s`,
         restScale: 0.64 + profile * 0.14,
         activeScale: 0.9 + profile * 0.18,
         recordingHeight: `calc(${recordingBaseHeight}% + (var(--mic-level) * ${profile * recordingRangeGain}%))`,
@@ -69,11 +75,13 @@ export function VoiceWave({
     });
   }, [size]);
 
+  // Bar-to-gap ratio matches the mark's stroke 11 against its 10px gap, so the
+  // live wave and the glyph share one rhythm.
   const containerClass = size === "large"
-    ? "h-12 gap-[3px] justify-center"
+    ? "h-12 gap-[4px] justify-center"
     : size === "widget"
-      ? "h-6 w-full justify-center gap-[2px] px-0.5"
-      : "h-5 gap-[2px] justify-center";
+      ? "h-6 w-full justify-center gap-[3.5px] px-0.5"
+      : "h-5 gap-[3px] justify-center";
 
   const barWidth = size === "large"
     ? "w-[4.5px]"

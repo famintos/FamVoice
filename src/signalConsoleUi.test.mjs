@@ -77,7 +77,9 @@ test("App.css defines the refreshed shell token set", () => {
 test("WidgetView uses the compact widget shell and status surface", () => {
   assert.match(widgetViewSource, /className=\{shellClassName\}/);
   assert.match(widgetViewSource, /className="widget-status/);
-  assert.match(widgetViewSource, /<VoiceWave mode=\{/);
+  // The widget shows one live mark, not a static mark beside a separate waveform.
+  assert.match(widgetViewSource, /<FamVoiceMarkLive mode=\{/);
+  assert.doesNotMatch(widgetViewSource, /<VoiceWave /);
 });
 
 test("widget shell keeps the compact surface without an exterior shadow", () => {

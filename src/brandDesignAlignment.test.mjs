@@ -97,6 +97,93 @@ test("motion classes avoid perpetual idle animation and broad transitions", () =
   assert.doesNotMatch(voiceWave, /transition-all/);
 });
 
+test("the live wave carries the mark's asymmetric rhythm", () => {
+  const block = voiceWave.match(/const PROFILE_PRESETS = \{([^]*?)\} satisfies/);
+  assert.ok(block, "expected PROFILE_PRESETS in VoiceWave");
+
+  const profiles = Object.fromEntries(
+    [...block[1].matchAll(/(\w+):\s*\[([^\]]+)\]/g)].map(([, name, body]) => [
+      name,
+      body.split(",").map((value) => Number(value.trim())),
+    ]),
+  );
+
+  assert.deepEqual(Object.keys(profiles).sort(), ["default", "large", "widget"]);
+
+  for (const [name, profile] of Object.entries(profiles)) {
+    const peak = profile.indexOf(Math.max(...profile));
+    const centre = (profile.length - 1) / 2;
+
+    assert.ok(peak < centre, `${name} profile should peak left of centre like the mark`);
+    assert.notDeepEqual(
+      profile,
+      [...profile].reverse(),
+      `${name} profile should not be a symmetric equalizer hill`,
+    );
+  }
+});
+
+test("the widget shows the mark as its own level meter", () => {
+  const markLive = readSource("./components/FamVoiceMarkLive.tsx");
+
+  // Bars carry live level, lines carry the transcript. One glyph, both halves working.
+  assert.match(markLive, /listen<number>\("mic-level"/);
+  assert.match(markLive, /mark-live--recording/);
+  assert.match(markLive, /mark-live--transcribing/);
+  assert.doesNotMatch(markLive, /transition-all/);
+});
+
+test("resting bars stay longer than their own stroke", () => {
+  const markLive = readSource("./components/FamVoiceMarkLive.tsx");
+
+  const stroke = Number(markLive.match(/export const STROKE = (\d+);/)?.[1]);
+  assert.ok(Number.isFinite(stroke), "expected STROKE in FamVoiceMarkLive");
+
+  const bars = [...markLive.matchAll(/\{ x: \d+, halfRest: (\d+), halfMax: (\d+) \}/g)].map(
+    ([, halfRest, halfMax]) => ({ halfRest: Number(halfRest), halfMax: Number(halfMax) }),
+  );
+
+  assert.ok(bars.length >= 2, "expected the mark's bars in FamVoiceMarkLive");
+
+  for (const { halfRest, halfMax } of bars) {
+    // A round-capped line shorter than its stroke renders as a dot. Silence must
+    // still read as the mark, not as a row of beads.
+    assert.ok(
+      halfRest * 2 > stroke * 1.5,
+      `resting bar length ${halfRest * 2} must clear stroke ${stroke} to stay a bar`,
+    );
+    assert.ok(halfMax > halfRest, "bars must grow above the mark, never shrink below it");
+  }
+});
+
+test("both halves of the live mark carry the same stroke weight", () => {
+  const markLive = readSource("./components/FamVoiceMarkLive.tsx");
+
+  // `non-scaling-stroke` renders in screen pixels instead of user units, which
+  // decoupled bar weight from the viewBox: at 46px the bars came out 15px wide
+  // against 6.9px lines. Bars are geometry now, so both halves scale together.
+  assert.doesNotMatch(markLive, /vectorEffect/);
+  assert.match(markLive, /width=\{STROKE\}/);
+  assert.match(markLive, /strokeWidth=\{STROKE\}/);
+  assert.match(markLive, /rx=\{STROKE \/ 2\}/);
+});
+
+test("live mark motion is reachable under reduced motion", () => {
+  // Level must still report when animation is off; only the easing goes away.
+  assert.match(appCss, /\.mark-live-bar \{/);
+  assert.match(appCss, /\.mark-live--transcribing \.mark-live-line \{/);
+
+  const reducedMotionBlock = appCss.slice(appCss.indexOf("@media (prefers-reduced-motion: reduce)"));
+
+  assert.match(reducedMotionBlock, /\.mark-live--transcribing \.mark-live-line/);
+  assert.match(reducedMotionBlock, /\.mark-live-bar \{\s*transition: none !important;/);
+});
+
+test("wave motion radiates from the peak, not the geometric middle", () => {
+  assert.match(voiceWave, /const peakIndex = profiles\.indexOf\(Math\.max\(\.\.\.profiles\)\)/);
+  assert.doesNotMatch(voiceWave, /distanceFromCenter/);
+});
+
 test("idle waveform is static and no longer uses decorative idle motion", () => {
   assert.doesNotMatch(voiceWave, /wave-idle/);
   assert.doesNotMatch(voiceWave, /pacman-dot/);

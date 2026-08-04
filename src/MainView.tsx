@@ -295,6 +295,7 @@ export function MainView() {
   const clearHistoryButtonRef = useRef<HTMLButtonElement>(null);
   const clearHistoryWasOpenRef = useRef(false);
   const widgetContainerRef = useRef<HTMLElement | null>(null);
+  const widgetSizeRef = useRef<HTMLDivElement | null>(null);
   const lastWidgetSizeRef = useRef<{ width: number; height: number } | null>(null);
   const ignoreCursorEventsRef = useRef<boolean | null>(null);
   const widgetDragGraceUntilRef = useRef(0);
@@ -364,12 +365,15 @@ export function MainView() {
       return;
     }
 
-    const container = widgetContainerRef.current;
-    if (!container) return;
+    // Sized off the envelope, not the pill: the envelope spans every widget
+    // state at once, so the pill can animate between states without a window
+    // resize on each frame of the morph.
+    const sizeElement = widgetSizeRef.current;
+    if (!sizeElement) return;
 
     let frameId = 0;
     const resizeWindow = async () => {
-      const size = getWidgetWindowSizeWithChrome(container.getBoundingClientRect());
+      const size = getWidgetWindowSizeWithChrome(sizeElement.getBoundingClientRect());
       const previousSize = lastWidgetSizeRef.current;
 
       if (previousSize?.width === size.width && previousSize?.height === size.height) {
@@ -391,7 +395,7 @@ export function MainView() {
       scheduleResize();
     });
 
-    observer.observe(container);
+    observer.observe(sizeElement);
     scheduleResize();
 
     return () => {
@@ -787,6 +791,7 @@ export function MainView() {
         onRetry={() => void retryLastDictation()}
         onDiscardRetry={() => void discardRetryAudio()}
         containerRef={widgetContainerRef}
+        sizeRef={widgetSizeRef}
         onMouseDownCapture={(e) => {
           if (e.button !== 0) return;
           const target = e.target;

@@ -83,13 +83,13 @@ test("voice wave supports explicit modes and size variants", () => {
   assert.match(voiceWaveSource, /size\?: "default" \| "widget" \| "large"/);
   assert.match(voiceWaveSource, /const PROFILE_PRESETS = \{/);
   assert.match(voiceWaveSource, /size === "widget"/);
-  assert.match(voiceWaveSource, /h-5 gap-\[2px\] justify-center/);
-  assert.match(voiceWaveSource, /h-6 w-full justify-center gap-\[2px\] px-0\.5/);
+  assert.match(voiceWaveSource, /h-5 gap-\[3px\] justify-center/);
+  assert.match(voiceWaveSource, /h-6 w-full justify-center gap-\[3\.5px\] px-0\.5/);
   assert.match(voiceWaveSource, /w-\[4px\]/);
   assert.match(voiceWaveSource, /w-\[4\.5px\]/);
   assert.match(voiceWaveSource, /w-\[3\.5px\]/);
   assert.match(voiceWaveSource, /size === "large"/);
-  assert.match(voiceWaveSource, /h-12 gap-\[3px\] justify-center/);
+  assert.match(voiceWaveSource, /h-12 gap-\[4px\] justify-center/);
   assert.match(voiceWaveSource, /bg-primary/);
   assert.doesNotMatch(voiceWaveSource, /bg-gradient-to-t/);
   assert.match(voiceWaveSource, /transition-\[opacity,height\]/);
@@ -129,16 +129,22 @@ test("widget keeps the compact lockup without a settings action", () => {
   assert.doesNotMatch(widgetViewSource, />Fam</);
   assert.match(widgetViewSource, /className="widget-status/);
   assert.match(widgetViewSource, /const shellClassName = `\$\{isCompactWaveState/);
-  assert.match(widgetViewSource, /widget-shell widget-shell--compact relative rounded-\[16px\] pl-1\.5 pr-0\.5 py-1\.5 overflow-hidden/);
+  // Compact padding is symmetric: the glyph is square now, not a wave running to the edge.
+  assert.match(widgetViewSource, /widget-shell widget-shell--compact relative rounded-\[18px\] p-2 overflow-hidden/);
   assert.match(widgetViewSource, /widget-shell relative rounded-\[16px\] pl-2 pr-1 py-1\.5 overflow-hidden/);
   assert.match(widgetViewSource, /widget-shell--mic-warning/);
   assert.match(widgetViewSource, /const rowClassName = isCompactWaveState/);
-  assert.match(widgetViewSource, /gap-1\.5/);
-  assert.match(widgetViewSource, /gap-2\.5/);
+  // Idle and active are two ends of one lockup, not two components swapping:
+  // the wordmark collapses out and the mark grows into the space it leaves.
+  assert.match(widgetViewSource, /data-widget-morph=\{morphState\}/);
+  assert.match(widgetViewSource, /const morphState = isCompactWaveState \? "active" : "rest";/);
+  assert.match(widgetViewSource, /collapsed=\{isCompactWaveState\}/);
+  assert.match(widgetViewSource, /className="widget-mark-slot"/);
+  assert.match(widgetViewSource, /const markSlotSize = isCompactWaveState \? ACTIVE_MARK_SIZE : REST_MARK_SIZE;/);
   assert.doesNotMatch(widgetViewSource, /const settingsAction = \(/);
   assert.doesNotMatch(widgetViewSource, /aria-label="Settings"/);
   assert.match(widgetViewSource, /<FamVoiceLockup markSize=\{22\} \/>/);
-  assert.match(widgetViewSource, /<FamVoiceLogo size=\{activeMarkSize\} className="shrink-0" \/>/);
+  assert.match(widgetViewSource, /<FamVoiceMarkLive mode=\{renderedWaveMode\} className=\{activeMarkClassName\} \/>/);
   assert.match(widgetViewSource, /className="widget-status flex min-w-0 items-center justify-center pointer-events-none select-none"/);
   assert.match(widgetViewSource, /const renderedWaveMode = waveMode === "idle" && isFinishing \? "transcribing" : waveMode;/);
   assert.match(widgetViewSource, /const waveWrapClassName = isFinishing/);
@@ -159,9 +165,9 @@ test("widget keeps the compact lockup without a settings action", () => {
   assert.match(widgetViewSource, /Tray menu → Settings\./);
   assert.doesNotMatch(widgetViewSource, /markPulseRef/);
   assert.doesNotMatch(widgetViewSource, /widget-mark-pulse/);
-  assert.match(widgetViewSource, /<VoiceWave mode=\{renderedWaveMode\} size="widget" \/>/);
+  assert.match(widgetViewSource, /<FamVoiceMarkLive mode=\{renderedWaveMode\} className=\{activeMarkClassName\} \/>/);
   assert.match(widgetViewSource, /flex w-full items-center pl-1\.5 pr-0\.5 py-1/);
-  assert.match(widgetViewSource, /flex w-full items-center pl-1 pr-0 py-1/);
+  assert.match(widgetViewSource, /flex w-full items-center justify-center p-0/);
   assert.doesNotMatch(widgetViewSource, /shadow-\[0_0_15px_rgba\(255,81,47,0\.4\)\]/);
   assert.doesNotMatch(widgetViewSource, /animate-pulse/);
 });
