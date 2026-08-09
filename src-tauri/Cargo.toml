@@ -47,6 +47,6 @@ codegen-units = 1
 strip = true
 
 [dev-dependencies]
-base64 = "0.22.1"
+base64 = "0.23.1"
 minisign-verify = "0.2.5"
 tempfile = "3.27.0"
