@@ -17,6 +17,10 @@ export interface SettingsViewModel {
   api_key_masked: string | null;
   groq_api_key_present: boolean;
   groq_api_key_masked: string | null;
+  soniox_api_key_present: boolean;
+  soniox_api_key_masked: string | null;
+  openrouter_api_key_present: boolean;
+  openrouter_api_key_masked: string | null;
   model: string;
   language: string;
   auto_paste: boolean;
@@ -41,6 +45,8 @@ export interface SaveSettingsPayload {
   transcription_provider: string;
   api_key: string | null;
   groq_api_key: string | null;
+  soniox_api_key: string | null;
+  openrouter_api_key?: string | null;
   model: string;
   language: string;
   auto_paste: boolean;

@@ -7,12 +7,21 @@ use std::sync::{Arc, Mutex};
 const SETTINGS_SERVICE_NAME: &str = "com.famvoice.app";
 const OPENAI_API_KEY_ACCOUNT: &str = "openai_api_key";
 const GROQ_API_KEY_ACCOUNT: &str = "groq_api_key";
+const SONIOX_API_KEY_ACCOUNT: &str = "soniox_api_key";
+const OPENROUTER_API_KEY_ACCOUNT: &str = "openrouter_api_key";
 const OPENAI_API_KEY_CONTEXT: &str = "OpenAI API key";
 const GROQ_API_KEY_CONTEXT: &str = "Groq API key";
+const SONIOX_API_KEY_CONTEXT: &str = "Soniox API key";
+const OPENROUTER_API_KEY_CONTEXT: &str = "OpenRouter API key";
 const MAX_API_KEY_LEN: usize = 200;
 const MAX_HOTKEY_LEN: usize = 100;
 const MAX_INPUT_DEVICE_ID_LEN: usize = 512;
-pub const SUPPORTED_PROVIDERS: [&str; 2] = ["openai", "groq"];
+pub const SUPPORTED_PROVIDERS: [&str; 4] = ["openai", "groq", "soniox", "openrouter"];
+pub const OPENROUTER_MAI_MODEL: &str = "microsoft/mai-transcribe-2";
+pub const OPENROUTER_SCRIBE_MODEL: &str = "elevenlabs/scribe-v2";
+pub const OPENROUTER_MODELS: [&str; 2] = [OPENROUTER_MAI_MODEL, OPENROUTER_SCRIBE_MODEL];
+pub const SONIOX_MODELS: [&str; 1] = ["stt-rt-v5"];
+const DEFAULT_SONIOX_MODEL: &str = "stt-rt-v5";
 pub const OPENAI_MODELS: [&str; 2] = ["gpt-transcribe", "whisper-1"];
 pub const GROQ_MODELS: [&str; 2] = ["whisper-large-v3-turbo", "whisper-large-v3"];
 const DEFAULT_OPENAI_MODEL: &str = "gpt-transcribe";
@@ -44,6 +53,8 @@ fn default_model() -> String {
 fn models_for_provider(provider: &str) -> &'static [&'static str] {
     match provider {
         "groq" => &GROQ_MODELS,
+        "soniox" => &SONIOX_MODELS,
+        "openrouter" => &OPENROUTER_MODELS,
         _ => &OPENAI_MODELS,
     }
 }
@@ -51,6 +62,8 @@ fn models_for_provider(provider: &str) -> &'static [&'static str] {
 fn default_model_for_provider(provider: &str) -> &'static str {
     match provider {
         "groq" => DEFAULT_GROQ_MODEL,
+        "soniox" => DEFAULT_SONIOX_MODEL,
+        "openrouter" => OPENROUTER_MAI_MODEL,
         _ => DEFAULT_OPENAI_MODEL,
     }
 }
@@ -191,6 +204,8 @@ pub struct AppSettings {
     pub transcription_provider: String,
     pub api_key: String,
     pub groq_api_key: String,
+    pub soniox_api_key: String,
+    pub openrouter_api_key: String,
     pub model: String,
     pub language: String,
     pub auto_paste: bool,
@@ -209,11 +224,13 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            transcription_provider: default_provider(),
+            transcription_provider: "openrouter".to_string(),
             api_key: String::new(),
             groq_api_key: String::new(),
-            model: default_model(),
-            language: default_language(),
+            soniox_api_key: String::new(),
+            openrouter_api_key: String::new(),
+            model: OPENROUTER_MAI_MODEL.to_string(),
+            language: "pt".to_string(),
             auto_paste: default_auto_paste(),
             preserve_clipboard: default_preserve_clipboard(),
             hotkey: default_hotkey(),
@@ -237,6 +254,11 @@ impl AppSettings {
             api_key_masked: mask_secret(&self.api_key),
             groq_api_key_present: !self.groq_api_key.trim().is_empty(),
             groq_api_key_masked: mask_secret(&self.groq_api_key),
+            soniox_api_key_present: !self.soniox_api_key.trim().is_empty(),
+            soniox_api_key_masked: mask_secret(&self.soniox_api_key),
+            openrouter_api_key_present: !self.openrouter_api_key.trim().is_empty(),
+            openrouter_api_key_masked: (!self.openrouter_api_key.trim().is_empty())
+                .then(|| "***".to_string()),
             model: self.model.clone(),
             language: self.language.clone(),
             auto_paste: self.auto_paste,
@@ -247,7 +269,8 @@ impl AppSettings {
             input_device_id: self.input_device_id.clone(),
             mic_sensitivity: self.mic_sensitivity,
             noise_suppression_enabled: self.noise_suppression_enabled,
-            prompt_optimization_enabled: self.prompt_optimization_enabled,
+            prompt_optimization_enabled: self.transcription_provider != "openrouter"
+                && self.prompt_optimization_enabled,
             prompt_optimizer_model: self.prompt_optimizer_model.clone(),
             replacements: self.replacements.clone(),
             credential_storage: CredentialStorageState::secure(),
@@ -258,6 +281,8 @@ impl AppSettings {
     pub fn transcription_api_key(&self) -> &str {
         match self.transcription_provider.as_str() {
             "groq" => &self.groq_api_key,
+            "soniox" => &self.soniox_api_key,
+            "openrouter" => &self.openrouter_api_key,
             _ => &self.api_key,
         }
     }
@@ -270,6 +295,10 @@ pub struct FrontendSettings {
     pub api_key_masked: Option<String>,
     pub groq_api_key_present: bool,
     pub groq_api_key_masked: Option<String>,
+    pub soniox_api_key_present: bool,
+    pub soniox_api_key_masked: Option<String>,
+    pub openrouter_api_key_present: bool,
+    pub openrouter_api_key_masked: Option<String>,
     pub model: String,
     pub language: String,
     pub auto_paste: bool,
@@ -319,6 +348,10 @@ pub struct SaveSettingsRequest {
     pub api_key: Option<String>,
     #[serde(default)]
     pub groq_api_key: Option<String>,
+    #[serde(default)]
+    pub soniox_api_key: Option<String>,
+    #[serde(default)]
+    pub openrouter_api_key: Option<String>,
     pub model: String,
     pub language: String,
     pub auto_paste: bool,
@@ -348,6 +381,11 @@ impl SaveSettingsRequest {
             transcription_provider: self.transcription_provider,
             api_key: keep_existing_or_new(self.api_key, &existing.api_key),
             groq_api_key: keep_existing_or_new(self.groq_api_key, &existing.groq_api_key),
+            soniox_api_key: keep_existing_or_new(self.soniox_api_key, &existing.soniox_api_key),
+            openrouter_api_key: keep_existing_or_new(
+                self.openrouter_api_key,
+                &existing.openrouter_api_key,
+            ),
             model: self.model,
             language: self.language,
             auto_paste: self.auto_paste,
@@ -384,6 +422,10 @@ struct DiskSettings {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     groq_api_key_encrypted: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    soniox_api_key_encrypted: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    openrouter_api_key_encrypted: Option<String>,
     #[serde(default = "default_model")]
     model: String,
     #[serde(default = "default_language")]
@@ -424,6 +466,8 @@ impl Default for DiskSettings {
             groq_api_key: None,
             api_key_encrypted: None,
             groq_api_key_encrypted: None,
+            soniox_api_key_encrypted: None,
+            openrouter_api_key_encrypted: None,
             model: default_model(),
             language: default_language(),
             auto_paste: default_auto_paste(),
@@ -453,6 +497,14 @@ impl DiskSettings {
             groq_api_key_encrypted: encrypt_optional_secret(
                 &settings.groq_api_key,
                 GROQ_API_KEY_CONTEXT,
+            )?,
+            soniox_api_key_encrypted: encrypt_optional_secret(
+                &settings.soniox_api_key,
+                SONIOX_API_KEY_CONTEXT,
+            )?,
+            openrouter_api_key_encrypted: encrypt_optional_secret(
+                &settings.openrouter_api_key,
+                OPENROUTER_API_KEY_CONTEXT,
             )?,
             model: settings.model.clone(),
             language: settings.language.clone(),
@@ -586,7 +638,7 @@ impl SettingsState {
         let mut accounts_to_seed = Vec::new();
         let mut keyring_unavailable = false;
 
-        let secret_accounts: [SecretAccount<'_>; 2] = [
+        let secret_accounts: [SecretAccount<'_>; 4] = [
             (
                 OPENAI_API_KEY_ACCOUNT,
                 OPENAI_API_KEY_CONTEXT,
@@ -600,6 +652,20 @@ impl SettingsState {
                 &mut settings.groq_api_key,
                 disk_settings.groq_api_key.clone(),
                 disk_settings.groq_api_key_encrypted.clone(),
+            ),
+            (
+                SONIOX_API_KEY_ACCOUNT,
+                SONIOX_API_KEY_CONTEXT,
+                &mut settings.soniox_api_key,
+                None,
+                disk_settings.soniox_api_key_encrypted.clone(),
+            ),
+            (
+                OPENROUTER_API_KEY_ACCOUNT,
+                OPENROUTER_API_KEY_CONTEXT,
+                &mut settings.openrouter_api_key,
+                None,
+                disk_settings.openrouter_api_key_encrypted.clone(),
             ),
         ];
 
@@ -848,6 +914,8 @@ impl SettingsState {
             let value = match *account {
                 OPENAI_API_KEY_ACCOUNT => &settings.api_key,
                 GROQ_API_KEY_ACCOUNT => &settings.groq_api_key,
+                SONIOX_API_KEY_ACCOUNT => &settings.soniox_api_key,
+                OPENROUTER_API_KEY_ACCOUNT => &settings.openrouter_api_key,
                 _ => continue,
             };
             self.secret_store.write_secret(account, value)?;
@@ -892,6 +960,16 @@ fn secret_changes<'a>(
             account: GROQ_API_KEY_ACCOUNT,
             previous: &previous.groq_api_key,
             next: &settings.groq_api_key,
+        },
+        SecretChange {
+            account: SONIOX_API_KEY_ACCOUNT,
+            previous: &previous.soniox_api_key,
+            next: &settings.soniox_api_key,
+        },
+        SecretChange {
+            account: OPENROUTER_API_KEY_ACCOUNT,
+            previous: &previous.openrouter_api_key,
+            next: &settings.openrouter_api_key,
         },
     ]
     .into_iter()
@@ -957,6 +1035,17 @@ fn decrypt_disk_secret(secret: &str, context: &str) -> Result<String, String> {
 
 fn load_disk_settings(storage: &crate::persistence::AtomicFile) -> (DiskSettings, bool) {
     let path = storage.path();
+    if !path.exists() && !storage.backup_path().exists() {
+        return (
+            DiskSettings {
+                transcription_provider: "openrouter".to_string(),
+                model: OPENROUTER_MAI_MODEL.to_string(),
+                language: "pt".to_string(),
+                ..DiskSettings::default()
+            },
+            false,
+        );
+    }
     if path.exists() {
         match fs::read_to_string(path) {
             Ok(data) => match serde_json::from_str::<DiskSettings>(&data) {
@@ -1011,6 +1100,14 @@ pub fn validate_settings(settings: &AppSettings) -> Result<(), Vec<String>> {
 
     if settings.groq_api_key.len() > MAX_API_KEY_LEN {
         errors.push("Groq API key is too long".to_string());
+    }
+
+    if settings.soniox_api_key.len() > MAX_API_KEY_LEN {
+        errors.push("Soniox API key is too long".to_string());
+    }
+
+    if settings.openrouter_api_key.len() > MAX_API_KEY_LEN {
+        errors.push("OpenRouter API key is too long".to_string());
     }
 
     let valid_models = models_for_provider(&settings.transcription_provider);
@@ -1100,6 +1197,158 @@ pub fn validate_settings(settings: &AppSettings) -> Result<(), Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn openrouter_model_switch_roundtrip_reuses_the_saved_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MockCredentialStore::with_secrets(&[(
+            OPENROUTER_API_KEY_ACCOUNT,
+            "synthetic-existing-openrouter-key",
+        )]));
+        let mut state = SettingsState::load_with_store(dir.path().to_path_buf(), store.clone());
+        for model in [OPENROUTER_SCRIBE_MODEL, OPENROUTER_MAI_MODEL] {
+            state
+                .save_request(SaveSettingsRequest {
+                    transcription_provider: "openrouter".into(),
+                    model: model.into(),
+                    language: "auto".into(),
+                    api_key: None,
+                    openrouter_api_key: None,
+                    ..sample_save_request()
+                })
+                .unwrap();
+            state = SettingsState::load_with_store(dir.path().to_path_buf(), store.clone());
+            let settings = state.settings.lock().unwrap();
+            assert_eq!(settings.model, model);
+            assert_eq!(settings.language, "auto");
+            assert_eq!(
+                settings.transcription_api_key(),
+                "synthetic-existing-openrouter-key"
+            );
+        }
+    }
+
+    #[test]
+    fn openrouter_roundtrip_preserves_other_providers_and_never_exposes_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MockCredentialStore::with_secrets(&[
+            (OPENAI_API_KEY_ACCOUNT, "openai-unchanged"),
+            (GROQ_API_KEY_ACCOUNT, "groq-unchanged"),
+            (SONIOX_API_KEY_ACCOUNT, "soniox-unchanged"),
+        ]));
+        let state = SettingsState::load_with_store(dir.path().to_path_buf(), store.clone());
+        let saved = state
+            .save_request(SaveSettingsRequest {
+                transcription_provider: "openrouter".into(),
+                model: OPENROUTER_MAI_MODEL.into(),
+                language: "pt".into(),
+                api_key: None,
+                openrouter_api_key: Some("synthetic-openrouter-secret-sentinel".into()),
+                ..sample_save_request()
+            })
+            .unwrap();
+        assert_eq!(
+            saved.transcription_api_key(),
+            "synthetic-openrouter-secret-sentinel"
+        );
+        assert_eq!(saved.api_key, "openai-unchanged");
+        assert_eq!(saved.groq_api_key, "groq-unchanged");
+        assert_eq!(saved.soniox_api_key, "soniox-unchanged");
+        let frontend = saved.to_frontend();
+        assert!(frontend.openrouter_api_key_present);
+        assert_eq!(frontend.openrouter_api_key_masked.as_deref(), Some("***"));
+        let json = serde_json::to_string(&frontend).unwrap();
+        assert!(!json.contains("synthetic-openrouter-secret-sentinel"));
+        let disk = fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        assert!(disk.contains("openrouter_api_key_encrypted"));
+        assert!(!disk.contains("synthetic-openrouter-secret-sentinel"));
+        assert!(!disk.contains("\"openrouter_api_key\":"));
+        let reloaded = SettingsState::load_with_store(dir.path().to_path_buf(), store.clone());
+        let settings = reloaded.settings.lock().unwrap();
+        assert_eq!(settings.model, OPENROUTER_MAI_MODEL);
+        assert_eq!(settings.language, "pt");
+        assert_eq!(
+            settings.transcription_api_key(),
+            saved.transcription_api_key()
+        );
+        drop(settings);
+        for key in [None, Some("  ".to_string())] {
+            let saved = reloaded
+                .save_request(SaveSettingsRequest {
+                    transcription_provider: "openrouter".into(),
+                    model: OPENROUTER_MAI_MODEL.into(),
+                    api_key: None,
+                    openrouter_api_key: key,
+                    ..sample_save_request()
+                })
+                .unwrap();
+            assert_eq!(
+                saved.transcription_api_key(),
+                "synthetic-openrouter-secret-sentinel"
+            );
+        }
+        store.unavailable.store(true, Ordering::SeqCst);
+        let recovered = SettingsState::load_with_store(dir.path().to_path_buf(), store);
+        assert_eq!(
+            recovered.settings.lock().unwrap().openrouter_api_key,
+            "synthetic-openrouter-secret-sentinel"
+        );
+    }
+
+    #[test]
+    fn openrouter_failed_key_write_rolls_back_changes_without_exposing_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MockCredentialStore::with_secrets(&[
+            (OPENAI_API_KEY_ACCOUNT, "openai-old"),
+            (OPENROUTER_API_KEY_ACCOUNT, "openrouter-old"),
+        ]));
+        let state = SettingsState::load_with_store(dir.path().to_path_buf(), store.clone());
+        *store.fail_write_account.lock().unwrap() = Some(OPENROUTER_API_KEY_ACCOUNT.to_string());
+        let error = state
+            .save_request(SaveSettingsRequest {
+                api_key: Some("openai-new".into()),
+                openrouter_api_key: Some("openrouter-new".into()),
+                ..sample_save_request()
+            })
+            .err()
+            .unwrap();
+        assert!(!error.contains("openrouter-new"));
+        assert_eq!(
+            store.get_secret(OPENAI_API_KEY_ACCOUNT).unwrap().as_deref(),
+            Some("openai-old")
+        );
+        assert_eq!(
+            state.settings.lock().unwrap().openrouter_api_key,
+            "openrouter-old"
+        );
+    }
+
+    #[test]
+    fn openrouter_new_setup_does_not_change_existing_or_missing_legacy_preferences() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(&dir);
+        assert_eq!(
+            state.settings.lock().unwrap().transcription_provider,
+            "openrouter"
+        );
+        assert_eq!(state.settings.lock().unwrap().language, "pt");
+        for data in [
+            r#"{}"#,
+            r#"{"transcription_provider":"groq","model":"whisper-large-v3","language":"en"}"#,
+        ] {
+            fs::write(dir.path().join("settings.json"), data).unwrap();
+            let state = test_state(&dir);
+            let settings = state.settings.lock().unwrap();
+            if data == "{}" {
+                assert_eq!(settings.transcription_provider, "openai");
+                assert_eq!(settings.language, "auto");
+            } else {
+                assert_eq!(settings.transcription_provider, "groq");
+                assert_eq!(settings.model, "whisper-large-v3");
+                assert_eq!(settings.language, "en");
+            }
+        }
+    }
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tempfile::tempdir;
@@ -1159,6 +1408,8 @@ mod tests {
             transcription_provider: "openai".to_string(),
             api_key: Some("sk-test".to_string()),
             groq_api_key: None,
+            soniox_api_key: None,
+            openrouter_api_key: None,
             model: "whisper-1".to_string(),
             language: "auto".to_string(),
             auto_paste: true,
@@ -1180,6 +1431,8 @@ mod tests {
             transcription_provider: "openai".to_string(),
             api_key: "sk-test".to_string(),
             groq_api_key: String::new(),
+            soniox_api_key: String::new(),
+            openrouter_api_key: String::new(),
             model: "whisper-1".to_string(),
             language: "auto".to_string(),
             auto_paste: true,
@@ -1204,12 +1457,16 @@ mod tests {
     }
 
     #[test]
-    fn test_default_uses_recommended_openai_transcription_model() {
+    fn test_default_uses_openrouter_portuguese_without_changing_legacy_disk_defaults() {
         let settings = AppSettings::default();
         let disk_settings = DiskSettings::default();
 
-        assert_eq!(settings.transcription_provider, "openai");
-        assert_eq!(settings.model, "gpt-transcribe");
+        assert_eq!(settings.transcription_provider, "openrouter");
+        assert_eq!(settings.model, OPENROUTER_MAI_MODEL);
+        assert_eq!(settings.language, "pt");
+        assert!(!settings.prompt_optimization_enabled);
+        assert_eq!(disk_settings.transcription_provider, "openai");
+        assert_eq!(disk_settings.language, "auto");
         assert_eq!(
             disk_settings.transcription_model_settings_version,
             CURRENT_TRANSCRIPTION_MODEL_SETTINGS_VERSION
@@ -1343,6 +1600,7 @@ mod tests {
         let settings = AppSettings {
             api_key: "sk-test-openai".to_string(),
             groq_api_key: "gsk-test-groq".to_string(),
+            soniox_api_key: "soniox-test-secret".to_string(),
             ..sample_settings()
         };
 
@@ -1352,6 +1610,14 @@ mod tests {
         assert_eq!(frontend.api_key_masked.as_deref(), Some("sk-...enai"));
         assert!(frontend.groq_api_key_present);
         assert_eq!(frontend.groq_api_key_masked.as_deref(), Some("gsk...groq"));
+        assert!(frontend.soniox_api_key_present);
+        assert_eq!(
+            frontend.soniox_api_key_masked.as_deref(),
+            Some("son...cret")
+        );
+        assert!(!serde_json::to_string(&frontend)
+            .unwrap()
+            .contains("soniox-test-secret"));
     }
 
     #[test]
@@ -1379,6 +1645,7 @@ mod tests {
                 .expect("Failed to acquire settings lock");
             settings.api_key = "sk-existing".to_string();
             settings.groq_api_key = "gsk-existing".to_string();
+            settings.soniox_api_key = "soniox-existing".to_string();
         }
 
         let saved = state
@@ -1394,6 +1661,7 @@ mod tests {
 
         assert_eq!(saved.api_key, "sk-existing");
         assert_eq!(saved.groq_api_key, "gsk-existing");
+        assert_eq!(saved.soniox_api_key, "soniox-existing");
         assert!(saved.widget_mode);
         assert!(saved.prompt_optimization_enabled);
     }
@@ -1410,18 +1678,21 @@ mod tests {
                 .expect("Failed to acquire settings lock");
             settings.api_key = "sk-existing".to_string();
             settings.groq_api_key = "gsk-existing".to_string();
+            settings.soniox_api_key = "soniox-existing".to_string();
         }
 
         let saved = state
             .save_request(SaveSettingsRequest {
                 api_key: Some("   ".to_string()),
                 groq_api_key: Some("\t".to_string()),
+                soniox_api_key: Some("  ".to_string()),
                 ..sample_save_request()
             })
             .unwrap();
 
         assert_eq!(saved.api_key, "sk-existing");
         assert_eq!(saved.groq_api_key, "gsk-existing");
+        assert_eq!(saved.soniox_api_key, "soniox-existing");
     }
 
     #[test]
@@ -1432,6 +1703,7 @@ mod tests {
         state
             .save_request(SaveSettingsRequest {
                 groq_api_key: Some("gsk-secret".to_string()),
+                soniox_api_key: Some("soniox-secret".to_string()),
                 replacements: vec![Replacement {
                     target: "hello".to_string(),
                     replacement: "world".to_string(),
@@ -1444,6 +1716,9 @@ mod tests {
 
         assert!(!settings_json.contains("sk-test"));
         assert!(!settings_json.contains("gsk-secret"));
+        assert!(!settings_json.contains("soniox-secret"));
+        assert!(settings_json.contains("soniox_api_key_encrypted"));
+        assert!(!settings_json.contains("\"soniox_api_key\":"));
         assert!(settings_json.contains("\"model\""));
     }
 
@@ -1532,6 +1807,7 @@ mod tests {
         let settings = AppSettings {
             api_key: "sk-encrypted-recovery".to_string(),
             groq_api_key: "gsk-encrypted-recovery".to_string(),
+            soniox_api_key: "soniox-encrypted-recovery".to_string(),
             ..sample_settings()
         };
         let disk =
@@ -1547,6 +1823,7 @@ mod tests {
 
         assert_eq!(loaded.api_key, "sk-encrypted-recovery");
         assert_eq!(loaded.groq_api_key, "gsk-encrypted-recovery");
+        assert_eq!(loaded.soniox_api_key, "soniox-encrypted-recovery");
         assert_eq!(frontend.credential_storage.mode, "encrypted_disk_fallback");
         let message = frontend.credential_storage.message.unwrap();
         assert!(!message.contains("sk-encrypted-recovery"));
@@ -1560,6 +1837,7 @@ mod tests {
         let disk_settings = AppSettings {
             api_key: "sk-disk-value".to_string(),
             groq_api_key: "gsk-disk-value".to_string(),
+            soniox_api_key: "soniox-disk-value".to_string(),
             ..sample_settings()
         };
         fs::write(
@@ -1571,6 +1849,7 @@ mod tests {
         let store = Arc::new(MockCredentialStore::with_secrets(&[
             (OPENAI_API_KEY_ACCOUNT, "sk-keyring-value"),
             (GROQ_API_KEY_ACCOUNT, "gsk-keyring-value"),
+            (SONIOX_API_KEY_ACCOUNT, "soniox-keyring-value"),
         ]));
 
         let state = SettingsState::load_with_store(dir.path().to_path_buf(), store);
@@ -1578,6 +1857,16 @@ mod tests {
 
         assert_eq!(loaded.api_key, "sk-keyring-value");
         assert_eq!(loaded.groq_api_key, "gsk-keyring-value");
+        assert_eq!(loaded.soniox_api_key, "soniox-keyring-value");
+        let disk = load_disk_settings(&state.storage).0;
+        assert_eq!(
+            decrypt_disk_secret(
+                disk.soniox_api_key_encrypted.as_deref().unwrap(),
+                SONIOX_API_KEY_CONTEXT
+            )
+            .unwrap(),
+            "soniox-keyring-value"
+        );
     }
 
     #[test]
@@ -1849,5 +2138,72 @@ mod tests {
             .unwrap_err()
             .iter()
             .any(|error| error.contains("different from the recording hotkey")));
+    }
+
+    #[test]
+    fn soniox_provider_round_trips_without_changing_other_keys() {
+        let dir = tempdir().unwrap();
+        let store = Arc::new(MockCredentialStore::with_secrets(&[
+            (OPENAI_API_KEY_ACCOUNT, "openai-unchanged"),
+            (GROQ_API_KEY_ACCOUNT, "groq-unchanged"),
+        ]));
+        let state = SettingsState::load_with_store(dir.path().to_path_buf(), store.clone());
+        let saved = state
+            .save_request(SaveSettingsRequest {
+                transcription_provider: "soniox".to_string(),
+                model: DEFAULT_SONIOX_MODEL.to_string(),
+                api_key: None,
+                soniox_api_key: Some("soniox-test-only".to_string()),
+                ..sample_save_request()
+            })
+            .unwrap();
+        assert_eq!(saved.transcription_api_key(), "soniox-test-only");
+        assert_eq!(saved.api_key, "openai-unchanged");
+        assert_eq!(saved.groq_api_key, "groq-unchanged");
+        assert_eq!(
+            store.get_secret(SONIOX_API_KEY_ACCOUNT).unwrap().as_deref(),
+            Some("soniox-test-only")
+        );
+        let reloaded = SettingsState::load_with_store(dir.path().to_path_buf(), store);
+        let settings = reloaded.settings.lock().unwrap();
+        assert_eq!(settings.transcription_provider, "soniox");
+        assert_eq!(settings.model, DEFAULT_SONIOX_MODEL);
+        assert_eq!(settings.transcription_api_key(), "soniox-test-only");
+        let invalid = AppSettings {
+            model: "whisper-1".to_string(),
+            ..settings.clone()
+        };
+        assert!(validate_settings(&invalid).is_err());
+    }
+
+    #[test]
+    fn failed_soniox_key_write_rolls_back_other_provider_keys() {
+        let dir = tempdir().unwrap();
+        let store = Arc::new(MockCredentialStore::with_secrets(&[
+            (OPENAI_API_KEY_ACCOUNT, "openai-old"),
+            (GROQ_API_KEY_ACCOUNT, "groq-old"),
+            (SONIOX_API_KEY_ACCOUNT, "soniox-old"),
+        ]));
+        let state = SettingsState::load_with_store(dir.path().to_path_buf(), store.clone());
+        *store.fail_write_account.lock().unwrap() = Some(SONIOX_API_KEY_ACCOUNT.to_string());
+        assert!(state
+            .save_request(SaveSettingsRequest {
+                api_key: Some("openai-new".to_string()),
+                groq_api_key: Some("groq-new".to_string()),
+                soniox_api_key: Some("soniox-new".to_string()),
+                ..sample_save_request()
+            })
+            .is_err());
+        for (account, expected) in [
+            (OPENAI_API_KEY_ACCOUNT, "openai-old"),
+            (GROQ_API_KEY_ACCOUNT, "groq-old"),
+            (SONIOX_API_KEY_ACCOUNT, "soniox-old"),
+        ] {
+            assert_eq!(
+                store.get_secret(account).unwrap().as_deref(),
+                Some(expected)
+            );
+        }
+        assert_eq!(state.settings.lock().unwrap().soniox_api_key, "soniox-old");
     }
 }

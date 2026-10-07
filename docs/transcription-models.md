@@ -1,8 +1,37 @@
 # Transcription models
 
-Status reviewed: **2026-08-02**. Provider capabilities and list prices can change; check the linked official sources before a release decision.
+Soniox integration reviewed: **2026-09-23**. Original OpenAI/Groq matrix reviewed: **2026-08-02**. Provider capabilities and list prices can change; check the linked official sources before a release decision.
 
-FamVoice records a bounded audio clip and uploads the completed file to the selected provider's transcription endpoint. It is not a continuous live-captioning client.
+FamVoice records bounded dictations. OpenAI/Groq send completed clips by file upload; Soniox streams PCM during capture over a bounded WebSocket session. It is not a continuous live-captioning client.
+
+## OpenRouter: MAI Transcribe 2 and Scribe v2
+
+Choose **OpenRouter** in Settings, then select **MAI Transcribe 2**
+(`microsoft/mai-transcribe-2`) or **Scribe v2** (`elevenlabs/scribe-v2`). Both
+reuse the same saved OpenRouter API key. MAI remains the default; a saved Scribe
+selection survives restarting FamVoice. Try **Auto Detect** for Portuguese mixed
+with English, or **Portuguese** to provide a language hint.
+
+Both models send the completed FLAC/WAV clip to OpenRouter's
+`/api/v1/audio/transcriptions` endpoint and deliver the final transcript through
+the existing replacement and paste flow. Prompt optimization stays disabled for
+OpenRouter. Scribe requests verbatim speech without speaker labels, timestamps,
+audio-event tags, or transcript editing. Valid glossary targets use ElevenLabs
+`keyterms`; replacement values and prompt instructions are never sent. Keyterms
+are omitted when there are no valid glossary targets, and can incur an additional
+provider charge when used. Scribe clips are limited to 25 MiB.
+
+Pricing checked **2026-10-07**: MAI is **$0.10/hour**; Scribe's OpenRouter
+endpoint lists **$0.11/hour** with a **50% promotional discount**. The promotion
+can change, so the picker does not hardcode a discounted price.
+
+Official sources: [MAI](https://openrouter.ai/microsoft/mai-transcribe-2),
+[Scribe](https://openrouter.ai/elevenlabs/scribe-v2),
+[Scribe endpoint catalog](https://openrouter.ai/api/v1/models/elevenlabs/scribe-v2/endpoints),
+[OpenRouter STT contract](https://openrouter.ai/docs/guides/overview/multimodal/stt),
+[ElevenLabs options](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).
+Automated transport and settings tests do not establish recognition quality or
+microphone-to-paste latency for the user's voice.
 
 ## Supported choices
 
@@ -14,6 +43,48 @@ FamVoice records a bounded audio clip and uploads the completed file to the sele
 | Groq | `whisper-large-v3` | Accuracy-first option | `language` | `prompt` | Not used by FamVoice | Groq supports word/segment timestamps and translation | **$0.111/hour** |
 
 The OpenAI `stream` field streams the response generated from an uploaded, completed file; it does not turn FamVoice into a realtime microphone session. `whisper-1` ignores that field, so FamVoice uses its normal non-streaming response path for that model. The Settings labels describe these roles rather than implying that the most expensive model is always the best choice.
+
+## Soniox v5
+
+`stt-rt-v5` is an additional provider choice; existing selections and defaults are preserved.
+
+- Uses `wss://stt-rt.soniox.com/transcribe-websocket`, with authentication in the initial JSON message, then 16 kHz mono PCM (`pcm_s16le`) during capture. Manual retry uses binary FLAC/WAV frames (`audio_format: auto`). An empty **text** frame ends audio; only confirmed tokens are accumulated and delivery waits for `finished: true`. Provisional tokens, translations and control markers are excluded. A close before completion fails rather than delivering partial text.
+- Portuguese sends `language_hints: ["pt", "en"]` plus the existing European Portuguese context. Other selected languages send their own hint; Auto Detect omits hints. Literal glossary targets go to `context.terms`; replacement outputs are not sent as vocabulary.
+- The app opens the connection when recording starts and sends blocks of up to 200 ms from the existing bounded capture buffer. Settings and glossary are captured at recording start. Auto-gain runs per block; optional noise suppression retains its state and incomplete frames and flushes its delay once at the end. The capture pre-roll and release tail are retained. Silence is still rejected before delivery. No captions or provisional text are delivered. The session is bounded to 330 seconds, finalization to 30 seconds, with bounded incoming messages. Dropping the session cancels its task/socket; session IDs prevent cross-recording reads. No automatic retry replays billable audio. The existing single-use RAM retry path remains available after a streaming failure.
+- The key follows the existing Windows Credential Manager / DPAPI recovery rule. Soniox is included in the content-free provider connectivity test (`GET https://api.soniox.com/v1/models`). No new frontend network permissions are needed.
+- No remote file or transcription job is created by this WebSocket path. Do not infer the provider's contractual retention policy from this implementation; consult [Soniox privacy documentation](https://soniox.com/docs/security-and-privacy).
+- Estimated usage price: **$0.12/hour**, token-based, before taxes. See [pricing](https://soniox.com/pricing).
+- Automated tests cover wire framing, finalization, mixed-language hints, sanitized errors, disconnect, timeout/cancellation, secret persistence and provider switching. A live synthetic-tone comparison on 2026-09-23 reproduced 408 for both FLAC and WAV with binary EOF (~21 seconds); changing only EOF to empty text completed both streams (~1.8 seconds, no speech). Despite the reference allowing either frame type, keep text EOF to avoid the observed timeout. This verifies live transport/finalization, not speech accuracy, native dictation or the billed amount.
+
+Official contract: [WebSocket API](https://soniox.com/docs/api-reference/stt/websocket-api), [models](https://soniox.com/docs/stt/models), [language hints](https://soniox.com/docs/stt/concepts/language-hints), [models/auth test](https://soniox.com/docs/api-reference/stt/get_models).
+
+### Observed latency of completed-clip upload (2026-09-23)
+
+A bounded live comparison used identical locally synthesized English speech, encoded
+as 16 kHz mono FLAC entirely in memory, with saved provider credentials. Only durations
+and success/failure were recorded; audio and returned text were not persisted or logged.
+
+| Audio duration | Soniox `stt-rt-v5` | Groq `whisper-large-v3-turbo` |
+| --- | --- | --- |
+| 4.14 s | 2.16 s | 0.22 s |
+| 16.54 s | 13.17 s | 0.23 s |
+
+These are single observations per provider and clip, measured from the transcription
+call through its completed result, excluding microphone capture, prompt optimization
+and paste. They are not pt-PT accuracy results or latency guarantees. This was the
+original Soniox path, which delayed all processing until recording ended; it remains
+available for manual retry. Groq was faster for that completed-clip workflow.
+
+### Capture-time streaming comparison (2026-09-23)
+
+The same synthesized speech was subsequently fed at microphone speed through the
+production streaming function, including incremental gain and PCM framing. Waiting
+from simulated release to final result was **146 ms** for 4.14 s of speech and
+**192 ms** for 16.54 s. Both recognized all six checked English keywords. These are
+single live observations, with noise suppression disabled, not guarantees or a pt-PT
+accuracy evaluation. No audio or returned transcript was logged or saved. The temporary
+authenticated benchmark was removed after measurement. Native hotkey/capture/paste and
+the user's Portuguese/English dictation still need interactive validation.
 
 ## Request-field matrix
 

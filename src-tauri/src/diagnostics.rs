@@ -535,6 +535,8 @@ fn provider_models_endpoint(provider: &str) -> Option<&'static str> {
     match provider.trim().to_ascii_lowercase().as_str() {
         "openai" => Some("https://api.openai.com/v1/models"),
         "groq" => Some("https://api.groq.com/openai/v1/models"),
+        "soniox" => Some("https://api.soniox.com/v1/models"),
+        "openrouter" => Some("https://openrouter.ai/api/v1/models?output_modalities=transcription"),
         _ => None,
     }
 }
@@ -543,6 +545,8 @@ fn normalized_provider_name(provider: &str) -> String {
     match provider.trim().to_ascii_lowercase().as_str() {
         "openai" => "OpenAI".to_string(),
         "groq" => "Groq".to_string(),
+        "soniox" => "Soniox".to_string(),
+        "openrouter" => "OpenRouter".to_string(),
         _ => "Unsupported".to_string(),
     }
 }
@@ -569,6 +573,31 @@ fn duration_millis_saturated(duration: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn openrouter_diagnostics_use_own_key_and_never_serialize_secret() {
+        let mut settings = AppSettings {
+            transcription_provider: "openrouter".into(),
+            openrouter_api_key: "synthetic-openrouter-sentinel".into(),
+            api_key: "different-openai-key".into(),
+            ..AppSettings::default()
+        };
+        let snapshot = provider_snapshot(&settings, None);
+        assert_eq!(snapshot.provider, "OpenRouter");
+        assert!(snapshot.api_key_configured);
+        assert_eq!(
+            provider_models_endpoint("openrouter"),
+            Some("https://openrouter.ai/api/v1/models?output_modalities=transcription")
+        );
+        assert!(!serde_json::to_string(&snapshot)
+            .unwrap()
+            .contains("synthetic-openrouter-sentinel"));
+        settings.openrouter_api_key.clear();
+        assert!(!provider_snapshot(&settings, None).api_key_configured);
+        let result = test_provider_models(&reqwest::Client::new(), "openrouter", "").await;
+        assert_eq!(result.provider, "OpenRouter");
+        assert_eq!(result.error.as_deref(), Some("No API key is configured."));
+    }
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
@@ -584,6 +613,31 @@ mod tests {
             input_device_id: "device-id-secret-sentinel".to_string(),
             ..AppSettings::default()
         }
+    }
+
+    #[tokio::test]
+    async fn soniox_diagnostics_use_its_own_credentials_and_supported_endpoint() {
+        let mut settings = AppSettings {
+            transcription_provider: "soniox".to_string(),
+            model: "stt-rt-v5".to_string(),
+            soniox_api_key: "synthetic-soniox-key".to_string(),
+            ..test_settings()
+        };
+        let snapshot = provider_snapshot(&settings, None);
+        assert_eq!(snapshot.provider, "Soniox");
+        assert!(snapshot.api_key_configured);
+        assert_eq!(
+            provider_models_endpoint("soniox"),
+            Some("https://api.soniox.com/v1/models")
+        );
+        assert!(!serde_json::to_string(&snapshot)
+            .unwrap()
+            .contains("synthetic-soniox-key"));
+        settings.soniox_api_key.clear();
+        assert!(!provider_snapshot(&settings, None).api_key_configured);
+        let test = test_provider_models(&reqwest::Client::new(), "soniox", "").await;
+        assert_eq!(test.provider, "Soniox");
+        assert_eq!(test.error.as_deref(), Some("No API key is configured."));
     }
 
     #[test]

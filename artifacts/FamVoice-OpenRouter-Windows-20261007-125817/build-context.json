@@ -1,0 +1,5 @@
+{
+  "ArtifactDir": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\artifacts\\FamVoice-OpenRouter-Windows-20261007-125817",
+  "TargetDir": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\src-tauri\\target\\openrouter-package-20261007-125817",
+  "Command": "npm run tauri -- build"
+}

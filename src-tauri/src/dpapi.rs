@@ -147,7 +147,7 @@ fn hex_decode(encoded: &str, context: &str) -> Result<Vec<u8>, String> {
 
     let mut decoded = Vec::with_capacity(trimmed.len() / 2);
     let bytes = trimmed.as_bytes();
-    for chunk in bytes.chunks_exact(2) {
+    for chunk in bytes.as_chunks::<2>().0 {
         let high = hex_value(chunk[0])
             .ok_or_else(|| format!("DPAPI {context} payload contains invalid hex"))?;
         let low = hex_value(chunk[1])

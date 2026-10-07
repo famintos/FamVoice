@@ -3,11 +3,15 @@ export const DEFAULT_HOTKEY = "CommandOrControl+Shift+Space";
 export const TRANSCRIPTION_PROVIDERS = [
   { value: "openai", label: "OpenAI" },
   { value: "groq", label: "Groq" },
+  { value: "soniox", label: "Soniox" },
+  { value: "openrouter", label: "OpenRouter" },
 ];
 
 export const DEFAULT_TRANSCRIPTION_MODEL_BY_PROVIDER: Record<string, string> = {
   openai: "gpt-transcribe",
   groq: "whisper-large-v3-turbo",
+  soniox: "stt-rt-v5",
+  openrouter: "microsoft/mai-transcribe-2",
 };
 
 export const OPENAI_MODELS = [
@@ -23,9 +27,20 @@ export const GROQ_MODELS = [
 export const MODELS_BY_PROVIDER: Record<string, typeof OPENAI_MODELS> = {
   openai: OPENAI_MODELS,
   groq: GROQ_MODELS,
+  soniox: [{ value: "stt-rt-v5", label: "Soniox v5" }],
+  openrouter: [
+    { value: "microsoft/mai-transcribe-2", label: "MAI Transcribe 2" },
+    { value: "elevenlabs/scribe-v2", label: "Scribe v2" },
+  ],
 };
 
 export const TRANSCRIPTION_MODEL_HELP: Record<string, string> = {
+  "elevenlabs/scribe-v2":
+    "Portuguese and English dictation with your saved OpenRouter key. Try Auto Detect for mixed speech.",
+  "microsoft/mai-transcribe-2":
+    "Transcribes your dictation without prompt optimization. Inserts text without sending it.",
+  "stt-rt-v5":
+    "Multilingual dictation with vocabulary guidance. Choose Portuguese for European Portuguese with English terms. Estimated Soniox usage: $0.12/hour.",
   "gpt-transcribe":
     "Recommended for completed dictation. Supports language and vocabulary guidance, prompts, and streamed file responses. OpenAI list price: $0.0045/min.",
   "whisper-1":

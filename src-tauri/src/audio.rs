@@ -1,6 +1,7 @@
 mod noise;
 
 pub use noise::maybe_apply_noise_suppression;
+pub(crate) use noise::StreamingNoiseSuppressor;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat};
@@ -34,6 +35,29 @@ const SPEECH_WINDOW_MIN_SAVED_SAMPLES: usize = TARGET_SAMPLE_RATE as usize / 10;
 pub struct AudioState {
     pub stream_healthy: Arc<AtomicBool>,
     pub cmd_tx: mpsc::Sender<AudioCommand>,
+}
+
+// Read-only cursor over the existing bounded recording buffer. The audio actor
+// checks the session before reading; no callback performs network or async work.
+fn recording_chunk(samples: &[i16], offset: usize) -> Vec<i16> {
+    // Full 200 ms blocks give gain/denoising enough context. Stop supplies the
+    // final short block directly, so this never drops the release tail.
+    samples
+        .get(offset..offset.saturating_add(3200))
+        .unwrap_or_default()
+        .to_vec()
+}
+
+impl AudioState {
+    pub(crate) async fn read_since(&self, session: u64, offset: usize) -> Result<Vec<i16>, String> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.cmd_tx
+            .send(AudioCommand::ReadSince(session, offset, tx))
+            .await
+            .map_err(|_| "Microphone capture unavailable".to_string())?;
+        rx.await
+            .map_err(|_| "Microphone capture unavailable".to_string())?
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -111,6 +135,11 @@ struct CaptureConfig {
 }
 
 pub enum AudioCommand {
+    ReadSince(
+        u64,
+        usize,
+        tokio::sync::oneshot::Sender<Result<Vec<i16>, String>>,
+    ),
     Prime(
         tauri::AppHandle,
         Option<String>,
@@ -818,6 +847,16 @@ impl Default for AudioState {
 
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
+                    AudioCommand::ReadSince(session_id, offset, reply) => {
+                        let result = if active_session_id_clone.load(Ordering::SeqCst) != session_id
+                        {
+                            Err("The recording session is no longer active".to_string())
+                        } else {
+                            let buffer = sample_buffer.lock().unwrap();
+                            Ok(recording_chunk(&buffer, offset))
+                        };
+                        let _ = reply.send(result);
+                    }
                     AudioCommand::Prime(app_handle, selected_device_id, reply) => {
                         let normalized_selected_device_id = selected_device_id
                             .as_deref()
@@ -1446,6 +1485,14 @@ pub async fn stop_recording(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn live_cursor_keeps_partial_tail_for_stop_and_bounds_reads() {
+        let samples: Vec<i16> = (0..6537).map(|i| i as i16).collect();
+        assert_eq!(super::recording_chunk(&samples, 0), samples[..3200]);
+        assert_eq!(super::recording_chunk(&samples, 3200), samples[3200..6400]);
+        assert!(super::recording_chunk(&samples, 6400).is_empty());
+        assert!(super::recording_chunk(&samples, usize::MAX).is_empty());
+    }
     use super::*;
 
     #[test]

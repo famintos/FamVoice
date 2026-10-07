@@ -93,10 +93,20 @@ function toSavePayload(
   settings: SettingsDraft,
   apiKeyInput: string,
   groqApiKeyInput: string,
+  sonioxApiKeyInput: string,
+  openrouterApiKeyInput: string,
 ): SaveSettingsPayload {
   const {
     credential_storage: _credentialStorage,
     transcription_model_notice: _transcriptionModelNotice,
+    api_key_present: _apiKeyPresent,
+    api_key_masked: _apiKeyMasked,
+    groq_api_key_present: _groqApiKeyPresent,
+    groq_api_key_masked: _groqApiKeyMasked,
+    soniox_api_key_present: _sonioxApiKeyPresent,
+    soniox_api_key_masked: _sonioxApiKeyMasked,
+    openrouter_api_key_present: _openrouterApiKeyPresent,
+    openrouter_api_key_masked: _openrouterApiKeyMasked,
     replacements,
     ...persistedSettings
   } = settings;
@@ -106,6 +116,10 @@ function toSavePayload(
     ...persistedSettings,
     api_key: apiKeyInput.trim() ? apiKeyInput.trim() : null,
     groq_api_key: groqApiKeyInput.trim() ? groqApiKeyInput.trim() : null,
+    soniox_api_key: sonioxApiKeyInput.trim() ? sonioxApiKeyInput.trim() : null,
+    openrouter_api_key: openrouterApiKeyInput.trim() || null,
+    prompt_optimization_enabled:
+      settings.transcription_provider === "openrouter" ? false : settings.prompt_optimization_enabled,
     replacements: replacements.map(({ id: _id, ...replacement }) => replacement),
   };
 }
@@ -194,6 +208,8 @@ export function SettingsView() {
   const [settings, setSettings] = useState<SettingsDraft | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [groqApiKeyInput, setGroqApiKeyInput] = useState("");
+  const [sonioxApiKeyInput, setSonioxApiKeyInput] = useState("");
+  const [openrouterApiKeyInput, setOpenrouterApiKeyInput] = useState("");
   const [inputDevices, setInputDevices] = useState<InputDeviceOption[]>([DEFAULT_INPUT_DEVICE_OPTION]);
   const [dictationActivity, setDictationActivity] = useState<DictationActivity>({
     active: false,
@@ -222,6 +238,8 @@ export function SettingsView() {
       setSettings(toSettingsDraft(loadedSettings));
       setApiKeyInput("");
       setGroqApiKeyInput("");
+      setSonioxApiKeyInput("");
+      setOpenrouterApiKeyInput("");
     } catch (error) {
       console.error("Failed to load settings:", error);
       setErrorMessage(String(error));
@@ -259,6 +277,8 @@ export function SettingsView() {
         setSettings(toSettingsDraft(loadedSettings));
         setApiKeyInput("");
         setGroqApiKeyInput("");
+        setSonioxApiKeyInput("");
+        setOpenrouterApiKeyInput("");
       })
       .catch((error) => {
         console.error("Failed to load settings:", error);
@@ -350,12 +370,16 @@ export function SettingsView() {
         newSettings,
         apiKeyInput,
         groqApiKeyInput,
+        sonioxApiKeyInput,
+        openrouterApiKeyInput,
       );
       const savedSettings = await invoke<SettingsViewModel>("save_settings", { newSettings: payload });
       const nextSettings = toSettingsDraft(savedSettings);
       setSettings(nextSettings);
       setApiKeyInput("");
       setGroqApiKeyInput("");
+      setSonioxApiKeyInput("");
+      setOpenrouterApiKeyInput("");
       try {
         if (autostartAvailable && autostart) {
           await enable();
@@ -603,6 +627,7 @@ export function SettingsView() {
             />
           </label>
 
+          {settings.transcription_provider !== "openrouter" && (
           <label className="flex flex-col gap-1 text-sm">
             <div className="flex items-center justify-between">
               <span className="font-medium text-slate-200">OpenAI API Key</span>
@@ -626,6 +651,35 @@ export function SettingsView() {
                   : "Used for OpenAI transcription and prompt optimization. Saved after you enter one."}
             </span>
           </label>
+
+          )}
+
+          {settings.transcription_provider === "openrouter" && (
+            <label className="flex flex-col gap-1 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-slate-200">OpenRouter API Key</span>
+                <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider ${settings.openrouter_api_key_present ? "text-green-500" : "text-slate-400"}`}>
+                  <span className={`w-1 h-1 rounded-full ${settings.openrouter_api_key_present ? "bg-green-500" : "bg-slate-500"}`} />
+                  {settings.openrouter_api_key_present ? "Configured" : "Not set"}
+                </span>
+              </div>
+              <input
+                aria-label="OpenRouter API Key"
+                autoComplete="off"
+                spellCheck={false}
+                type="password"
+                value={openrouterApiKeyInput}
+                onChange={(e) => setOpenrouterApiKeyInput(e.target.value)}
+                className={`focus-ring w-full border-b border-white/10 bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary`}
+                placeholder={settings.openrouter_api_key_present ? "Saved OpenRouter key" : "OpenRouter API key"}
+              />
+              <span className="text-[11px] leading-relaxed text-slate-400">
+                {settings.openrouter_api_key_present
+                  ? "Key saved securely. Leave blank to keep it."
+                  : "Saved securely after you enter one."}
+              </span>
+            </label>
+          )}
 
           {settings.transcription_provider === "groq" && (
             <label className="flex flex-col gap-1 text-sm">
@@ -653,6 +707,35 @@ export function SettingsView() {
             </label>
           )}
 
+          {settings.transcription_provider === "soniox" && (
+            <label className="flex flex-col gap-1 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-slate-200">Soniox API Key</span>
+                <span className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider ${settings.soniox_api_key_present ? "text-green-500" : "text-slate-400"}`}>
+                  <span className={`w-1 h-1 rounded-full ${settings.soniox_api_key_present ? "bg-green-500" : "bg-slate-500"}`} />
+                  {settings.soniox_api_key_present ? "Configured" : "Not set"}
+                </span>
+              </div>
+              <input
+                aria-label="Soniox API Key"
+                autoComplete="off"
+                spellCheck={false}
+                type="password"
+                value={sonioxApiKeyInput}
+                onChange={(e) => setSonioxApiKeyInput(e.target.value)}
+                className={`focus-ring w-full border-b border-white/10 bg-transparent p-1.5 text-sm text-white ${controlMotion} focus-visible:border-primary`}
+                placeholder={settings.soniox_api_key_masked ?? "Soniox API key"}
+              />
+              <span className="text-[11px] leading-relaxed text-slate-400">
+                {settings.soniox_api_key_present
+                  ? settings.credential_storage.mode === "secure_store"
+                    ? `Saved in Windows Credential Manager as ${settings.soniox_api_key_masked}. Leave blank to keep it.`
+                    : `Recovered from the encrypted local copy as ${settings.soniox_api_key_masked}. Leave blank to keep it.`
+                  : "Saved in Windows Credential Manager after you enter one."}
+              </span>
+            </label>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-200">
               Transcription model
@@ -672,6 +755,7 @@ export function SettingsView() {
           </div>
           </ControlSection>
 
+          {settings.transcription_provider !== "openrouter" && (
           <ControlSection
             eyebrow="Prompt Optimization"
             description="Runs a second OpenAI pass after transcription to rewrite the finalized transcript into an English implementation prompt for coding agents."
@@ -705,6 +789,7 @@ export function SettingsView() {
             Uses the saved OpenAI API key above. Keep the static metaprompt first and the dictated request last to maximize prompt caching.
           </p>
           </ControlSection>
+          )}
 
           <ControlSection
             eyebrow="Input"

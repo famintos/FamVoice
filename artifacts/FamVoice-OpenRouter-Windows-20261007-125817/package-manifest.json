@@ -1,0 +1,32 @@
+[
+  {
+    "Name": "FamVoice-OpenRouter-0.5.0-x64.exe",
+    "Path": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\artifacts\\FamVoice-OpenRouter-Windows-20261007-125817\\FamVoice-OpenRouter-0.5.0-x64.exe",
+    "BuildOutput": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\src-tauri\\target\\openrouter-package-20261007-125817\\release\\famvoice.exe",
+    "Bytes": 16551936,
+    "SHA256": "6D8350EAF1AED05953B133A0AC454A15E42493265401B65DB2F5C3A73F3607BB",
+    "Authenticode": "NotSigned",
+    "FileVersion": "0.5.0",
+    "ProductVersion": "0.5.0"
+  },
+  {
+    "Name": "FamVoice_0.5.0_x64-setup.exe",
+    "Path": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\artifacts\\FamVoice-OpenRouter-Windows-20261007-125817\\FamVoice_0.5.0_x64-setup.exe",
+    "BuildOutput": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\src-tauri\\target\\openrouter-package-20261007-125817\\release\\bundle\\nsis\\FamVoice_0.5.0_x64-setup.exe",
+    "Bytes": 4663936,
+    "SHA256": "88FA22E156A2B400E8658916921CC3ADB0B1863504357845C847CDBE43B51108",
+    "Authenticode": "NotSigned",
+    "FileVersion": "0.5.0",
+    "ProductVersion": "0.5.0"
+  },
+  {
+    "Name": "FamVoice_0.5.0_x64_en-US.msi",
+    "Path": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\artifacts\\FamVoice-OpenRouter-Windows-20261007-125817\\FamVoice_0.5.0_x64_en-US.msi",
+    "BuildOutput": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\src-tauri\\target\\openrouter-package-20261007-125817\\release\\bundle\\msi\\FamVoice_0.5.0_x64_en-US.msi",
+    "Bytes": 6475776,
+    "SHA256": "B1DE35BCB712E9B5ED38632F06344ADF59223B680C27038CFA0B7E0766BB1BA9",
+    "Authenticode": "NotSigned",
+    "FileVersion": null,
+    "ProductVersion": null
+  }
+]

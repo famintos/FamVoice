@@ -1,0 +1,24 @@
+ D ARCHITECTURE.md
+ M README.md
+ M docs/security/rust-audit-warnings.md
+ M docs/transcription-models.md
+ M src-tauri/Cargo.lock
+ M src-tauri/Cargo.toml
+ M src-tauri/src/audio.rs
+ M src-tauri/src/audio/noise.rs
+ M src-tauri/src/diagnostics.rs
+ M src-tauri/src/dpapi.rs
+ M src-tauri/src/injection.rs
+ M src-tauri/src/lib.rs
+ M src-tauri/src/settings.rs
+ M src-tauri/src/transcription.rs
+ M src/MainView.component.test.tsx
+ M src/MainView.tsx
+ M src/SettingsView.component.test.tsx
+ M src/SettingsView.tsx
+ M src/appConstants.ts
+ M src/appTypes.ts
+ M src/test/tauriMocks.ts
+?? artifacts/
+?? docs/transcription/provider-comparison-2026-09-23.md
+?? src-tauri/src/transcription/

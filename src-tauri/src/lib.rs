@@ -195,18 +195,21 @@ fn register_hotkeys(app: &AppHandle, recording_hotkey: &str, repaste_hotkey: &st
 }
 
 async fn paste_text_via_clipboard(app: &AppHandle, text: &str) -> Result<(), String> {
+    let target = injection::capture_foreground_target();
     delivery::validate_text_length(text)?;
+    let text = injection::normalize_final_text(text);
+    let text = transcription::validate_transcript_text(&text)?;
 
     let clipboard_state: State<ClipboardState> = app.state();
     clipboard::run_temporary_text_transaction(
         clipboard_state.transaction_lock(),
-        text,
+        &text,
         paste_clipboard_settle_delay(),
         clipboard_restore_delay(),
         || clipboard::read_clipboard_text(&clipboard_state),
         |value| clipboard::set_clipboard(&clipboard_state, value),
         || async {
-            tokio::task::spawn_blocking(injection::simulate_paste)
+            tokio::task::spawn_blocking(move || injection::simulate_paste(target))
                 .await
                 .map_err(|error| format!("Paste task panicked: {error}"))?
                 .map_err(|error| format!("Failed to simulate paste: {error}"))
@@ -608,19 +611,22 @@ fn emit_retry_audio_state(app: &AppHandle, state: &retry_audio::RetryAudioState)
 
 #[tauri::command]
 async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
+    let target = injection::capture_foreground_target();
     let audio_state: State<AudioState> = app.state();
     let tasks_state: State<BackgroundTasksState> = app.state();
     let settings_state: State<SettingsState> = app.state();
     let coordinator: State<DictationCoordinatorState> = app.state();
     let retry_state: State<retry_audio::RetryAudioState> = app.state();
     let _operation_guard = coordinator.lock_operation().await;
-    let input_device_id = settings_state
+    let recording_settings = settings_state
         .settings
         .lock()
         .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
-        .input_device_id
         .clone();
+    let input_device_id = recording_settings.input_device_id.clone();
     let session_id = coordinator.begin_recording()?;
+    app.state::<injection::DictationTargetState>()
+        .start(session_id, target);
     retry_state.discard();
     emit_retry_audio_state(&app, &retry_state);
     emit_dictation_activity(&app, &coordinator);
@@ -635,6 +641,15 @@ async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
     .await
     {
         Ok(()) => {
+            if recording_settings.transcription_provider == "soniox"
+                && !recording_settings.soniox_api_key.trim().is_empty()
+            {
+                app.state::<transcription::live::LiveState>().start(
+                    session_id,
+                    (*audio_state).clone(),
+                    recording_settings,
+                );
+            }
             if let Err(error) = ensure_main_window_visible(&app, false) {
                 log_operation_error(
                     "Failed to restore main window after recording start",
@@ -647,6 +662,8 @@ async fn start_recording_cmd(app: AppHandle) -> Result<(), String> {
         }
         Err(error) => {
             coordinator.fail_recording(session_id);
+            app.state::<injection::DictationTargetState>()
+                .take(session_id);
             emit_dictation_activity(&app, &coordinator);
             eprintln!("[FamVoice] Failed to start recording: {}", error);
             let _ = app.emit("status", "error");
@@ -706,7 +723,7 @@ where
         >,
     >,
 {
-    if !settings.prompt_optimization_enabled {
+    if settings.transcription_provider == "openrouter" || !settings.prompt_optimization_enabled {
         return finalized_transcript;
     }
 
@@ -834,6 +851,8 @@ pub(crate) async fn handle_audio_stream_failure(app: AppHandle, session_id: Sess
     let _operation_guard = coordinator.lock_operation().await;
 
     if coordinator.fail_recording(session_id) {
+        app.state::<transcription::live::LiveState>()
+            .cancel(session_id);
         tasks_state.invalidate_status_reset();
         emit_dictation_activity(&app, &coordinator);
         let message =
@@ -853,17 +872,23 @@ struct PreparedRecording {
 fn prepare_recorded_samples(
     mut samples: Vec<i16>,
     settings_state: &SettingsState,
+    snapshot: Option<AppSettings>,
 ) -> Result<PreparedRecording, String> {
     if samples.is_empty() {
         eprintln!("[FamVoice] No audio samples recorded");
         return Err("No audio recorded".into());
     }
 
-    let settings = settings_state
-        .settings
-        .lock()
-        .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
-        .clone();
+    let is_live = snapshot.is_some();
+    let settings = if let Some(snapshot) = snapshot {
+        snapshot
+    } else {
+        settings_state
+            .settings
+            .lock()
+            .map_err(|e| format!("Failed to acquire settings lock: {}", e))?
+            .clone()
+    };
     let levels = mic_analysis::analyze(&samples);
     let silence_threshold = mic_analysis::silence_threshold(settings.mic_sensitivity);
     let level_details = mic_analysis::level_details(levels);
@@ -884,38 +909,41 @@ fn prepare_recorded_samples(
         return Err("No voice detected".into());
     }
 
-    if let Some(gain) = mic_analysis::normalize_quiet_audio(&mut samples, settings.mic_sensitivity)
-    {
-        let boosted_levels = mic_analysis::analyze(&samples);
-        let boosted_details = mic_analysis::level_details(boosted_levels);
-        eprintln!(
-            "[FamVoice] Applied mic gain {:.2}x -> rms {:.2} ({:.1} dBFS), peak {:.0} ({:.1}%)",
-            gain,
-            boosted_levels.rms,
-            boosted_details.rms_dbfs,
-            boosted_levels.peak,
-            boosted_details.peak_percent
-        );
-    }
-
-    match audio::maybe_apply_noise_suppression(&mut samples, settings.noise_suppression_enabled) {
-        Ok(true) => {
-            let denoised_levels = mic_analysis::analyze(&samples);
-            let denoised_details = mic_analysis::level_details(denoised_levels);
+    if !is_live {
+        if let Some(gain) =
+            mic_analysis::normalize_quiet_audio(&mut samples, settings.mic_sensitivity)
+        {
+            let boosted_levels = mic_analysis::analyze(&samples);
+            let boosted_details = mic_analysis::level_details(boosted_levels);
             eprintln!(
+                "[FamVoice] Applied mic gain {:.2}x -> rms {:.2} ({:.1} dBFS), peak {:.0} ({:.1}%)",
+                gain,
+                boosted_levels.rms,
+                boosted_details.rms_dbfs,
+                boosted_levels.peak,
+                boosted_details.peak_percent
+            );
+        }
+
+        match audio::maybe_apply_noise_suppression(&mut samples, settings.noise_suppression_enabled)
+        {
+            Ok(true) => {
+                let denoised_levels = mic_analysis::analyze(&samples);
+                let denoised_details = mic_analysis::level_details(denoised_levels);
+                eprintln!(
                 "[FamVoice] Applied noise suppression -> rms {:.2} ({:.1} dBFS), peak {:.0} ({:.1}%)",
                 denoised_levels.rms,
                 denoised_details.rms_dbfs,
                 denoised_levels.peak,
                 denoised_details.peak_percent
             );
-        }
-        Ok(false) => {}
-        Err(error) => {
-            eprintln!("[FamVoice] Noise suppression skipped: {}", error);
+            }
+            Ok(false) => {}
+            Err(error) => {
+                eprintln!("[FamVoice] Noise suppression skipped: {}", error);
+            }
         }
     }
-
     Ok(PreparedRecording {
         settings,
         samples,
@@ -1005,11 +1033,7 @@ async fn transcribe_encoded_recording(
     let t_api = std::time::Instant::now();
 
     if settings.transcription_api_key().trim().is_empty() {
-        let provider_label = if settings.transcription_provider == "groq" {
-            "Groq"
-        } else {
-            "OpenAI"
-        };
+        let provider_label = transcription::provider_label(&settings.transcription_provider);
         eprintln!("[FamVoice] {} API key is empty!", provider_label);
         return Err(format!("{} API key missing", provider_label));
     }
@@ -1020,15 +1044,16 @@ async fn transcribe_encoded_recording(
     );
     let lang = transcription_language_override(&settings.language);
     let transcription_keywords = glossary::transcription_keywords(&settings.replacements);
-    let transcription_prompt = if settings.model == "gpt-transcribe" {
-        // GPT Transcribe has a dedicated literal keyword field. Keep replacement
-        // values out of its unstructured context so hints cannot introduce text
-        // that the user did not say.
-        glossary::transcription_context_prompt(&settings.language)
-    } else {
-        // Preserve the established prompt-compatible path for Whisper/Groq.
-        glossary::transcription_prompt(&settings.language, &settings.replacements)
-    };
+    let transcription_prompt =
+        if settings.model == "gpt-transcribe" || settings.transcription_provider == "soniox" {
+            // GPT Transcribe and Soniox have literal vocabulary fields. Keep replacement
+            // values out of their unstructured context so hints cannot introduce text
+            // that the user did not say.
+            glossary::transcription_context_prompt(&settings.language)
+        } else {
+            // Preserve the established prompt-compatible path for Whisper/Groq.
+            glossary::transcription_prompt(&settings.language, &settings.replacements)
+        };
     let text = transcription::transcribe_audio(
         http_client,
         audio_bytes.to_vec(),
@@ -1046,6 +1071,21 @@ async fn transcribe_encoded_recording(
     )
     .await?;
 
+    let text = finalize_dictation_text(http_client, settings, text).await?;
+    eprintln!(
+        "[FamVoice] Transcript ready: path=upload | API {:.0}ms | Total {:.0}ms | {} chars",
+        t_api.elapsed().as_secs_f64() * 1000.0,
+        started_at.elapsed().as_secs_f64() * 1000.0,
+        text.chars().count(),
+    );
+    Ok(text)
+}
+
+async fn finalize_dictation_text(
+    http_client: &reqwest::Client,
+    settings: &AppSettings,
+    text: String,
+) -> Result<String, String> {
     let finalized_text = glossary::finalize_transcript(text, &settings.replacements);
     let text = resolve_final_output_for_paste(
         settings,
@@ -1054,15 +1094,7 @@ async fn transcribe_encoded_recording(
         |request| prompt_optimizer::optimize_prompt(http_client, settings.api_key.trim(), request),
     )
     .await;
-    let text = transcription::validate_transcript_text(&text)?;
-    eprintln!(
-        "[FamVoice] Transcript ready: path=upload | API {:.0}ms | Total {:.0}ms | {} chars",
-        t_api.elapsed().as_secs_f64() * 1000.0,
-        started_at.elapsed().as_secs_f64() * 1000.0,
-        text.chars().count(),
-    );
-
-    Ok(text)
+    transcription::validate_transcript_text(&injection::normalize_final_text(&text))
 }
 
 struct TranscriptDeliveryContext<'a> {
@@ -1076,6 +1108,7 @@ struct TranscriptDeliveryContext<'a> {
 async fn deliver_transcript(
     context: TranscriptDeliveryContext<'_>,
     session_id: SessionId,
+    target: Option<injection::ForegroundTarget>,
     settings: &AppSettings,
     text: String,
 ) {
@@ -1087,13 +1120,14 @@ async fn deliver_transcript(
         clipboard_state,
     } = context;
     let _operation_guard = coordinator.lock_operation().await;
-    let text = match transcription::validate_transcript_text(&text) {
-        Ok(text) => text,
-        Err(error) => {
-            finish_session_with_error(app, tasks_state, coordinator, session_id, &error);
-            return;
-        }
-    };
+    let text =
+        match transcription::validate_transcript_text(&injection::normalize_final_text(&text)) {
+            Ok(text) => text,
+            Err(error) => {
+                finish_session_with_error(app, tasks_state, coordinator, session_id, &error);
+                return;
+            }
+        };
 
     if !coordinator.should_deliver(session_id) {
         if let Err(error) = history_state.add(text) {
@@ -1125,9 +1159,15 @@ async fn deliver_transcript(
         None
     };
 
-    let mut delivery_error = length_error;
+    let mut delivery_error = length_error.or_else(|| {
+        if settings.auto_paste {
+            injection::ensure_foreground_target(target).err()
+        } else {
+            None
+        }
+    });
 
-    if delivery_allowed && should_touch_clipboard {
+    if delivery_allowed && should_touch_clipboard && delivery_error.is_none() {
         if let Err(error) = clipboard::set_clipboard(clipboard_state, &text) {
             eprintln!("[FamVoice] Failed to set clipboard: {}", error);
             delivery_error = Some(format!("Could not copy the transcript: {error}"));
@@ -1137,10 +1177,10 @@ async fn deliver_transcript(
     if settings.auto_paste && delivery_error.is_none() {
         let injection_result = if should_touch_clipboard {
             tokio::time::sleep(paste_clipboard_settle_delay()).await;
-            tokio::task::spawn_blocking(injection::simulate_paste).await
+            tokio::task::spawn_blocking(move || injection::simulate_paste(target)).await
         } else {
             let transcript = text.clone();
-            tokio::task::spawn_blocking(move || injection::simulate_text(&transcript)).await
+            tokio::task::spawn_blocking(move || injection::simulate_text(&transcript, target)).await
         };
 
         match injection_result {
@@ -1200,16 +1240,22 @@ async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
     let diagnostics_state: State<diagnostics::DiagnosticsState> = app.state();
     let started_at = std::time::Instant::now();
 
-    let (session_id, samples) = {
+    let (session_id, target, samples, live) = {
         let _operation_guard = coordinator.lock_operation().await;
         let session_id = coordinator
             .current_recording_session()
             .ok_or_else(|| "Not recording".to_string())?;
         coordinator.begin_transcription(session_id)?;
+        let target = app
+            .state::<injection::DictationTargetState>()
+            .take(session_id);
         emit_dictation_activity(&app, &coordinator);
         tasks_state.invalidate_status_reset();
         let _ = app.emit("status", "transcribing");
 
+        let mut live = app
+            .state::<transcription::live::LiveState>()
+            .take(session_id);
         let Some(samples) = audio::stop_recording(&audio_state, session_id).await else {
             let message = if audio_state
                 .stream_healthy
@@ -1222,12 +1268,16 @@ async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
             finish_session_with_error(&app, &tasks_state, &coordinator, session_id, message);
             return Err(message.to_string());
         };
-        (session_id, samples)
+        if let Some(session) = live.as_mut() {
+            session.end_capture(samples.clone());
+        }
+        (session_id, target, samples, live)
     };
     let diagnostics_token =
         diagnostics_state.begin_operation(diagnostics::DiagnosticOperation::Dictation);
 
-    let prepared = match prepare_recorded_samples(samples, &settings_state) {
+    let snapshot = live.as_ref().map(|session| session.settings.clone());
+    let mut prepared = match prepare_recorded_samples(samples, &settings_state, snapshot) {
         Ok(prepared) => prepared,
         Err(error) => {
             diagnostics_state.finish_operation(diagnostics_token, Err(&error));
@@ -1236,23 +1286,46 @@ async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
             return Err(error);
         }
     };
-    let encoded = encode_recording(prepared.samples, prepared.silence_threshold);
-    let text = match transcribe_encoded_recording(
-        &http_state.client,
-        &prepared.settings,
-        &encoded.bytes,
-        encoded.format,
-        encoded.audio_duration,
-        started_at,
-    )
-    .await
-    {
+    let mut encoded = None;
+    let result = if let Some(live) = live {
+        match live.finish().await {
+            Ok(text) => {
+                eprintln!(
+                    "[FamVoice] Soniox live finalized: release_to_final_ms={}",
+                    started_at.elapsed().as_millis()
+                );
+                finalize_dictation_text(&http_state.client, &prepared.settings, text).await
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        encoded = Some(encode_recording(
+            std::mem::take(&mut prepared.samples),
+            prepared.silence_threshold,
+        ));
+        let encoded = encoded.as_ref().unwrap();
+        transcribe_encoded_recording(
+            &http_state.client,
+            &prepared.settings,
+            &encoded.bytes,
+            encoded.format,
+            encoded.audio_duration,
+            started_at,
+        )
+        .await
+    };
+    let text = match result {
         Ok(text) => text,
         Err(error) => {
             eprintln!("[FamVoice] Transcription error: {}", error);
             diagnostics_state.finish_operation(diagnostics_token, Err(&error));
             let _operation_guard = coordinator.lock_operation().await;
             if coordinator.should_deliver(session_id) {
+                app.state::<injection::DictationTargetState>()
+                    .remember_failed(target);
+                let encoded = encoded.unwrap_or_else(|| {
+                    encode_recording(prepared.samples, prepared.silence_threshold)
+                });
                 let (bytes, format, audio_duration) = encoded.into_retry_parts();
                 if let Err(cache_error) = retry_state.store(bytes, format, audio_duration) {
                     log_operation_error("Failed to retain temporary retry audio", &cache_error);
@@ -1273,6 +1346,7 @@ async fn stop_recording_cmd(app: AppHandle) -> Result<(), String> {
             clipboard_state: &clipboard_state,
         },
         session_id,
+        target,
         &prepared.settings,
         text,
     )
@@ -1293,7 +1367,7 @@ async fn retry_last_dictation(app: AppHandle) -> Result<(), String> {
     let diagnostics_state: State<diagnostics::DiagnosticsState> = app.state();
     let started_at = std::time::Instant::now();
 
-    let (session_id, audio, settings) = {
+    let (session_id, target, audio, settings) = {
         let _operation_guard = coordinator.lock_operation().await;
         let settings = settings_state
             .settings
@@ -1312,7 +1386,8 @@ async fn retry_last_dictation(app: AppHandle) -> Result<(), String> {
         emit_dictation_activity(&app, &coordinator);
         let _ = app.emit("status", "transcribing");
         let _ = app.emit("transcript", "");
-        (session_id, audio, settings)
+        let target = app.state::<injection::DictationTargetState>().take_retry();
+        (session_id, target, audio, settings)
     };
 
     let diagnostics_token =
@@ -1346,6 +1421,7 @@ async fn retry_last_dictation(app: AppHandle) -> Result<(), String> {
             clipboard_state: &clipboard_state,
         },
         session_id,
+        target,
         &settings,
         text,
     )
@@ -1363,6 +1439,45 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+
+    #[tokio::test]
+    async fn no_submit_openrouter_skips_optimizer_and_sanitizes_after_replacements() {
+        let settings = AppSettings {
+            transcription_provider: "openrouter".into(),
+            openrouter_api_key: "synthetic-key".into(),
+            api_key: "synthetic-openai-key".into(),
+            prompt_optimization_enabled: true,
+            replacements: vec![settings::Replacement {
+                target: "hello".into(),
+                replacement: "Olá\r\nmundo\t\u{1b}fim".into(),
+            }],
+            ..AppSettings::default()
+        };
+        let replaced = glossary::finalize_transcript("hello".into(), &settings.replacements);
+        let output = resolve_final_output_for_paste(
+            &settings,
+            replaced.clone(),
+            Duration::from_millis(5),
+            |_| async {
+                panic!("OpenRouter dictation must never call the prompt optimizer");
+            },
+        )
+        .await;
+        assert_eq!(output, replaced);
+        let final_text =
+            finalize_dictation_text(&reqwest::Client::new(), &settings, "hello".into())
+                .await
+                .unwrap();
+        assert_eq!(final_text, "Olá mundo fim");
+        assert!(!final_text.chars().any(char::is_control));
+        let mut settings = settings;
+        settings.replacements[0].replacement = "\r\n\t\0".into();
+        assert!(
+            finalize_dictation_text(&reqwest::Client::new(), &settings, "hello".into())
+                .await
+                .is_err()
+        );
+    }
 
     #[test]
     fn test_transcription_language_override_keeps_preference_modes_unset() {
@@ -1478,6 +1593,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_final_output_uses_optimized_output_on_success() {
         let settings = AppSettings {
+            transcription_provider: "openai".to_string(),
             prompt_optimization_enabled: true,
             prompt_optimizer_model: "gpt-5.4-mini".to_string(),
             api_key: "sk-openai-test".to_string(),
@@ -1505,6 +1621,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_final_output_falls_back_when_optimizer_fails() {
         let settings = AppSettings {
+            transcription_provider: "openai".to_string(),
             prompt_optimization_enabled: true,
             prompt_optimizer_model: "gpt-5.4-mini".to_string(),
             api_key: "sk-openai-test".to_string(),
@@ -1529,6 +1646,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_final_output_skips_optimizer_when_openai_key_is_blank() {
         let settings = AppSettings {
+            transcription_provider: "openai".to_string(),
             prompt_optimization_enabled: true,
             prompt_optimizer_model: "gpt-5.4-mini".to_string(),
             api_key: "   ".to_string(),
@@ -1559,6 +1677,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_final_output_falls_back_when_optimizer_times_out() {
         let settings = AppSettings {
+            transcription_provider: "openai".to_string(),
             prompt_optimization_enabled: true,
             prompt_optimizer_model: "gpt-5.4-mini".to_string(),
             api_key: "sk-openai-test".to_string(),
@@ -1667,6 +1786,8 @@ pub fn run() {
             std::fs::create_dir_all(&app_dir).unwrap_or_default();
 
             app.manage(DictationCoordinatorState::default());
+            app.manage(injection::DictationTargetState::default());
+            app.manage(transcription::live::LiveState::default());
             app.manage(AudioState::default());
             app.manage(diagnostics::DiagnosticsState::default());
             app.manage(retry_audio::RetryAudioState::default());
@@ -1675,6 +1796,8 @@ pub fn run() {
             app.manage(ClipboardState::default());
             app.manage(BackgroundTasksState::new());
             let http_client = reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .redirect(reqwest::redirect::Policy::none())
                 .pool_max_idle_per_host(2)
                 .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
                 .build()

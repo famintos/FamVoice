@@ -1,0 +1,16 @@
+{
+  "settingsComponentTests": {
+    "passed": 17,
+    "failed": 0,
+    "command": "npm run test:components -- src/SettingsView.component.test.tsx"
+  },
+  "openrouterBackendTests": {
+    "passed": 14,
+    "failed": 0,
+    "command": "cargo test --lib openrouter --locked --jobs 1"
+  },
+  "formatCheck": "passed",
+  "eslintChangedFrontendFiles": "passed",
+  "liveTranscription": "not tested",
+  "nativeMicrophoneAndPaste": "not tested"
+}

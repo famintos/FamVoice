@@ -17,6 +17,23 @@ beforeEach(() => {
   resetTauriMocks({ history });
 });
 
+test("asks for a missing Soniox key even when other providers are configured", async () => {
+  resetTauriMocks({ settings: makeSettings({ transcription_provider: "soniox", model: "stt-rt-v5" }) });
+  render(<MainView />);
+  assert.ok(await screen.findByText("Add API key in settings."));
+});
+
+test("Soniox dictation does not require an OpenAI key when optimization is off", async () => {
+  resetTauriMocks({ settings: makeSettings({
+    transcription_provider: "soniox", model: "stt-rt-v5",
+    soniox_api_key_present: true, soniox_api_key_masked: "son...test",
+    api_key_present: false, api_key_masked: null,
+  }) });
+  render(<MainView />);
+  await screen.findByRole("tab", { name: "Record" });
+  assert.equal(screen.queryByText("Add API key in settings."), null);
+});
+
 test("executes history actions against the Tauri command boundary", async () => {
   const user = userEvent.setup();
   render(<MainView />);

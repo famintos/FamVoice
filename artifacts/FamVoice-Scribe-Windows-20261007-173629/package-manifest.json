@@ -1,0 +1,11 @@
+{
+  "path": "C:\\Users\\henri\\Desktop\\Faminto\\FamVoice\\artifacts\\FamVoice-Scribe-Windows-20261007-173629\\FamVoice-Scribe-0.5.0-x64.exe",
+  "sizeBytes": 16561152,
+  "sha256": "750623C8354BB83C11FED18E445EDB6D432CA6452B28172A16681A72CC6B4BEB",
+  "architecture": "Windows x64",
+  "version": "0.5.0",
+  "authenticode": "NotSigned",
+  "nativeBuildExit": 0,
+  "installed": false,
+  "launched": false
+}

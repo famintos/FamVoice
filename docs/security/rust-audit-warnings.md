@@ -1,5 +1,11 @@
 # Rust audit warning review
 
+## Soniox integration recheck — 2026-09-23
+
+The Soniox WebSocket client adds `tokio-tungstenite 0.30.0` and directly uses the existing `futures-util` dependency. The audit exposed two vulnerabilities in the existing network dependency graph. Targeted compatible lockfile updates fix them: `h2 0.4.13 → 0.4.16` ([RUSTSEC-2026-0258](https://rustsec.org/advisories/RUSTSEC-2026-0258)) and `rustls 0.23.38 → 0.23.45` ([RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285)), with `rustls-webpki 0.103.15` resolved alongside it. No broad dependency upgrade was performed.
+
+The refreshed `cargo audit` reports **zero vulnerabilities and nine informational warnings**: seven unmaintained crates (`fxhash`, `proc-macro-error`, and five `unic-*` crates), plus the `glib` and `rand` soundness advisories discussed below. The older snapshot and reachability analysis follow.
+
 Reviewed on 2026-08-02 for the supported target `x86_64-pc-windows-msvc`.
 
 ## Result

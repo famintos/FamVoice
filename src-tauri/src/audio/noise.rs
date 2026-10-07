@@ -8,6 +8,67 @@ pub struct NoiseSuppressor {
     denoiser: Box<DenoiseState<'static>>,
 }
 
+/// Continuous RNNoise state: retain incomplete frames and compensate its one
+/// frame delay only once per recording, rather than at every network block.
+pub(crate) struct StreamingNoiseSuppressor {
+    denoiser: Box<DenoiseState<'static>>,
+    pending: Vec<i16>,
+    primed: bool,
+    input_samples: usize,
+    output_samples: usize,
+}
+
+impl StreamingNoiseSuppressor {
+    pub(crate) fn new() -> Self {
+        Self {
+            denoiser: DenoiseState::new(),
+            pending: Vec::new(),
+            primed: false,
+            input_samples: 0,
+            output_samples: 0,
+        }
+    }
+
+    fn frame(&mut self, input: &[i16]) -> Vec<i16> {
+        let mut output = [0.0; FRAME_SIZE];
+        self.denoiser
+            .process_frame(&mut output, &upsample_to_48khz(input));
+        if !self.primed {
+            self.primed = true;
+            Vec::new()
+        } else {
+            downsample_to_16khz(&output)
+        }
+    }
+
+    pub(crate) fn push(&mut self, samples: &[i16]) -> Vec<i16> {
+        self.input_samples += samples.len();
+        self.pending.extend_from_slice(samples);
+        let mut output = Vec::new();
+        while self.pending.len() >= LEAD_IN_SAMPLES_16KHZ {
+            let frame: Vec<_> = self.pending.drain(..LEAD_IN_SAMPLES_16KHZ).collect();
+            output.extend(self.frame(&frame));
+        }
+        self.output_samples += output.len();
+        output
+    }
+
+    pub(crate) fn finish(&mut self) -> Vec<i16> {
+        let mut output = Vec::new();
+        if !self.pending.is_empty() {
+            let mut tail = std::mem::take(&mut self.pending);
+            tail.resize(LEAD_IN_SAMPLES_16KHZ, 0);
+            output.extend(self.frame(&tail));
+        }
+        if self.primed {
+            output.extend(self.frame(&[0; LEAD_IN_SAMPLES_16KHZ]));
+        }
+        output.truncate(self.input_samples.saturating_sub(self.output_samples));
+        self.output_samples += output.len();
+        output
+    }
+}
+
 impl Default for NoiseSuppressor {
     fn default() -> Self {
         Self::new()
@@ -120,7 +181,7 @@ fn denoise_48khz(denoiser: &mut DenoiseState<'static>, samples: &[f32]) -> Vec<f
 fn downsample_to_16khz(samples: &[f32]) -> Vec<i16> {
     let mut output = Vec::with_capacity(samples.len() / UPSAMPLE_FACTOR);
 
-    for chunk in samples.chunks_exact(UPSAMPLE_FACTOR) {
+    for chunk in samples.as_chunks::<UPSAMPLE_FACTOR>().0 {
         let averaged = (chunk[0] + chunk[1] + chunk[2]) / UPSAMPLE_FACTOR as f32;
         output.push(averaged.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16);
     }
@@ -130,6 +191,24 @@ fn downsample_to_16khz(samples: &[f32]) -> Vec<i16> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn streaming_noise_is_independent_of_chunk_boundaries_and_flushes_tail() {
+        let samples: Vec<i16> = (0..6537)
+            .map(|i| if i % 2 == 0 { 300 } else { -300 })
+            .collect();
+        let mut whole = super::StreamingNoiseSuppressor::new();
+        let mut expected = whole.push(&samples);
+        expected.extend(whole.finish());
+        let mut streaming = super::StreamingNoiseSuppressor::new();
+        let mut actual = Vec::new();
+        for chunk in samples.chunks(317) {
+            actual.extend(streaming.push(chunk));
+        }
+        actual.extend(streaming.finish());
+        assert_eq!(actual.len(), samples.len());
+        assert_eq!(actual, expected);
+        assert!(streaming.finish().is_empty());
+    }
     use super::*;
 
     #[test]

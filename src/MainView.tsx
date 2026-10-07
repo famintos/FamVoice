@@ -732,6 +732,7 @@ export function MainView() {
 
   const missingTranscriptionKey = settings && (
     (settings.transcription_provider === "groq" && !settings.groq_api_key_present) ||
+    (settings.transcription_provider === "soniox" && !settings.soniox_api_key_present) ||
     (settings.transcription_provider === "openai" && !settings.api_key_present)
   );
 

@@ -13,7 +13,7 @@ FamVoice is officially **Windows-only** in the current release line (Windows 10/
 1. Press and hold a global hotkey (default `Ctrl+Shift+Space`)
 2. Speak into your microphone
 3. Release the hotkey
-4. Your speech is transcribed via OpenAI or Groq and automatically pasted into the active window
+4. Your speech is transcribed via OpenAI, Groq or Soniox and automatically pasted into the active window
 
 No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 
@@ -22,7 +22,7 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 - **Global Hotkey** - Works in any application, configurable shortcut
 - **Instant Paste** - Transcribed text is injected directly into the focused input field
 - **Clipboard Copy** - Optionally keeps the final transcript on your clipboard after you finish speaking
-- **Bring Your Own Keys** - FamVoice is a local desktop client; you provide your own OpenAI and Groq API keys
+- **Bring Your Own Keys** - FamVoice is a local desktop client; you provide your own OpenAI, Groq or Soniox API key
 - **Prompt Optimization** - Optional AI pass (OpenAI GPT-5.4 Mini) that rewrites your dictation into a polished implementation prompt for coding agents
 - **Glossary Replacements** - Auto-correct specific words or phrases (e.g. "omg" -> "Oh my gosh")
 - **Widget Mode** - Minimal floating overlay showing only the recording waveform
@@ -39,6 +39,11 @@ No browser tabs, no copy-pasting, no switching windows. Just talk and it types.
 - `whisper-1` (OpenAI, specialized fallback for timestamps, subtitles, or translation; $0.006/min)
 - `whisper-large-v3-turbo` (Groq, speed / value; $0.04/hour)
 - `whisper-large-v3` (Groq, accuracy-first; $0.111/hour)
+- `stt-rt-v5` (Soniox, multilingual dictation; estimated $0.12/hour)
+
+For Soniox, open **Settings**, choose **Soniox**, enter a key from [Soniox Console](https://console.soniox.com), and select **Portuguese** for European Portuguese with English terms. Auto Detect remains available for other language combinations. The key is independent of OpenAI/Groq; OpenAI is only needed if you also enable prompt optimization.
+
+Soniox receives PCM audio while you hold the hotkey, over a bounded WebSocket session. Releasing the key sends the remaining audio and finalizes the transcript, avoiding a full upload and transcription after recording. Portuguese includes English language hints and glossary terms. FamVoice waits for confirmed final text before delivery; it does not create remote file/transcription jobs or automatically replay failed requests. This does not display live captions during recording. Manual retry uses the retained in-memory clip.
 
 Existing Groq choices are preserved. Legacy unversioned OpenAI settings migrate once to `gpt-transcribe`; after the migration, an explicit `whisper-1` choice remains stable. See [Transcription models](docs/transcription-models.md) for the provider field matrix, versioned migration policy, official sources, and the dated pt-PT evaluation status.
 
@@ -52,7 +57,7 @@ Existing Groq choices are preserved. Legacy unversioned OpenAI settings migrate 
 - [Node.js](https://nodejs.org/) (v20.19+ on Node 20, v22.13+ on Node 22, or v24+)
 - [Rust](https://www.rust-lang.org/tools/install) (stable)
 - [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for Windows
-- An OpenAI API key or Groq API key (for transcription)
+- An OpenAI, Groq or Soniox API key (for transcription)
 - *(Optional)* An OpenAI API key (for prompt optimization)
 
 ## Privacy And Keys
@@ -61,6 +66,7 @@ FamVoice does not ship with a shared backend API key. It runs as a local desktop
 
 - OpenAI key: required when transcription provider is `OpenAI`
 - Groq key: required when transcription provider is `Groq`
+- Soniox key: required when transcription provider is `Soniox`
 - Prompt optimization key: optional OpenAI API key, only used when prompt optimization is enabled
 
 API keys are stored in Windows Credential Manager with a DPAPI-encrypted local recovery copy. They are not committed to the repo and are never written to settings in plaintext.
@@ -99,7 +105,9 @@ src/              React + TypeScript frontend (single-page App.tsx)
 src-tauri/src/
   lib.rs          Core app logic, IPC commands, hotkey handling
   audio.rs        Microphone capture via cpal (16kHz mono, silence trimming)
-  transcription.rs  OpenAI API integration
+  transcription.rs  OpenAI / Groq transcription and provider dispatch
+  transcription/soniox.rs  Soniox WebSocket transcription
+  transcription/live.rs    Soniox capture-time streaming and cancellation
   clipboard.rs    System clipboard read/write (arboard)
   injection.rs    Keystroke simulation for auto-paste (enigo)
   settings.rs     Atomic settings and Windows credential persistence
@@ -124,7 +132,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for more details.
 | Backend | Rust |
 | Frontend | React 19, TypeScript, Tailwind CSS 4 |
 | Audio | cpal |
-| Transcription | OpenAI (`gpt-transcribe`, `whisper-1`) or Groq Whisper API |
+| Transcription | OpenAI (`gpt-transcribe`, `whisper-1`) or Groq Whisper API, Soniox v5 |
 | Prompt Optimization | OpenAI API (GPT-5.4 Mini) |
 | Clipboard | arboard |
 | Key Injection | enigo |

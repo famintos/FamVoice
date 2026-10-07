@@ -2,6 +2,10 @@ use reqwest::multipart;
 use reqwest::StatusCode;
 use std::time::{Duration, Instant};
 
+pub(crate) mod live;
+mod openrouter;
+mod soniox;
+
 const MAX_API_RESPONSE_BYTES: usize = 1024 * 1024;
 const EMPTY_TRANSCRIPTION_ERROR: &str = "The transcription returned no text. Try speaking again.";
 const OPENAI_BASE_TIMEOUT_SECS: u64 = 30;
@@ -123,13 +127,17 @@ impl RequestPolicy<'_> {
 
 pub fn warmup_endpoint(provider: &str) -> &'static str {
     match provider {
+        "soniox" => "https://api.soniox.com/v1/models",
+        "openrouter" => "https://openrouter.ai/api/v1/models?output_modalities=transcription",
         "groq" => "https://api.groq.com/openai/v1/models",
         _ => "https://api.openai.com/v1/models",
     }
 }
 
-fn provider_label(provider: &str) -> &'static str {
+pub(crate) fn provider_label(provider: &str) -> &'static str {
     match provider {
+        "soniox" => "Soniox",
+        "openrouter" => "OpenRouter",
         "groq" => "Groq",
         _ => "OpenAI",
     }
@@ -138,11 +146,14 @@ fn provider_label(provider: &str) -> &'static str {
 fn user_facing_api_error(status: StatusCode, provider: &str) -> String {
     let label = provider_label(provider);
     match status {
-        StatusCode::UNAUTHORIZED => {
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
             format!("{label} authentication failed. Check the saved API key.")
         }
         StatusCode::TOO_MANY_REQUESTS => {
             format!("{label} rejected the request due to rate limits or quota. Try again later.")
+        }
+        StatusCode::PAYMENT_REQUIRED => {
+            format!("{label} balance or spending limit was reached. Check your provider account.")
         }
         StatusCode::BAD_REQUEST => {
             format!("{label} rejected the audio request. Verify the selected model and try again.")
@@ -352,6 +363,12 @@ pub async fn transcribe_audio(
     api_key: &str,
     request: TranscriptionRequest<'_>,
 ) -> Result<String, String> {
+    if request.provider == "openrouter" {
+        return openrouter::transcribe(client, &audio_bytes, api_key, &request).await;
+    }
+    if request.provider == "soniox" {
+        return soniox::transcribe(&audio_bytes, api_key, &request).await;
+    }
     let policy =
         RequestPolicy::production(request.provider, audio_bytes.len(), request.audio_duration);
     transcribe_audio_with_policy(client, audio_bytes, api_key, request, &policy).await
@@ -455,7 +472,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
 
-    enum MockReply {
+    pub(super) enum MockReply {
         Response {
             status: &'static str,
             content_type: &'static str,
@@ -465,14 +482,14 @@ mod tests {
         Stall(Duration),
     }
 
-    struct MockHttpServer {
-        endpoint: String,
+    pub(super) struct MockHttpServer {
+        pub(super) endpoint: String,
         requests: Arc<Mutex<Vec<String>>>,
         thread: Option<thread::JoinHandle<()>>,
     }
 
     impl MockHttpServer {
-        fn start(replies: Vec<MockReply>) -> Self {
+        pub(super) fn start(replies: Vec<MockReply>) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let requests = Arc::new(Mutex::new(Vec::new()));
@@ -502,7 +519,7 @@ mod tests {
             }
         }
 
-        fn finish(mut self) -> Vec<String> {
+        pub(super) fn finish(mut self) -> Vec<String> {
             self.thread.take().unwrap().join().unwrap();
             Arc::try_unwrap(self.requests)
                 .unwrap()
@@ -563,8 +580,9 @@ mod tests {
         .unwrap();
 
         for chunk in chunks {
-            stream.write_all(chunk).unwrap();
-            stream.flush().unwrap();
+            if stream.write_all(chunk).is_err() || stream.flush().is_err() {
+                break;
+            }
             thread::sleep(Duration::from_millis(5));
         }
     }

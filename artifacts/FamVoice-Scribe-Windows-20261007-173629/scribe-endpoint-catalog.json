@@ -1,0 +1,55 @@
+{
+  "data": {
+    "id": "elevenlabs/scribe-v2",
+    "name": "ElevenLabs: Scribe v2",
+    "created": 1791386190,
+    "description": "ElevenLabs Scribe v2 is a speech-to-text model that transcribes audio in 90+ languages with word-level timestamps, optional speaker diarization, and audio-event tagging.",
+    "architecture": {
+      "tokenizer": "Other",
+      "instruct_type": null,
+      "modality": "audio->transcription",
+      "input_modalities": [
+        "audio"
+      ],
+      "output_modalities": [
+        "transcription"
+      ]
+    },
+    "endpoints": [
+      {
+        "name": "ElevenLabs | elevenlabs/scribe-v2-20260929",
+        "model_id": "elevenlabs/scribe-v2",
+        "model_name": "ElevenLabs: Scribe v2",
+        "context_length": 0,
+        "pricing": {
+          "prompt": "0.00003055555555555",
+          "completion": "0",
+          "discount": 0.5
+        },
+        "provider_name": "ElevenLabs",
+        "tag": "elevenlabs",
+        "quantization": "unknown",
+        "max_completion_tokens": 0,
+        "max_prompt_tokens": null,
+        "supported_parameters": [],
+        "supports_tool_choice": {
+          "none": true,
+          "auto": true,
+          "required": true,
+          "function": true
+        },
+        "status": 0,
+        "uptime_last_30m": 100,
+        "uptime_last_5m": null,
+        "uptime_last_1d": 100,
+        "supports_implicit_caching": false,
+        "native_tools": {},
+        "supports_voice_cloning": false,
+        "supports_multiple_audio_references": false,
+        "supports_image_reference": false,
+        "latency_last_30m": null,
+        "throughput_last_30m": null
+      }
+    ]
+  }
+}
